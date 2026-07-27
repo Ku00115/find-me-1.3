@@ -121,14 +121,17 @@ public final class CompanionSyncService {
             String name = data.displayName(uuid).orElseGet(() -> storedTag.map(tag -> CompanionEntitySnapshots.storedEntityName(tag, uuid)).orElse(uuid.toString().substring(0, 8)));
             DeadCompanionRecord record = data.deadRecord(uuid).orElse(new DeadCompanionRecord(UUID.randomUUID(), uuid, name, entityType, kind,
                     -1, 0L, 0L, "", 0.0, 0.0, 0.0, "鏈煡", false, ""));
+            boolean sleepRecoverable = storedTag
+                    .map(tag -> tag.contains("id") && !tag.getString("id").isBlank())
+                    .orElse(false);
             float health = storedTag.map(tag -> tag.getFloat("CompanionRescueHealth")).orElse(0.0f);
             float maxHealth = storedTag.map(tag -> tag.getFloat("CompanionRescueMaxHealth")).orElse(0.0f);
             float armor = storedTag.map(tag -> (float)tag.getInt("CompanionRescueArmor")).orElse(0.0f);
             CompanionMoveType moveType = CompanionEntityClassifier.moveType(entityType, kind);
-            CompoundTag previewTag = storedTag.map(CompoundTag::copy).orElse(null);
+            CompoundTag previewTag = storedTag.map(CompanionEntitySnapshots::previewStoredEntityTag).orElse(null);
             entries.add(new DeadCompanionListPacket.Entry(uuid, kind, entityType, name, health, maxHealth, armor, moveType,
                     record.recordId(), record.previousTeamIndex(), record.deathTime(), record.worldDay(), record.dimension(), record.x(), record.y(),
-                    record.z(), record.deathCause(), record.recoverable(), record.recoveryRequirements(), previewTag));
+                    record.z(), record.deathCause(), sleepRecoverable, record.recoveryRequirements(), previewTag));
         }
         ModNetwork.sendToPlayer(player, new DeadCompanionListPacket(entries));
     }

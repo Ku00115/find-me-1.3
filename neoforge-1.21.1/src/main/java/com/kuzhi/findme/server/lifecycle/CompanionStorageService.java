@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -440,6 +441,30 @@ public final class CompanionStorageService {
         CompoundTag tag = source == null ? new CompoundTag() : source.copy();
         resetStoredStateTags(tag);
         return tag;
+    }
+
+    public static Optional<CompoundTag> createDeathSnapshot(LivingEntity living, long storedAt) {
+        if (living == null) {
+            return Optional.empty();
+        }
+        CompoundTag tag = new CompoundTag();
+        if (!living.save(tag)) {
+            return Optional.empty();
+        }
+        resetStoredStateTags(tag);
+        String entityType = EntityType.getKey(living.getType()).toString();
+        float maxHealth = Math.max(1.0f, living.getMaxHealth());
+        tag.putString("id", entityType);
+        tag.putString("CompanionRescueName", living.getDisplayName().getString());
+        tag.putString("CompanionRescueType", entityType);
+        CompanionEntitySnapshots.writePreviewBounds(living, tag);
+        tag.putFloat("CompanionRescueHealth", maxHealth);
+        tag.putFloat("CompanionRescueMaxHealth", maxHealth);
+        tag.putInt("CompanionRescueArmor", living.getArmorValue());
+        tag.putLong("CompanionRescueStoredAt", storedAt);
+        tag.putBoolean("CompanionRescueDead", true);
+        tag.putFloat("Health", maxHealth);
+        return Optional.of(tag);
     }
 
     public static void markIntentionalStorageRemoval(MinecraftServer server, UUID uuid) {

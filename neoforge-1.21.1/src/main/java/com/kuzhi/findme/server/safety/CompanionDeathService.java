@@ -66,11 +66,15 @@ public final class CompanionDeathService {
             }
             CompanionHomeResidentService.clearResident(living);
             String entityType = EntityType.getKey(living.getType()).toString();
-            CompoundTag tag = CompanionEntitySnapshots.previewEntityTag(living, entityType);
+            long deathTime = living.level().getGameTime();
+            CompoundTag tag = CompanionStorageService.createDeathSnapshot(living, deathTime)
+                    .orElseGet(() -> data.storedEntity(uuid)
+                            .map(CompanionStorageService::sanitizedStoredTag)
+                            .orElseGet(() -> CompanionEntitySnapshots.previewEntityTag(living, entityType)));
             String customName = data.displayName(uuid).orElse(living.getDisplayName().getString());
             int previousTeamIndex = data.teamIndexOf(uuid);
             float maxHealth = living.getMaxHealth();
-            float previewHealth = Math.max(1.0f, Math.min(maxHealth <= 0.0f ? 1.0f : maxHealth, living.getHealth() <= 0.0f ? maxHealth : living.getHealth()));
+            float previewHealth = Math.max(1.0f, maxHealth);
             tag.putString("id", entityType);
             tag.putString("CompanionRescueName", living.getDisplayName().getString());
             tag.putString("CompanionRescueType", entityType);
@@ -82,9 +86,10 @@ public final class CompanionDeathService {
             data.storeEntity(uuid, tag);
             data.setLastKnownPosition(uuid, SavedPosition.of(living.level(), living.getX(), living.getY(), living.getZ(), living.getYRot(), living.getXRot()));
             String cause = living.getLastDamageSource() == null ? "unknown" : living.getLastDamageSource().getMsgId();
+            boolean sleepRecoverable = tag.contains("id") && !tag.getString("id").isBlank();
             data.putDeadRecord(new DeadCompanionRecord(UUID.randomUUID(), uuid, customName, entityType, kind, previousTeamIndex,
-                    living.level().getGameTime(), living.level().getDayTime() / 24000L, living.level().dimension().location().toString(),
-                    living.getX(), living.getY(), living.getZ(), cause, false, ""));
+                    deathTime, living.level().getDayTime() / 24000L, living.level().dimension().location().toString(),
+                    living.getX(), living.getY(), living.getZ(), cause, sleepRecoverable, ""));
             data.markDead(uuid, kind);
             data.setLifecycleState(uuid, CompanionLifecycleState.DEAD);
             FindMeDebugLogger.lifecycle("MARK_DEAD", player, uuid, living,

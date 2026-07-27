@@ -60,8 +60,6 @@ public class Config {
     static {
         BUILDER.comment("[Dialogue] Editable summon, rescue, storage, and warning subtitle lines. Entries use first line|second line. Either side may be spoken by the player or creature. A blank first line such as |reply makes only the second line appear.").push("dialogue");
     }
-    private static final ModConfigSpec.BooleanValue ENABLE_DIALOGUE = BUILDER.comment("[Dialogue] Show FindMe's flavor subtitle dialogue. Disabled by default; players who like roleplay-style lines can enable it.").translation("config.find_me.enableDialogue").define("enableDialogue", false);
-
     private static final ModConfigSpec.ConfigValue<List<? extends String>> MOUNT_SUMMON_DIALOGUE_LINES = DIALOGUE_DEFAULTS_BUILDER.comment("[Flavor] Title/subtitle dialogue after a mount appears. Format: first line|second line. Supports {player} and {name}. Clear to disable.").translation("config.find_me.mountSummonDialogueLines").defineListAllowEmpty("mountSummonDialogueLines", List.of(
             "dialogue.find_me.mount_summon.0.call|dialogue.find_me.mount_summon.0.reply",
             "dialogue.find_me.mount_summon.1.call|dialogue.find_me.mount_summon.1.reply",
@@ -211,7 +209,6 @@ public class Config {
     public static boolean enableContractCinematicCamera = true;
     public static boolean debugDiagnostics;
     public static boolean enableDiagnosticLogging;
-    public static boolean enableDialogue;
     public static List<String> mountSummonDialogueLines;
     public static List<String> companionSummonDialogueLines;
     public static List<String> mountRescueDialogueLines;
@@ -306,7 +303,6 @@ public class Config {
     public static void syncFromSpec() {
         previewScaleOverrides = Config.parseDoubleMap((List)PREVIEW_SCALE_OVERRIDES.get());
         guiOpacity = (Double)GUI_OPACITY.get();
-        enableDialogue = (Boolean)ENABLE_DIALOGUE.get();
         mountSummonDialogueLines = dialogueLines("mount_summon", MOUNT_SUMMON_DIALOGUE_LINES);
         companionSummonDialogueLines = dialogueLines("companion_summon", COMPANION_SUMMON_DIALOGUE_LINES);
         mountRescueDialogueLines = dialogueLines("mount_rescue", MOUNT_RESCUE_DIALOGUE_LINES);

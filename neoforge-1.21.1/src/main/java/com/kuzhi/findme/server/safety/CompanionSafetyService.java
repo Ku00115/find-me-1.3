@@ -319,23 +319,34 @@ public final class CompanionSafetyService {
     }
 
     public static void trySleepRevive(ServerPlayer player) {
-        if (!FindMeModuleService.enabled(FindMeModule.SLEEP_REVIVAL)
-                || player.getRandom().nextDouble() > Config.sleepReviveChance) {
+        if (!FindMeModuleService.enabled(FindMeModule.SLEEP_REVIVAL)) {
+            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=module_disabled", player.getUUID());
+            return;
+        }
+        double roll = player.getRandom().nextDouble();
+        if (roll > Config.sleepReviveChance) {
+            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=chance roll={} chance={}",
+                    player.getUUID(), roll, Config.sleepReviveChance);
             return;
         }
         long now = player.serverLevel().getGameTime();
         long cooldown = Math.max(0, Config.sleepReviveCooldownMinutes) * 1200L;
         Long last = LAST_SLEEP_REVIVE.get(player.getUUID());
         if (last != null && cooldown > 0L && now - last < cooldown) {
+            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=cooldown remainingTicks={}",
+                    player.getUUID(), cooldown - (now - last));
             return;
         }
         PlayerCompanionData data = CompanionDataService.data(player);
         List<UUID> dead = data.deadList();
         if (dead.isEmpty()) {
+            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=no_dead_records", player.getUUID());
             return;
         }
         List<UUID> eligible = dead.stream().filter(uuid -> data.storedEntity(uuid).isPresent()).toList();
         if (eligible.isEmpty()) {
+            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=no_stored_snapshot deadCount={}",
+                    player.getUUID(), dead.size());
             return;
         }
         UUID uuid = eligible.get(player.getRandom().nextInt(eligible.size()));
@@ -392,6 +403,8 @@ public final class CompanionSafetyService {
         CompanionSyncService.syncToClient(player, CompanionKind.COMPANION);
         CompanionSyncService.syncDeadToClient(player);
         CompanionSummonLineService.showSleepRevived(player, name.replace(" (Dead)", ""), spawned || homeResident);
+        FindMeDebugLogger.info("sleep-revive", "completed player={} companion={} kind={} spawned={} home={}",
+                player.getUUID(), uuid, kind, spawned, homeResident);
     }
 
     private static void tickAutomaticBackup(ServerPlayer player) {

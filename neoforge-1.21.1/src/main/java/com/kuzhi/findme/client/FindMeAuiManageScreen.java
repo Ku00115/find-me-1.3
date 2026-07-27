@@ -1203,7 +1203,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (action.startsWith("category:")) {
             Category targetCategory = Category.valueOf(action.substring("category:".length()).toUpperCase(Locale.ROOT));
             if (targetCategory == category) return;
-            boolean stayInWarehouse = view == View.WAREHOUSE;
+            View categoryView = view == View.WAREHOUSE ? View.WAREHOUSE
+                    : view == View.DEAD ? View.DEAD : View.TEAM;
             boolean forward = targetCategory.ordinal() > category.ordinal();
             transitionSibling(() -> {
                 category = targetCategory;
@@ -1211,7 +1212,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 ClientCompanionTeamState.selectTeam(target(), selectedTeam);
                 selectedUuid = null;
                 expandedUuid = null;
-                view = stayInWarehouse ? View.WAREHOUSE : View.TEAM;
+                view = categoryView;
                 warehouseSelectionMode = false;
                 warehouseFilter = WarehouseFilter.ALL;
                 warehouseScrollTop = 0.0;
