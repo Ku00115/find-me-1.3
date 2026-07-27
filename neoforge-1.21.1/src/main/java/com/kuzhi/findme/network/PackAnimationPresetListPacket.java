@@ -10,6 +10,7 @@ import com.kuzhi.findme.common.PackEntityCategoryOverride;
 import com.kuzhi.findme.common.PackEntityMovementOverride;
 import com.kuzhi.findme.common.PackEntityBindingRequirement;
 import com.kuzhi.findme.common.BindingAnimationPolicy;
+import com.kuzhi.findme.common.MountInteractionPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -39,6 +40,7 @@ public record PackAnimationPresetListPacket(boolean replace, List<Entry> entries
             buffer.writeEnum(entry.categoryOverride);
             buffer.writeEnum(entry.movementOverride);
             buffer.writeEnum(entry.bindingRequirement);
+            buffer.writeEnum(entry.mountInteractionPolicy);
             buffer.writeEnum(entry.bindingAnimationPolicy);
             buffer.writeEnum(entry.rescueMotion);
             buffer.writeEnum(entry.summonAnimation);
@@ -65,6 +67,7 @@ public record PackAnimationPresetListPacket(boolean replace, List<Entry> entries
             entries.add(new Entry(buffer.readUtf(128), buffer.readUtf(128), buffer.readEnum(PackAnimationPresetCategory.class),
                     buffer.readEnum(PackEntityCategoryOverride.class), buffer.readEnum(PackEntityMovementOverride.class),
                     buffer.readEnum(PackEntityBindingRequirement.class),
+                    buffer.readEnum(MountInteractionPolicy.class),
                     buffer.readEnum(BindingAnimationPolicy.class),
                     buffer.readEnum(CompanionRescueMotion.class), buffer.readEnum(CompanionAnimationStyle.class),
                     buffer.readEnum(CompanionAnimationStyle.class), buffer.readEnum(CompanionAnimationStyle.class),
@@ -85,6 +88,7 @@ public record PackAnimationPresetListPacket(boolean replace, List<Entry> entries
     public record Entry(String entityType, String name, PackAnimationPresetCategory category,
                         PackEntityCategoryOverride categoryOverride, PackEntityMovementOverride movementOverride,
                         PackEntityBindingRequirement bindingRequirement,
+                        MountInteractionPolicy mountInteractionPolicy,
                         BindingAnimationPolicy bindingAnimationPolicy,
                         CompanionRescueMotion rescueMotion, CompanionAnimationStyle summonAnimation,
                         CompanionAnimationStyle rescueAnimation, CompanionAnimationStyle storageAnimation,

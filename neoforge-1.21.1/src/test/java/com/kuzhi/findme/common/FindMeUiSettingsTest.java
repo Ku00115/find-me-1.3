@@ -55,4 +55,13 @@ class FindMeUiSettingsTest {
         assertFalse(loaded.showHealth());
         assertEquals(3, loaded.defaultTeamIndex());
     }
+
+    @Test
+    void nativeMountInteractionDefaultsOffAndRoundTrips() {
+        assertFalse(FindMeUiSettings.load(new CompoundTag()).preferNativeMountInteraction());
+
+        FindMeUiSettings enabled = FindMeUiSettings.defaults().changed(0, 4);
+        assertTrue(FindMeUiSettings.load(enabled.save()).preferNativeMountInteraction());
+        assertFalse(enabled.resetSection(0).preferNativeMountInteraction());
+    }
 }

@@ -49,6 +49,7 @@ public final class FindMeDefaultSettingsService {
             copyString(json, tag, "fontSize");
             copyString(json, tag, "ridingCameraMode");
             copyString(json, tag, "bindingAnimationPolicy");
+            copyBoolean(json, tag, "preferNativeMountInteraction");
             return FindMeUiSettings.load(tag);
         } catch (RuntimeException | IOException exception) {
             FindMeMod.LOGGER.warn("Could not read FindMe UI defaults from {}", UI_DEFAULTS, exception);
@@ -97,6 +98,7 @@ public final class FindMeDefaultSettingsService {
         json.addProperty("fontSize", value.fontSize().name());
         json.addProperty("ridingCameraMode", value.ridingCameraMode().name());
         json.addProperty("bindingAnimationPolicy", value.bindingAnimationPolicy().name());
+        json.addProperty("preferNativeMountInteraction", value.preferNativeMountInteraction());
         return json;
     }
 

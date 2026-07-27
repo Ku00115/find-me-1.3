@@ -17,6 +17,7 @@ import com.kuzhi.findme.common.PackAnimationPresetCategory;
 import com.kuzhi.findme.common.PackEntityCategoryOverride;
 import com.kuzhi.findme.common.PackEntityMovementOverride;
 import com.kuzhi.findme.common.PackEntityBindingRequirement;
+import com.kuzhi.findme.common.MountInteractionPolicy;
 import com.kuzhi.findme.common.BindingAnimationPolicy;
 import com.kuzhi.findme.common.PackEntityPresetField;
 import com.kuzhi.findme.network.ModNetwork;
@@ -161,6 +162,8 @@ public final class PackAnimationPresetService {
                 case MOVEMENT -> parseEnum(PackEntityMovementOverride.class, value).ifPresent(parsed -> preset.movement = parsed);
                 case BINDING_REQUIREMENT -> parseEnum(PackEntityBindingRequirement.class, value)
                         .ifPresent(parsed -> preset.bindingRequirement = parsed);
+                case MOUNT_INTERACTION -> parseEnum(MountInteractionPolicy.class, value)
+                        .ifPresent(parsed -> preset.mountInteractionPolicy = parsed);
                 case BINDING_ANIMATION -> parseEnum(BindingAnimationPolicy.class, value)
                         .ifPresent(parsed -> preset.bindingAnimationPolicy = parsed);
                 case RESCUE_MOTION -> parseEnum(CompanionRescueMotion.class, value).ifPresent(parsed -> preset.rescueMotion = parsed);
@@ -270,6 +273,11 @@ public final class PackAnimationPresetService {
         return PRESETS.getOrDefault(normalize(entityType), Preset.EMPTY).bindingAnimationPolicy;
     }
 
+    public static MountInteractionPolicy mountInteractionPolicy(String entityType) {
+        load();
+        return PRESETS.getOrDefault(normalize(entityType), Preset.EMPTY).mountInteractionPolicy;
+    }
+
     public static CompanionRescueMotion rescueMotion(String entityType) {
         load();
         return PRESETS.getOrDefault(normalize(entityType), Preset.EMPTY).rescueMotion;
@@ -331,7 +339,7 @@ public final class PackAnimationPresetService {
     private static PackAnimationPresetListPacket.Entry entry(String key, String name, PackAnimationPresetCategory category) {
         Preset preset = PRESETS.getOrDefault(normalize(key), Preset.EMPTY);
         return new PackAnimationPresetListPacket.Entry(key, name, category, preset.category, preset.movement,
-                preset.bindingRequirement, preset.bindingAnimationPolicy, preset.rescueMotion,
+                preset.bindingRequirement, preset.mountInteractionPolicy, preset.bindingAnimationPolicy, preset.rescueMotion,
                 animationStyle(key, CompanionAnimationPurpose.SUMMON), animationStyle(key, CompanionAnimationPurpose.RESCUE),
                 animationStyle(key, CompanionAnimationPurpose.STORAGE), animationStyle(key, CompanionAnimationPurpose.SWITCH),
                 (float)clampScale(preset.boundsScale), (float)clampScale(preset.circleScale), preset.arrivalSound,
@@ -445,6 +453,8 @@ public final class PackAnimationPresetService {
                 readEnum(object, "movement", PackEntityMovementOverride.class).ifPresent(value -> preset.movement = value);
                 readEnum(object, "bindingRequirement", PackEntityBindingRequirement.class)
                         .ifPresent(value -> preset.bindingRequirement = value);
+                readEnum(object, "mountInteraction", MountInteractionPolicy.class)
+                        .ifPresent(value -> preset.mountInteractionPolicy = value);
                 readEnum(object, "bindingAnimation", BindingAnimationPolicy.class)
                         .ifPresent(value -> preset.bindingAnimationPolicy = value);
                 readEnum(object, "rescueMotion", CompanionRescueMotion.class).ifPresent(value -> preset.rescueMotion = value);
@@ -612,6 +622,9 @@ public final class PackAnimationPresetService {
             if (preset.bindingRequirement != PackEntityBindingRequirement.AUTO) {
                 object.addProperty("bindingRequirement", preset.bindingRequirement.name().toLowerCase(Locale.ROOT));
             }
+            if (preset.mountInteractionPolicy != MountInteractionPolicy.FOLLOW_PLAYER) {
+                object.addProperty("mountInteraction", preset.mountInteractionPolicy.name().toLowerCase(Locale.ROOT));
+            }
             if (preset.bindingAnimationPolicy != BindingAnimationPolicy.INHERIT) {
                 object.addProperty("bindingAnimation", preset.bindingAnimationPolicy.name().toLowerCase(Locale.ROOT));
             }
@@ -674,6 +687,7 @@ public final class PackAnimationPresetService {
         private PackEntityCategoryOverride category = PackEntityCategoryOverride.AUTO;
         private PackEntityMovementOverride movement = PackEntityMovementOverride.AUTO;
         private PackEntityBindingRequirement bindingRequirement = PackEntityBindingRequirement.AUTO;
+        private MountInteractionPolicy mountInteractionPolicy = MountInteractionPolicy.FOLLOW_PLAYER;
         private BindingAnimationPolicy bindingAnimationPolicy = BindingAnimationPolicy.INHERIT;
         private CompanionRescueMotion rescueMotion = CompanionRescueMotion.STANDARD;
         private double boundsScale = 1.0;

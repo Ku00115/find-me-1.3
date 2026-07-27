@@ -66,11 +66,6 @@ public class CompanionEvents {
         CompanionInteractionService.handleEntityInteract(event);
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onRegisteredMountInteract(PlayerInteractEvent.EntityInteract event) {
-        CompanionInteractionService.handleMountInteract(event);
-    }
-
     @SubscribeEvent
     public void onEntityJoinLevel(EntityJoinLevelEvent event) {
         VehicleSeatService.handleEntityJoinLevel(event);

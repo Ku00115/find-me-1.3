@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import com.kuzhi.findme.network.FindMeNetworkContext;
 
 public final class ModNetwork {
-    private static final String PROTOCOL = "71";
+    private static final String PROTOCOL = "72";
     public static final Object channel = new Object();
 
     private ModNetwork() {

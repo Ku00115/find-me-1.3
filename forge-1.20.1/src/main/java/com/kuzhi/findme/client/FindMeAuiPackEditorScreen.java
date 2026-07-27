@@ -12,6 +12,7 @@ import com.kuzhi.findme.common.PackEntityCategoryOverride;
 import com.kuzhi.findme.common.PackEntityMovementOverride;
 import com.kuzhi.findme.common.PackEntityBindingRequirement;
 import com.kuzhi.findme.common.BindingAnimationPolicy;
+import com.kuzhi.findme.common.MountInteractionPolicy;
 import com.kuzhi.findme.common.PackEntityPresetField;
 import com.kuzhi.findme.common.FindMeUiSettings;
 import com.kuzhi.findme.common.FindMeModule;
@@ -729,6 +730,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
                     case CATEGORY -> allMatch(entry -> entry.categoryOverride().name().equals(parts[2]));
                     case MOVEMENT -> allMatch(entry -> entry.movementOverride().name().equals(parts[2]));
                     case BINDING_REQUIREMENT -> allMatch(entry -> entry.bindingRequirement().name().equals(parts[2]));
+                    case MOUNT_INTERACTION -> allMatch(entry -> entry.mountInteractionPolicy().name().equals(parts[2]));
                     case BINDING_ANIMATION -> allMatch(entry -> entry.bindingAnimationPolicy().name().equals(parts[2]));
                     case RESCUE_MOTION -> allMatch(entry -> entry.rescueMotion().name().equals(parts[2]));
                     default -> false;
@@ -881,6 +883,8 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         addFieldChange(type, fields, PackEntityPresetField.MOVEMENT, baseline.movementOverride(), draft.movementOverride());
         addFieldChange(type, fields, PackEntityPresetField.BINDING_REQUIREMENT,
                 baseline.bindingRequirement(), draft.bindingRequirement());
+        addFieldChange(type, fields, PackEntityPresetField.MOUNT_INTERACTION,
+                baseline.mountInteractionPolicy(), draft.mountInteractionPolicy());
         addFieldChange(type, fields, PackEntityPresetField.BINDING_ANIMATION,
                 baseline.bindingAnimationPolicy(), draft.bindingAnimationPolicy());
         addFieldChange(type, fields, PackEntityPresetField.RESCUE_MOTION, baseline.rescueMotion(), draft.rescueMotion());
@@ -953,6 +957,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         PackAnimationPresetCategory category = entry.category();
         PackEntityMovementOverride movement = entry.movementOverride();
         PackEntityBindingRequirement bindingRequirement = entry.bindingRequirement();
+        MountInteractionPolicy mountInteractionPolicy = entry.mountInteractionPolicy();
         BindingAnimationPolicy bindingAnimationPolicy = entry.bindingAnimationPolicy();
         CompanionRescueMotion rescueMotion = entry.rescueMotion();
         float boundsScale = entry.boundsScale();
@@ -980,6 +985,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
                     }
                 }
                 case BINDING_REQUIREMENT -> bindingRequirement = PackEntityBindingRequirement.valueOf(value);
+                case MOUNT_INTERACTION -> mountInteractionPolicy = MountInteractionPolicy.valueOf(value);
                 case BINDING_ANIMATION -> bindingAnimationPolicy = BindingAnimationPolicy.valueOf(value);
                 case RESCUE_MOTION -> rescueMotion = CompanionRescueMotion.valueOf(value);
                 case BOUNDS_SCALE -> boundsScale = Float.parseFloat(value);
@@ -994,7 +1000,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
             return entry;
         }
         return new PackAnimationPresetListPacket.Entry(entry.entityType(), entry.name(), category, categoryOverride, movement,
-                bindingRequirement, bindingAnimationPolicy, rescueMotion,
+                bindingRequirement, mountInteractionPolicy, bindingAnimationPolicy, rescueMotion,
                 entry.summonAnimation(), entry.rescueAnimation(), entry.storageAnimation(),
                 entry.switchAnimation(), boundsScale, circleScale, arrivalSound, arrivalVolume, arrivalPitch,
                 entry.summonStyle(), entry.rescueStyle(), entry.storageStyle(), previewNbt);
@@ -1003,7 +1009,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     private static PackAnimationPresetListPacket.Entry withStyle(PackAnimationPresetListPacket.Entry entry,
                                                                   CompanionEffectPurpose purpose, CompanionEffectStyle style) {
         return new PackAnimationPresetListPacket.Entry(entry.entityType(), entry.name(), entry.category(), entry.categoryOverride(),
-                entry.movementOverride(), entry.bindingRequirement(), entry.bindingAnimationPolicy(),
+                entry.movementOverride(), entry.bindingRequirement(), entry.mountInteractionPolicy(), entry.bindingAnimationPolicy(),
                 entry.rescueMotion(), entry.summonAnimation(), entry.rescueAnimation(),
                 entry.storageAnimation(), entry.switchAnimation(), entry.boundsScale(), entry.circleScale(), entry.arrivalSound(),
                 entry.arrivalVolume(), entry.arrivalPitch(),
@@ -1016,7 +1022,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
                                                                       CompanionAnimationPurpose purpose,
                                                                       CompanionAnimationStyle style) {
         return new PackAnimationPresetListPacket.Entry(entry.entityType(), entry.name(), entry.category(),
-                entry.categoryOverride(), entry.movementOverride(), entry.bindingRequirement(),
+                entry.categoryOverride(), entry.movementOverride(), entry.bindingRequirement(), entry.mountInteractionPolicy(),
                 entry.bindingAnimationPolicy(), entry.rescueMotion(),
                 purpose == CompanionAnimationPurpose.SUMMON ? style : entry.summonAnimation(),
                 purpose == CompanionAnimationPurpose.RESCUE ? style : entry.rescueAnimation(),
@@ -1029,7 +1035,8 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     private static PackAnimationPresetListPacket.Entry resetEntry(PackAnimationPresetListPacket.Entry entry) {
         return new PackAnimationPresetListPacket.Entry(entry.entityType(), entry.name(), entry.category(),
                 PackEntityCategoryOverride.AUTO, PackEntityMovementOverride.AUTO,
-                PackEntityBindingRequirement.AUTO, BindingAnimationPolicy.INHERIT, CompanionRescueMotion.STANDARD,
+                PackEntityBindingRequirement.AUTO, MountInteractionPolicy.FOLLOW_PLAYER,
+                BindingAnimationPolicy.INHERIT, CompanionRescueMotion.STANDARD,
                 CompanionAnimationStyle.STANDARD, CompanionAnimationStyle.STANDARD,
                 CompanionAnimationStyle.STANDARD, CompanionAnimationStyle.STANDARD,
                 1.0f, 1.0f, "", 1.0f, 1.0f, CompanionEffectStyle.DEFAULT,
@@ -1221,6 +1228,15 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
                     allMatch(entry -> entry.bindingRequirement() == value)));
         }
         appendOptionRows(html, bindingOptions);
+        appendFieldTitle(html, tr("screen.find_me.pack_mount_interaction"),
+                mixed(PackAnimationPresetListPacket.Entry::mountInteractionPolicy));
+        List<String> mountInteractionOptions = new ArrayList<>();
+        for (MountInteractionPolicy value : MountInteractionPolicy.values()) {
+            mountInteractionOptions.add(option("field:MOUNT_INTERACTION:" + value.name(),
+                    tr("screen.find_me.pack_mount_interaction." + value.name().toLowerCase(Locale.ROOT)),
+                    allMatch(entry -> entry.mountInteractionPolicy() == value)));
+        }
+        appendOptionRows(html, mountInteractionOptions);
         appendFieldTitle(html, tr("screen.find_me.pack_binding_animation"),
                 mixed(PackAnimationPresetListPacket.Entry::bindingAnimationPolicy));
         List<String> bindingAnimationOptions = new ArrayList<>();

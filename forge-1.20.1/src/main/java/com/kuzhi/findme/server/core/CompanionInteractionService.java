@@ -8,12 +8,16 @@ import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.api.FindMeCompanionInteractionItem;
 import com.kuzhi.findme.common.FindMeModule;
+import com.kuzhi.findme.common.MountInteractionPolicy;
 import com.kuzhi.findme.server.module.FindMeModuleService;
+import com.kuzhi.findme.server.profile.PackAnimationPresetService;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
@@ -31,30 +35,41 @@ public final class CompanionInteractionService {
         CompanionBindingService.handleNamePaperInteract(event);
     }
 
-    public static void handleMountInteract(PlayerInteractEvent.EntityInteract event) {
-        if (event.getHand() != InteractionHand.MAIN_HAND
-                || event.getEntity().isSecondaryUseActive()
-                || !(event.getTarget() instanceof LivingEntity mount)) {
-            return;
-        }
-        if (event.getEntity().level().isClientSide()) {
-            return;
-        }
-        if (!(event.getEntity() instanceof ServerPlayer player)
-                || !CompanionDataService.data(player).contains(CompanionKind.MOUNT, mount.getUUID())) {
-            return;
+    public static MountInteractionPlan planMountInteraction(Player interactingPlayer, Entity target,
+                                                             InteractionHand hand) {
+        if (hand != InteractionHand.MAIN_HAND
+                || interactingPlayer.isSecondaryUseActive()
+                || !(target instanceof LivingEntity mount)
+                || !(interactingPlayer instanceof ServerPlayer player)
+                || !CompanionDataService.runtimeIndex(player).contains(CompanionKind.MOUNT, mount.getUUID())) {
+            return null;
         }
         if (!FindMeModuleService.require(player, FindMeModule.RIDING)) {
-            event.setCancellationResult(InteractionResult.FAIL);
-            event.setCanceled(true);
-            return;
+            return new MountInteractionPlan(false, InteractionResult.FAIL);
         }
+        var data = CompanionDataService.data(player);
+        MountInteractionPolicy policy = PackAnimationPresetService.mountInteractionPolicy(
+                EntityType.getKey(mount.getType()).toString());
+        boolean nativeFirst = policy == MountInteractionPolicy.FORCE_NATIVE
+                || policy == MountInteractionPolicy.FOLLOW_PLAYER && data.uiSettings().preferNativeMountInteraction();
+        return nativeFirst
+                ? new MountInteractionPlan(true, null)
+                : new MountInteractionPlan(false, mount(player, mount));
+    }
 
+    public static InteractionResult mountAfterNativeInteraction(ServerPlayer player, LivingEntity mount,
+                                                                 InteractionResult nativeResult) {
+        return nativeResult == InteractionResult.PASS ? mount(player, mount) : nativeResult;
+    }
+
+    private static InteractionResult mount(ServerPlayer player, LivingEntity mount) {
         boolean riding = player.getVehicle() == mount || player.startRiding(mount, true);
         FindMeMod.LOGGER.info("[FindMe ride/right-click] player={} target={} type={} result={}",
                 player.getUUID(), mount.getUUID(), EntityType.getKey(mount.getType()), riding ? "MOUNTED" : "REJECTED");
-        event.setCancellationResult(riding ? InteractionResult.CONSUME : InteractionResult.FAIL);
-        event.setCanceled(true);
+        return riding ? InteractionResult.CONSUME : InteractionResult.FAIL;
+    }
+
+    public record MountInteractionPlan(boolean nativeFirst, InteractionResult immediateResult) {
     }
 
     private static boolean handleSkillBookInteract(PlayerInteractEvent.EntityInteractSpecific event) {

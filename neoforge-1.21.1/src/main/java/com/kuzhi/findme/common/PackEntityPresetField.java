@@ -4,6 +4,7 @@ public enum PackEntityPresetField {
     CATEGORY,
     MOVEMENT,
     BINDING_REQUIREMENT,
+    MOUNT_INTERACTION,
     BINDING_ANIMATION,
     RESCUE_MOTION,
     BOUNDS_SCALE,

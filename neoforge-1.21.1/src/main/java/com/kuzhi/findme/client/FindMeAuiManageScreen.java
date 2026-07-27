@@ -2813,7 +2813,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     new String[]{"0", "0", "screen.find_me.aui.setting.rotate_models", bool(settings.rotateModels())},
                     new String[]{"0", "1", "screen.find_me.aui.setting.reduce_background", bool(settings.reduceBackgroundAnimation())},
                     new String[]{"0", "2", "screen.find_me.aui.setting.operation_sounds", bool(settings.operationSounds())},
-                    new String[]{"0", "3", "screen.find_me.aui.setting.control_hints", bool(settings.controlHints())});
+                    new String[]{"0", "3", "screen.find_me.aui.setting.control_hints", bool(settings.controlHints())},
+                    new String[]{"0", "4", "screen.find_me.aui.setting.prefer_native_mount_interaction", bool(settings.preferNativeMountInteraction())});
             case 1 -> List.of(
                     new String[]{"1", "0", "screen.find_me.aui.setting.auto_join", bool(settings.autoJoinTeams())},
                     new String[]{"1", "1", "screen.find_me.aui.setting.auto_create", bool(settings.autoCreateTeams())},

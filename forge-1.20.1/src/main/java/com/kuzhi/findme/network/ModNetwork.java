@@ -15,7 +15,7 @@ import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 public final class ModNetwork {
-    private static final String PROTOCOL = "71";
+    private static final String PROTOCOL = "72";
     public static SimpleChannel channel;
     private static int nextId;
 
