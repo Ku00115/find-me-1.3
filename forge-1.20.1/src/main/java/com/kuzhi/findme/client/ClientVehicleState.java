@@ -27,8 +27,10 @@ public final class ClientVehicleState {
         List<VehicleListPacket.Entry> previous = new ArrayList<>(wheelEntries.size() + allEntries.size());
         previous.addAll(wheelEntries);
         previous.addAll(allEntries);
-        wheelEntries = List.copyOf(mergePreviewTags(previous, wheel));
-        allEntries = List.copyOf(mergePreviewTags(previous, all));
+        List<VehicleListPacket.Entry> mergedWheel = mergePreviewTags(previous, wheel);
+        List<VehicleListPacket.Entry> mergedAll = mergePreviewTags(previous, all);
+        wheelEntries = List.copyOf(mergedWheel);
+        allEntries = List.copyOf(completeRoster(mergedAll, mergedWheel));
         revision++;
     }
 
@@ -107,5 +109,15 @@ public final class ClientVehicleState {
             return left;
         }
         return left;
+    }
+
+    private static List<VehicleListPacket.Entry> completeRoster(List<VehicleListPacket.Entry> all,
+                                                                 List<VehicleListPacket.Entry> wheel) {
+        ArrayList<VehicleListPacket.Entry> complete = new ArrayList<>(all.size() + wheel.size());
+        Map<UUID, VehicleListPacket.Entry> byUuid = new java.util.LinkedHashMap<>();
+        for (VehicleListPacket.Entry entry : all) byUuid.put(entry.uuid(), entry);
+        for (VehicleListPacket.Entry entry : wheel) byUuid.putIfAbsent(entry.uuid(), entry);
+        complete.addAll(byUuid.values());
+        return complete;
     }
 }

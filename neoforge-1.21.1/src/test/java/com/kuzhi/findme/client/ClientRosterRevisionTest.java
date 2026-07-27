@@ -3,6 +3,7 @@ package com.kuzhi.findme.client;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.CompanionTeamTarget;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.kuzhi.findme.network.VehicleListPacket;
 import java.util.List;
@@ -15,6 +16,7 @@ class ClientRosterRevisionTest {
     void resetClientState() {
         ClientCompanionState.reset();
         ClientVehicleState.reset();
+        ClientCompanionTeamState.reset();
         ClientCompanionWheelController.reset();
     }
 
@@ -48,6 +50,21 @@ class ClientRosterRevisionTest {
         assertEquals(0, ClientVehicleState.serverWheelIndex(newest));
         assertEquals(-1, ClientVehicleState.serverWheelIndex(stale));
         assertEquals(localRevision, ClientVehicleState.revision());
+    }
+
+    @Test
+    void firstVehicleTeamDoesNotHideExistingWheelVehicle() {
+        UUID existingWheelVehicle = UUID.randomUUID();
+        UUID newlyBoundSable = UUID.randomUUID();
+        ClientVehicleState.update(13L, 0, List.of(vehicle(existingWheelVehicle)),
+                List.of(vehicle(newlyBoundSable)));
+        ClientCompanionTeamState.update(13L, List.of(new ClientCompanionTeamState.TeamEntry(
+                CompanionTeamTarget.VEHICLE, 0, 1, true, "",
+                List.of(existingWheelVehicle, newlyBoundSable))));
+
+        assertEquals(List.of(existingWheelVehicle, newlyBoundSable),
+                ClientVehicleState.wheelEntries().stream().map(VehicleListPacket.Entry::uuid).toList());
+        assertEquals(2, ClientVehicleState.allEntries().size());
     }
 
     private static CompanionListPacket.Entry companion(UUID uuid) {

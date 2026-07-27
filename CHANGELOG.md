@@ -1,3 +1,19 @@
+# FindMe 1.3.0-test.2（测试候选）
+
+## 中文
+
+- 修复首次绑定 Sable 载具并自动建立载具编队后，原轮盘载具可能从轮盘、编队或管理页隐藏的问题。
+- 服务端现在将真正的完整载具集合发送给客户端；客户端也会防御性合并轮盘与完整列表，避免包顺序或不完整列表再次隐藏载具。
+- 增加 `vehicle-roster` 诊断数量与首次自动编队回归测试。Forge 与 NeoForge 已同步并通过完整构建；NeoForge 候选版已部署等待游戏内验收。
+
+## English
+
+- Fixed existing wheel vehicles becoming hidden from the wheel, teams, or management after the first Sable vehicle binding creates an automatic vehicle team.
+- The server now sends the actual complete vehicle roster, while the client defensively merges wheel entries into that roster so packet order or a partial list cannot hide vehicles again.
+- Added `vehicle-roster` count diagnostics and a first-auto-team regression test. Forge and NeoForge are synchronized and pass full builds; the NeoForge candidate is deployed for in-game acceptance.
+
+---
+
 # FindMe 1.3.0-test.1
 
 ## 中文

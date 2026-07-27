@@ -856,7 +856,11 @@ public final class VehicleManager {
     public static void syncToClient(ServerPlayer player) {
         PlayerCompanionData data = CompanionDataService.data(player);
         List<VehicleListPacket.Entry> wheelEntries = entries(player, data, data.vehicleWheelOrder());
-        List<VehicleListPacket.Entry> allEntries = entries(player, data, data.vehicleWarehouseOrder());
+        List<VehicleListPacket.Entry> allEntries = entries(player, data, data.vehicleList());
+        FindMeDebugLogger.info("vehicle-roster",
+                "phase=SYNC player={} revision={} vehicles={} wheel={} warehouse={} activeIndex={}",
+                player.getUUID(), CompanionDataService.revision(player), allEntries.size(), wheelEntries.size(),
+                data.vehicleWarehouseOrder().size(), data.activeVehicleIndex());
         ModNetwork.sendToPlayer(player, new VehicleListPacket(CompanionDataService.revision(player),
                 data.activeVehicleIndex(), wheelEntries, allEntries));
     }
