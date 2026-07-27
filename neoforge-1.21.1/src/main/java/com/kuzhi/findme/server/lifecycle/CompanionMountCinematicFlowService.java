@@ -97,6 +97,42 @@ public final class CompanionMountCinematicFlowService {
                 removePending(cinematic);
                 continue;
             }
+            if (cinematic.mode().isMountSwitch()
+                    && cinematic.rideSource().type() == RideHandoffService.SourceType.SABLE
+                    && !cinematic.sourceSpaceDetached()) {
+                PlayerCompanionData playerData = CompanionDataService.data(player);
+                if (CompanionArrivalSequenceService.isPending(living)) {
+                    continue;
+                }
+                Vec3 rendezvous = cinematic.crossSpaceRendezvous();
+                if (rendezvous == null) {
+                    rendezvous = VehicleManager.sableExternalHandoffPoint(player, playerData, living).orElse(null);
+                    cinematic.setCrossSpaceRendezvous(rendezvous);
+                    FindMeDebugLogger.info("sable-mount-switch",
+                            "phase=EXTERNAL_RENDEZVOUS_SELECTED player={} sable={} target={} rendezvous={}",
+                            player.getUUID(), cinematic.rideSource().uuid(), living.getUUID(), rendezvous);
+                }
+                if (rendezvous != null) {
+                    double contactRadius = Math.max(1.5, living.getBbWidth() * 0.5 + 0.75);
+                    double distance = living.position().distanceTo(rendezvous);
+                    if (distance > contactRadius) {
+                        living.noPhysics = shouldUseCinematicNoPhysics(cinematic, living);
+                        living.setNoGravity(cinematic.moveType() != CompanionMoveType.WALK);
+                        CompanionCinematicMovementService.moveTowardCinematicTarget(
+                                cinematic, living, player, rendezvous, distance);
+                        cinematic.rememberPosition(living.position());
+                        cinematic.incrementAge();
+                        continue;
+                    }
+                    if (VehicleManager.detachPlayerFromDeployedSable(player, playerData, rendezvous)) {
+                        cinematic.markSourceSpaceDetached();
+                        stabilizeFallingPlayer(player);
+                    } else {
+                        cinematic.incrementAge();
+                        continue;
+                    }
+                }
+            }
             if (cinematic.mode().isAirToGroundSwitch()) {
                 PlayerCompanionData playerData = CompanionDataService.data(player);
                 if (VehicleManager.isPlayerOnDeployedSable(player, playerData)) {
@@ -306,6 +342,7 @@ public final class CompanionMountCinematicFlowService {
         boolean startStaged = false;
         int warmupTicks = 0;
         RideHandoffService.Source rideSource = capturedRideSource(player, mount, mode);
+        RideHandoffService.retainSource(player.getUUID(), rideSource, mount.getUUID());
         PendingMountCinematic pending = new PendingMountCinematic(player.getUUID(), mount.getUUID(), moveType,
                 mode, catchY, startStaged, false, warmupTicks, mount.position(), originalNoGravity,
                 originalNoAi, externalMount, rideSource);
@@ -322,7 +359,9 @@ public final class CompanionMountCinematicFlowService {
             pending.setRescueHoverPosition(CompanionCinematicLandingService.flyingHoverTarget(level2, player));
         }
         PENDING_MOUNT_CINEMATICS.add(pending);
-        CompanionMountSwitchService.beginSimultaneousAirToGroundRetirement(pending, player, mount);
+        if (rideSource.type() != RideHandoffService.SourceType.SABLE) {
+            CompanionMountSwitchService.beginSimultaneousAirToGroundRetirement(pending, player, mount);
+        }
         FindMeDebugLogger.info("mount-cinematic", "scheduled player={} mount={} moveType={} mode={} rescueFlightMode={} restoredFromStorage={} sendArrivalMagic={} external={} warmup={} sourceType={} source={} originalNoGravity={} originalNoAi={} pos={}",
                 FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), moveType, mode,
                 rescueFlightMode, restoredFromStorage, sendArrivalMagic, externalMount, warmupTicks, rideSource.type(),
@@ -885,7 +924,11 @@ public final class CompanionMountCinematicFlowService {
     }
 
     static boolean removePending(PendingMountCinematic cinematic) {
-        return cinematic != null && PENDING_MOUNT_CINEMATICS.remove(cinematic);
+        if (cinematic == null || !PENDING_MOUNT_CINEMATICS.remove(cinematic)) {
+            return false;
+        }
+        RideHandoffService.releaseSourceRetention(cinematic.playerUuid(), cinematic.mountUuid());
+        return true;
     }
 
     public static void softLandFailedMountCatch(ServerPlayer player, LivingEntity mount) {

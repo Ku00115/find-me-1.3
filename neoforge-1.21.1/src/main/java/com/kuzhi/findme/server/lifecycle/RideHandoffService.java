@@ -23,6 +23,7 @@ public final class RideHandoffService {
     private static final double MAX_LIQUID_HANDOFF_SPEED = 2.0;
     private static final double MAX_AIR_HANDOFF_SPEED = 4.0;
     private static final Map<UUID, TransactionMotion> TRANSACTION_MOTION = new HashMap<>();
+    private static final Map<UUID, SourceRetention> SOURCE_RETENTIONS = new HashMap<>();
 
     private RideHandoffService() {
     }
@@ -150,6 +151,32 @@ public final class RideHandoffService {
         TRANSACTION_MOTION.put(playerUuid, new TransactionMotion(targetUuid, snapshot));
     }
 
+    public static void retainSource(UUID playerUuid, Source source, UUID targetUuid) {
+        if (playerUuid == null || source == null || !source.present() || targetUuid == null
+                || source.uuid().equals(targetUuid)) {
+            return;
+        }
+        SOURCE_RETENTIONS.put(playerUuid, new SourceRetention(source.type(), source.uuid(), targetUuid));
+        FindMeDebugLogger.info("vehicle-handoff",
+                "phase=SOURCE_RETENTION_ACQUIRED player={} sourceType={} source={} destination={}",
+                playerUuid, source.type(), source.uuid(), targetUuid);
+    }
+
+    public static boolean isRetainedSource(UUID playerUuid, UUID sourceUuid) {
+        SourceRetention retention = playerUuid == null ? null : SOURCE_RETENTIONS.get(playerUuid);
+        return retention != null && sourceUuid != null && sourceUuid.equals(retention.sourceUuid);
+    }
+
+    public static void releaseSourceRetention(UUID playerUuid, UUID targetUuid) {
+        SourceRetention retention = playerUuid == null ? null : SOURCE_RETENTIONS.get(playerUuid);
+        if (retention != null && (targetUuid == null || targetUuid.equals(retention.targetUuid))) {
+            SOURCE_RETENTIONS.remove(playerUuid, retention);
+            FindMeDebugLogger.info("vehicle-handoff",
+                    "phase=SOURCE_RETENTION_RELEASED player={} sourceType={} source={} destination={}",
+                    playerUuid, retention.sourceType, retention.sourceUuid, retention.targetUuid);
+        }
+    }
+
     public static Optional<MotionSnapshot> consumeTransactionMotion(UUID playerUuid, UUID targetUuid) {
         TransactionMotion pending = playerUuid == null ? null : TRANSACTION_MOTION.get(playerUuid);
         if (pending == null || targetUuid == null || !targetUuid.equals(pending.targetUuid)) {
@@ -174,6 +201,7 @@ public final class RideHandoffService {
 
     public static void resetServerState() {
         TRANSACTION_MOTION.clear();
+        SOURCE_RETENTIONS.clear();
     }
 
     public static boolean applyCompatibleMotion(MotionSnapshot snapshot, Entity target,
@@ -277,5 +305,8 @@ public final class RideHandoffService {
     }
 
     private record TransactionMotion(UUID targetUuid, MotionSnapshot snapshot) {
+    }
+
+    private record SourceRetention(SourceType sourceType, UUID sourceUuid, UUID targetUuid) {
     }
 }

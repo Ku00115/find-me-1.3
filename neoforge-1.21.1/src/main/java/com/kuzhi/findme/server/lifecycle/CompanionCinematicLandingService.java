@@ -48,6 +48,9 @@ public final class CompanionCinematicLandingService {
     }
 
     public static Vec3 cinematicTarget(PendingMountCinematic cinematic, Level level, ServerPlayer player) {
+        if (cinematic.crossSpaceRendezvous() != null && !cinematic.sourceSpaceDetached()) {
+            return cinematic.crossSpaceRendezvous();
+        }
         if (cinematic.mode().isRescue()) {
             if (cinematic.moveType() == CompanionMoveType.WALK && level instanceof ServerLevel serverLevel) {
                 BlockPos landing = rescueAnchor(serverLevel, player);

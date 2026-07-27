@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -199,8 +200,10 @@ public final class SableVehicleCompatibility {
             FindMeDebugLogger.info("lifecycle", "operation=SABLE_VEHICLE_SNAPSHOT_CREATED player={} vehicle={} snapshotPresent=true sublevels={}",
                     player.getUUID(), uuid, exportedHandles.size());
 
-            REFLECTION.detachPlayer(player);
-            movePlayerOutOfSubLevel(player, box);
+            if (isPlayerTracking(player, handle)) {
+                REFLECTION.detachPlayer(player);
+                movePlayerOutOfSubLevel(player, box);
+            }
             for (Handle exported : exportedHandles) {
                 REFLECTION.stopMotion(exported.subLevel);
             }
@@ -231,7 +234,9 @@ public final class SableVehicleCompatibility {
 
         try {
             Vec3 anchor = restoreOrigin(tag, pos);
-            REFLECTION.detachPlayer(player);
+            if (findForEntity(player).isPresent()) {
+                REFLECTION.detachPlayer(player);
+            }
             CompoundTag placementBlueprint = tag.getCompound(BLUEPRINT).copy();
             int removedDuplicateBearings = deduplicatePropellerBearingEntities(placementBlueprint);
             if (removedDuplicateBearings > 0) {
@@ -270,7 +275,7 @@ public final class SableVehicleCompatibility {
             data.setDisplayName(placedUuid, storedName(tag));
             Vec3 center = handle.get().box().getCenter();
             data.setLastKnownPosition(placedUuid, SavedPosition.of(player.serverLevel(), center.x, center.y, center.z, player.getYRot(), player.getXRot()));
-            pushPlayerOut(player, handle.get());
+            pushPlayerOutIfTracking(player, handle.get());
             CompanionDataService.save(player, data);
             FindMeMod.LOGGER.info("FindMe restored Sable vehicle {} from blueprint snapshot as {}", uuid, placedUuid);
             return handle;
@@ -292,6 +297,48 @@ public final class SableVehicleCompatibility {
         if (player != null && handle != null) {
             REFLECTION.detachPlayer(player);
             movePlayerOutOfSubLevel(player, handle.box());
+        }
+    }
+
+    public static void pushPlayerOut(ServerPlayer player, Handle handle, Vec3 destination) {
+        if (player == null || handle == null || destination == null) {
+            return;
+        }
+        REFLECTION.detachPlayer(player);
+        player.setDeltaMovement(Vec3.ZERO);
+        player.fallDistance = 0.0f;
+        teleportPlayerKeepingView(player, destination);
+    }
+
+    public static Vec3 externalRendezvous(ServerPlayer player, Handle handle, double clearance) {
+        if (player == null || handle == null || !isReasonableVehicleBox(handle.box())) {
+            return player == null ? null : player.position();
+        }
+        AABB box = handle.box();
+        Vec3 pos = player.position();
+        double margin = Math.max(2.0, clearance);
+        double east = Math.abs(box.maxX - pos.x);
+        double west = Math.abs(pos.x - box.minX);
+        double south = Math.abs(box.maxZ - pos.z);
+        double north = Math.abs(pos.z - box.minZ);
+        double x = Mth.clamp(pos.x, box.minX, box.maxX);
+        double z = Mth.clamp(pos.z, box.minZ, box.maxZ);
+        double min = Math.min(Math.min(east, west), Math.min(south, north));
+        if (min == east) {
+            x = box.maxX + margin;
+        } else if (min == west) {
+            x = box.minX - margin;
+        } else if (min == south) {
+            z = box.maxZ + margin;
+        } else {
+            z = box.minZ - margin;
+        }
+        return new Vec3(x, pos.y, z);
+    }
+
+    private static void pushPlayerOutIfTracking(ServerPlayer player, Handle handle) {
+        if (player != null && handle != null && isPlayerTracking(player, handle)) {
+            pushPlayerOut(player, handle);
         }
     }
 

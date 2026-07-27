@@ -23,6 +23,7 @@ public final class PendingMountCinematic {
     private Vec3 rescueHoverPosition;
     private int rescueHoldAge;
     private Vec3 waitPosition;
+    private Vec3 crossSpaceRendezvous;
     private Vec3 lastCinematicPosition;
     private MountCinematicStage stage = MountCinematicStage.APPROACH;
     private int age;
@@ -32,6 +33,8 @@ public final class PendingMountCinematic {
     private boolean flyingRescueStaged;
     private boolean sourceRetirementStarted;
     private boolean contactLatched;
+    private boolean sourceSpaceDetached;
+    private int destinationRideStableTicks;
     private RideHandoffService.MotionSnapshot rideHandoff = RideHandoffService.MotionSnapshot.none();
 
     public PendingMountCinematic(UUID playerUuid, UUID mountUuid, CompanionMoveType moveType, MountCinematicMode mode, double catchY, boolean flyingRescueStaged, boolean physicalCatchOnly, int warmupTicks, Vec3 lastCinematicPosition, boolean originalNoGravity, boolean originalNoAi) {
@@ -184,6 +187,34 @@ public final class PendingMountCinematic {
 
     public void lockWait(Vec3 waitPosition) {
         this.waitPosition = waitPosition;
+    }
+
+    public Vec3 crossSpaceRendezvous() {
+        return this.crossSpaceRendezvous;
+    }
+
+    public void setCrossSpaceRendezvous(Vec3 crossSpaceRendezvous) {
+        this.crossSpaceRendezvous = crossSpaceRendezvous;
+    }
+
+    public boolean sourceSpaceDetached() {
+        return this.sourceSpaceDetached;
+    }
+
+    public void markSourceSpaceDetached() {
+        this.sourceSpaceDetached = true;
+    }
+
+    public int destinationRideStableTicks() {
+        return this.destinationRideStableTicks;
+    }
+
+    public void incrementDestinationRideStableTicks() {
+        ++this.destinationRideStableTicks;
+    }
+
+    public void resetDestinationRideStableTicks() {
+        this.destinationRideStableTicks = 0;
     }
 
     public Vec3 lastCinematicPosition() {

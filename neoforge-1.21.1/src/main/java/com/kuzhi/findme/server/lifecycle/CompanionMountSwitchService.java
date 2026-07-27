@@ -38,9 +38,22 @@ public final class CompanionMountSwitchService {
             player.setDeltaMovement(player.getDeltaMovement().x, 0.0, player.getDeltaMovement().z);
         }
         if (currentVehicle == mount) {
+            if (cinematic.rideSource().type() == RideHandoffService.SourceType.SABLE
+                    && !cinematic.sourceRetirementStarted()) {
+                cinematic.incrementDestinationRideStableTicks();
+                if (cinematic.destinationRideStableTicks() < 3) {
+                    logSableDestinationVerification(cinematic, player, mount);
+                    return;
+                }
+                retireSourceAfterBoarding(cinematic, player, mount);
+                if (!cinematic.sourceRetirementStarted()) {
+                    return;
+                }
+            }
             CompanionMountCinematicFlowService.finishMountCinematic(cinematic, player, mount, true);
             return;
         }
+        cinematic.resetDestinationRideStableTicks();
         // A verified rescue contact is a handoff barrier. Do not run the wait-point
         // pursuit again and accidentally pull the mount away before boarding.
         if (contactLatched && tryCompleteMountSwitch(server, cinematic, player, mount)) {
@@ -238,6 +251,14 @@ public final class CompanionMountSwitchService {
         }
         double rideMs = elapsedMs(phaseStartedAt);
         phaseStartedAt = System.nanoTime();
+        if (cinematic.rideSource().type() == RideHandoffService.SourceType.SABLE) {
+            cinematic.incrementDestinationRideStableTicks();
+            if (!cinematic.switched()) {
+                cinematic.setSwitched();
+            }
+            logSableDestinationVerification(cinematic, player, mount);
+            return true;
+        }
         retireSourceAfterBoarding(cinematic, player, mount);
         double retireAfterMs = elapsedMs(phaseStartedAt);
         if (!cinematic.switched()) {
@@ -254,6 +275,18 @@ public final class CompanionMountSwitchService {
 
     private static double elapsedMs(long startedAt) {
         return (System.nanoTime() - startedAt) / 1_000_000.0;
+    }
+
+    private static void logSableDestinationVerification(PendingMountCinematic cinematic,
+                                                         ServerPlayer player, LivingEntity mount) {
+        int stableTicks = cinematic.destinationRideStableTicks();
+        if (stableTicks != 1 && stableTicks != 2 && stableTicks != 3) {
+            return;
+        }
+        FindMeDebugLogger.info("vehicle-handoff",
+                "phase=SABLE_SOURCE_DESTINATION_VERIFY player={} source={} destination={} stableTicks={} riding={} passenger={}",
+                player.getUUID(), cinematic.rideSource().uuid(), mount.getUUID(), stableTicks,
+                player.getVehicle() == mount, mount.hasPassenger(player));
     }
 
     private static void logSwitchPerformance(PendingMountCinematic cinematic, ServerPlayer player,
@@ -282,8 +315,8 @@ public final class CompanionMountSwitchService {
             cinematic.markSourceRetirementStarted();
             return true;
         }
-        boolean requiresDetachFirst = source.type() == RideHandoffService.SourceType.SABLE
-                || source.airborne();
+        boolean requiresDetachFirst = source.airborne()
+                && source.type() != RideHandoffService.SourceType.SABLE;
         if (cinematic.mode().isAirToAirSwitch()) {
             requiresDetachFirst = false;
         }

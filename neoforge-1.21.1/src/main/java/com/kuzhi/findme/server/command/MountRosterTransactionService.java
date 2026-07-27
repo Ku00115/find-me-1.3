@@ -96,6 +96,7 @@ public final class MountRosterTransactionService {
         ACTIVE_BY_PLAYER.put(player.getUUID(), requestKey);
         if (action == MountRosterAction.ACTIVATE) {
             RideHandoffService.registerTransactionMotion(player.getUUID(), targetUuid, handoff);
+            RideHandoffService.retainSource(player.getUUID(), source, targetUuid);
         }
         send(player, transaction, WheelIntentPhase.STARTED, "accepted");
         FindMeDebugLogger.info("mount-roster-transaction",
@@ -372,6 +373,7 @@ public final class MountRosterTransactionService {
                 && RESULTS.contains(requestKey)) return;
         ACTIVE_BY_PLAYER.remove(transaction.playerUuid, requestKey);
         RideHandoffService.clearTransactionMotion(transaction.playerUuid, transaction.targetUuid);
+        RideHandoffService.releaseSourceRetention(transaction.playerUuid, transaction.targetUuid);
         MountRosterIntentResultPacket packet = packet(player, transaction, phase, reason);
         RESULTS.put(requestKey, packet,
                 player.serverLevel().getGameTime() + RESULT_CACHE_TICKS);
@@ -423,6 +425,7 @@ public final class MountRosterTransactionService {
         ACTIVE_BY_REQUEST.remove(requestKey, transaction);
         ACTIVE_BY_PLAYER.remove(transaction.playerUuid, requestKey);
         RideHandoffService.clearTransactionMotion(transaction.playerUuid, transaction.targetUuid);
+        RideHandoffService.releaseSourceRetention(transaction.playerUuid, transaction.targetUuid);
     }
 
     private enum OperationPhase {

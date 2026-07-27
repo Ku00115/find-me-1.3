@@ -31,7 +31,8 @@ public final class CompanionDeploymentService {
         }
         boolean changed = false;
         for (UUID uuid : List.copyOf(data.deployedList(kind))) {
-            if (uuid.equals(keepUuid) || uuid.equals(excludedUuid)) {
+            if (uuid.equals(keepUuid) || uuid.equals(excludedUuid)
+                    || RideHandoffService.isRetainedSource(player.getUUID(), uuid)) {
                 continue;
             }
             changed |= collectOne(player, data, kind, uuid);

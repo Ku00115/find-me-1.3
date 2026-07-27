@@ -1082,6 +1082,7 @@ public final class VehicleManager {
                     PENDING_SABLE_HANDOFFS.removeIf(handoff -> handoff.playerUuid.equals(player.getUUID()));
                     PENDING_SABLE_HANDOFFS.add(new PendingSableHandoff(player.getUUID(), pending.vehicleUuid,
                             restoredUuid, rideSource, pending.position));
+                    RideHandoffService.retainSource(player.getUUID(), rideSource, restoredUuid);
                     FindMeDebugLogger.info("vehicle-handoff",
                             "phase=SABLE_DESTINATION_RESTORED player={} sourceType={} source={} requested={} destination={} warmupTicks={}",
                             player.getUUID(), rideSource.type(), rideSource.uuid(), pending.vehicleUuid,
@@ -1245,6 +1246,7 @@ public final class VehicleManager {
                         pending.destinationUuid, pending.age, pending.stableTicks);
                 tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA,
                         Component.literal(handle.name()));
+                RideHandoffService.releaseSourceRetention(player.getUUID(), pending.destinationUuid);
                 iterator.remove();
                 continue;
             }
@@ -1284,6 +1286,7 @@ public final class VehicleManager {
                 player.getUUID(), pending.source.type(), pending.source.uuid(), pending.requestedUuid,
                 pending.destinationUuid, reason, pending.age, pending.stableTicks);
         tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
+        RideHandoffService.releaseSourceRetention(player.getUUID(), pending.destinationUuid);
         iterator.remove();
     }
 
@@ -1922,6 +1925,31 @@ public final class VehicleManager {
         return true;
     }
 
+    public static Optional<Vec3> sableExternalHandoffPoint(ServerPlayer player, PlayerCompanionData data,
+                                                            LivingEntity destination) {
+        if (player == null || data == null || destination == null) {
+            return Optional.empty();
+        }
+        return currentDeployedSableForPlayer(player, data).map(handle ->
+                SableVehicleCompatibility.externalRendezvous(player, handle,
+                        Math.max(2.0, destination.getBbWidth() * 0.5 + 1.5)));
+    }
+
+    public static boolean detachPlayerFromDeployedSable(ServerPlayer player, PlayerCompanionData data,
+                                                         Vec3 destination) {
+        Optional<SableVehicleCompatibility.Handle> current = currentDeployedSableForPlayer(player, data);
+        if (current.isEmpty() || destination == null) {
+            return false;
+        }
+        SableVehicleCompatibility.Handle handle = current.get();
+        FindMeDebugLogger.info("sable-mount-switch",
+                "phase=EXTERNAL_HANDOFF_DETACH player={} sable={} destination={} box={}",
+                player.getUUID(), handle.uuid(), destination, FindMeDebugLogger.box(handle.box()));
+        SableVehicleCompatibility.pushPlayerOut(player, handle, destination);
+        VehicleSeatService.cleanup(player);
+        return true;
+    }
+
     private static Optional<SableVehicleCompatibility.Handle> currentDeployedSableForPlayer(ServerPlayer player, PlayerCompanionData data) {
         if (player == null || data == null) {
             return Optional.empty();
@@ -2007,6 +2035,9 @@ public final class VehicleManager {
             if (otherVehicle.equals(keepVehicleUuid) || otherVehicle.equals(excludedUuid)) {
                 continue;
             }
+            if (RideHandoffService.isRetainedSource(player.getUUID(), otherVehicle)) {
+                continue;
+            }
             Optional<SableVehicleCompatibility.Handle> liveSable = SableVehicleCompatibility.find(player, otherVehicle);
             if (liveSable.isPresent()) {
                 if (SableVehicleCompatibility.store(player, data, liveSable.get())) {
@@ -2029,6 +2060,9 @@ public final class VehicleManager {
         }
         data.deployedVehicle().ifPresent(previous -> {
             if (previous.equals(keepVehicleUuid) || previous.equals(excludedUuid)) {
+                return;
+            }
+            if (RideHandoffService.isRetainedSource(player.getUUID(), previous)) {
                 return;
             }
             if (isSableVehicle(player, data, previous)) {
