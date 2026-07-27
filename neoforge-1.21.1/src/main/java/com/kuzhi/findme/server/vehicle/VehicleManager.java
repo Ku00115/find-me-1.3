@@ -1143,6 +1143,29 @@ public final class VehicleManager {
                         entity.setDeltaMovement(sourceEntity.getDeltaMovement());
                     }
                 }
+                if (rideSource.type() == RideHandoffService.SourceType.SABLE) {
+                    Vec3 rendezvous = sableExternalHandoffPoint(player, data, entity).orElse(null);
+                    if (rendezvous == null
+                            || !detachPlayerFromDeployedSable(player, data, rendezvous)) {
+                        storeVehicle(player, data, entity);
+                        data.clearDeployedVehicle(pending.vehicleUuid);
+                        CompanionDataService.save(player, data);
+                        syncToClient(player);
+                        FindMeDebugLogger.info("vehicle-handoff",
+                                "phase=SABLE_ENTITY_RENDEZVOUS_FAILED player={} source={} destination={} destinationType={}",
+                                player.getUUID(), rideSource.uuid(), pending.vehicleUuid, entityType(entity));
+                        tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
+                        continue;
+                    }
+                    entity.teleportTo(rendezvous.x, rendezvous.y, rendezvous.z);
+                    entity.setDeltaMovement(Vec3.ZERO);
+                    entity.fallDistance = 0.0f;
+                    entity.hurtMarked = true;
+                    currentRide = null;
+                    FindMeDebugLogger.info("vehicle-handoff",
+                            "phase=SABLE_ENTITY_RENDEZVOUS_READY player={} source={} destination={} destinationType={} position={}",
+                            player.getUUID(), rideSource.uuid(), pending.vehicleUuid, entityType(entity), rendezvous);
+                }
                 if (!tryBoardManagedVehicle(player, data, entity, currentRide)) {
                     storeVehicle(player, data, entity);
                     data.clearDeployedVehicle(pending.vehicleUuid);
@@ -1926,7 +1949,7 @@ public final class VehicleManager {
     }
 
     public static Optional<Vec3> sableExternalHandoffPoint(ServerPlayer player, PlayerCompanionData data,
-                                                            LivingEntity destination) {
+                                                            Entity destination) {
         if (player == null || data == null || destination == null) {
             return Optional.empty();
         }

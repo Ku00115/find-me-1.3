@@ -5,6 +5,7 @@ import com.cobblemon.mod.common.entity.pokemon.PokemonEntity;
 import com.cobblemon.mod.common.client.entity.PokemonClientDelegate;
 import com.cobblemon.mod.common.pokemon.Pokemon;
 import com.kuzhi.findme.FindMeMod;
+import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.entity.Entity;
@@ -26,7 +27,7 @@ public final class CobblemonPreviewFactory {
         }
         PokemonEntity entity = new PokemonEntity(level, pokemon, CobblemonEntities.POKEMON);
         entity.moveTo(0.0, 0.0, 0.0, 0.0f, 0.0f);
-        FindMeMod.LOGGER.info("FindMe created Cobblemon preview: pokemon={}, species={}",
+        FindMeDebugLogger.info("preview", "FindMe created Cobblemon preview: pokemon={}, species={}",
                 pokemon.getUuid(), pokemon.getSpecies().getResourceIdentifier());
         return entity;
     }

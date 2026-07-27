@@ -62,7 +62,7 @@ public final class CompanionHomeResidentService {
             return;
         }
         CompanionHomePerformanceTrace trace = new CompanionHomePerformanceTrace(player);
-        long stageStartedAt = System.nanoTime();
+        long stageStartedAt = trace.start();
         List<HomeResidentIndex.Entry> entries = CompanionDataService.homeResidentIndex(player).entries();
         trace.record(CompanionHomePerformanceTrace.ROSTER, stageStartedAt);
         int total = entries.size();
@@ -87,7 +87,7 @@ public final class CompanionHomeResidentService {
                 continue;
             }
             boolean changed = false;
-            stageStartedAt = System.nanoTime();
+            stageStartedAt = trace.start();
             LivingEntity ridden = findRiddenLiving(player, uuid);
             if (ridden != null) {
                 trace.record(CompanionHomePerformanceTrace.RESOLVE, stageStartedAt);
@@ -95,7 +95,7 @@ public final class CompanionHomeResidentService {
                     RESTORE_RETRIES.remove(uuid);
                     continue;
                 }
-                stageStartedAt = System.nanoTime();
+                stageStartedAt = trace.start();
                 changed = reconcileRiddenCompanion(mutableData.get(), kind, ridden);
                 trace.record(CompanionHomePerformanceTrace.RECONCILE, stageStartedAt);
             } else {
@@ -131,22 +131,22 @@ public final class CompanionHomeResidentService {
                     RESTORE_RETRIES.remove(uuid);
                     continue;
                 }
-                stageStartedAt = System.nanoTime();
+                stageStartedAt = trace.start();
                 if (entry.lifecycleState() == CompanionLifecycleState.HOME_ACTIVE) {
                     changed |= reconcileResident(mutableData.get(), kind, uuid, liveEntity, homeTarget);
                 }
                 trace.record(CompanionHomePerformanceTrace.RECONCILE, stageStartedAt);
-                stageStartedAt = System.nanoTime();
+                stageStartedAt = trace.start();
                 if (isResident(uuid)) {
                     changed |= collectResidentOutsideTrackedView(player, mutableData.get(), uuid, liveEntity, homeTarget);
                 }
                 trace.record(CompanionHomePerformanceTrace.COLLECT, stageStartedAt);
-                stageStartedAt = System.nanoTime();
+                stageStartedAt = trace.start();
                 boolean restoreEligible = shouldRestoreResident(entry, homeTarget);
                 boolean retryReady = restoreEligible && restoreRetryReady(uuid, player.serverLevel().getGameTime());
                 trace.record(CompanionHomePerformanceTrace.ELIGIBILITY, stageStartedAt);
                 if (restores < MAX_RESTORES_PER_TICK && retryReady) {
-                    stageStartedAt = System.nanoTime();
+                    stageStartedAt = trace.start();
                     if (restoreResidentNearHouse(player, mutableData.get(), kind, uuid, homeTarget)) {
                         changed = true;
                         restores++;
@@ -167,7 +167,7 @@ public final class CompanionHomeResidentService {
         }
         PLAYER_CHECK_CURSOR.put(player.getUUID(), (cursor + records) % total);
         if (mountsChanged || companionsChanged) {
-            stageStartedAt = System.nanoTime();
+            stageStartedAt = trace.start();
             CompanionDataService.save(player, mutableData.get());
             if (mountsChanged) {
                 CompanionSyncService.syncToClient(player, CompanionKind.MOUNT);
@@ -832,7 +832,7 @@ public final class CompanionHomeResidentService {
 
         private PlayerCompanionData get() {
             if (value == null) {
-                long startedAt = System.nanoTime();
+                long startedAt = trace.start();
                 value = CompanionDataService.data(player);
                 trace.record(CompanionHomePerformanceTrace.DATA, startedAt);
             }

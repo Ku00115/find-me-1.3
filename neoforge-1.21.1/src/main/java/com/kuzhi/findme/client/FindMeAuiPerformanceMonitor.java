@@ -1,5 +1,6 @@
 package com.kuzhi.findme.client;
 
+import com.kuzhi.findme.Config;
 import com.kuzhi.findme.FindMeMod;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -17,10 +18,13 @@ final class FindMeAuiPerformanceMonitor {
     }
 
     static long start() {
-        return System.nanoTime();
+        return Config.enableDiagnosticLogging ? System.nanoTime() : 0L;
     }
 
     static void record(Object screen, String phase, long startedAt, double warningMs) {
+        if (!Config.enableDiagnosticLogging) {
+            return;
+        }
         long elapsed = Math.max(0L, System.nanoTime() - startedAt);
         String key = screen.getClass().getSimpleName() + '.' + phase;
         Sample sample = SAMPLES.computeIfAbsent(key, ignored -> new Sample());
