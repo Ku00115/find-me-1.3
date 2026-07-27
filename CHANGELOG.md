@@ -11,6 +11,9 @@
 - Fixed existing wheel vehicles becoming hidden from the wheel, teams, or management after the first Sable vehicle binding creates an automatic vehicle team.
 - The server now sends the actual complete vehicle roster, while the client defensively merges wheel entries into that roster so packet order or a partial list cannot hide vehicles again.
 - Added `vehicle-roster` count diagnostics and a first-auto-team regression test. Forge and NeoForge are synchronized and pass full builds; the NeoForge candidate is deployed for in-game acceptance.
+- Fixed stored entity vehicles refusing to start a cross-system handoff while the player was still riding the source. Immersive Aircraft now uses its native passenger relationship, and the source retires only after boarding is confirmed.
+- NeoForge Sable handoff now warms up the restored sub-level, verifies moving-seat tracking for consecutive ticks, and only then retires the source. Sable UUID replacement is accepted by the roster transaction instead of waiting forever on the stored UUID.
+- Added bounded `vehicle-handoff` diagnostics for boarding attempts, Sable warmup/tracking, commit, timeout, and rollback. The global diagnostic switch still controls these messages.
 
 ---
 

@@ -28,6 +28,7 @@ import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.server.core.CompanionOperationLockService;
 import com.kuzhi.findme.common.ModItems;
+import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.NamePaperItem;
 import com.kuzhi.findme.common.SavedPosition;
 import com.kuzhi.findme.common.VehicleCommandAction;
@@ -1003,9 +1004,6 @@ public final class VehicleManager {
                 tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA, Component.literal(restored.get().name()));
                 continue;
             }
-            if (currentRide != null && !currentRide.getUUID().equals(pending.vehicleUuid)) {
-                continue;
-            }
             Entity entity = restoreVehicle(player, data, pending.vehicleUuid, pending.position).orElse(null);
             if (entity == null || entity.isRemoved()) {
                 data.clearDeployedVehicle(pending.vehicleUuid);
@@ -1019,6 +1017,49 @@ public final class VehicleManager {
             entity.setYRot(player.getYRot());
             entity.setXRot(player.getXRot());
             entity.fallDistance = 0.0f;
+            if (rideSource.present() && !rideSource.uuid().equals(pending.vehicleUuid)) {
+                RideHandoffService.MotionSnapshot transactionMotion = RideHandoffService.transactionMotion(
+                        player.getUUID(), pending.vehicleUuid).orElse(null);
+                if (transactionMotion == null
+                        || !RideHandoffService.applyCompatibleMotion(transactionMotion, entity,
+                        CompanionEntityClassifier.moveType(entity, CompanionKind.MOUNT))) {
+                    Entity sourceEntity = rideSource.entity();
+                    if (sourceEntity != null && !sourceEntity.isRemoved()) {
+                        entity.setYRot(sourceEntity.getYRot());
+                        entity.setXRot(sourceEntity.getXRot());
+                        entity.setDeltaMovement(sourceEntity.getDeltaMovement());
+                    }
+                }
+                if (!tryBoardManagedVehicle(player, data, entity, currentRide)) {
+                    storeVehicle(player, data, entity);
+                    data.clearDeployedVehicle(pending.vehicleUuid);
+                    CompanionDataService.save(player, data);
+                    syncToClient(player);
+                    FindMeDebugLogger.info("vehicle-handoff",
+                            "phase=DESTINATION_BOARD_FAILED player={} sourceType={} source={} destination={} destinationType={}",
+                            player.getUUID(), rideSource.type(), rideSource.uuid(), pending.vehicleUuid,
+                            entityType(entity));
+                    tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
+                    continue;
+                }
+                if (!RideHandoffService.retireSourceForSwitch(player, data, rideSource,
+                        pending.vehicleUuid, "vehicle:pending_entity")) {
+                    storeVehicle(player, data, entity);
+                    data.clearDeployedVehicle(pending.vehicleUuid);
+                    restoreSourceRideAfterFailedRetirement(player, data, rideSource);
+                    CompanionDataService.save(player, data);
+                    syncToClient(player);
+                    FindMeDebugLogger.info("vehicle-handoff",
+                            "phase=SOURCE_RETIREMENT_FAILED player={} sourceType={} source={} destination={}",
+                            player.getUUID(), rideSource.type(), rideSource.uuid(), pending.vehicleUuid);
+                    tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
+                    continue;
+                }
+                FindMeDebugLogger.info("vehicle-handoff",
+                        "phase=HANDOFF_COMMITTED player={} sourceType={} source={} destination={} destinationType={} riding={}",
+                        player.getUUID(), rideSource.type(), rideSource.uuid(), pending.vehicleUuid,
+                        entityType(entity), VehicleCompatibilityService.isRiding(player, entity));
+            }
             enforceSingleRideSlotForVehicle(player, data, pending.vehicleUuid, currentRide);
             data.setDeployedVehicle(pending.vehicleUuid);
             data.setLastKnownPosition(pending.vehicleUuid, SavedPosition.of(entity.level(), entity.getX(), entity.getY(), entity.getZ(), entity.getYRot(), entity.getXRot()));
@@ -1026,6 +1067,15 @@ public final class VehicleManager {
             syncToClient(player);
             tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA, entity.getDisplayName());
         }
+    }
+
+    private static boolean tryBoardManagedVehicle(ServerPlayer player, PlayerCompanionData data,
+                                                  Entity target, Entity previousRide) {
+        if (VehicleCompatibilityService.tryBoardVehicle(player, target, previousRide)) {
+            return true;
+        }
+        return VehicleSeatService.hasSeat(data, target.getUUID())
+                && VehicleSeatService.trySeat(player, target, previousRide, data);
     }
 
     public static boolean shouldCancelSwitchVehicleDamage(LivingEntity victim, DamageSource source) {

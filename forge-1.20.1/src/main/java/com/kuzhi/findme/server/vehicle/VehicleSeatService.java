@@ -139,6 +139,17 @@ public final class VehicleSeatService {
         }
     }
 
+    public static void cleanupIfSessionFor(ServerPlayer player, UUID vehicleUuid) {
+        if (player == null || vehicleUuid == null) {
+            return;
+        }
+        SeatSession session = SESSIONS.get(player.getUUID());
+        if (session != null && vehicleUuid.equals(session.vehicleUuid)) {
+            SESSIONS.remove(player.getUUID(), session);
+            session.anchor.discard();
+        }
+    }
+
     static boolean discardOrphan(Entity entity) {
         if (isSeatAnchor(entity)) {
             entity.discard();

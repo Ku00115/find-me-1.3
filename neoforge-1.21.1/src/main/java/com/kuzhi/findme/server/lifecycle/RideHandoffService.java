@@ -212,7 +212,7 @@ public final class RideHandoffService {
         if (entity == null || entity.isRemoved()) {
             return false;
         }
-        VehicleSeatService.cleanup(player);
+        VehicleSeatService.cleanupIfSessionFor(player, entity.getUUID());
         return VehicleManager.collectIfFindMeVehicle(player, data, entity);
     }
 
