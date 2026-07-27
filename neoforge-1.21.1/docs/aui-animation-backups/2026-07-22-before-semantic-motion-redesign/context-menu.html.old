@@ -1,0 +1,50 @@
+<body>
+  <div id="findme-context-overlay-root" class="findme-context-overlay-root">
+    <div id="findme-context-layer" class="findme-context-layer"></div>
+    <div id="findme-transition-layer" class="findme-transition-layer"></div>
+  </div>
+</body>
+
+<style>
+  * { box-sizing: border-box; letter-spacing: 0; }
+  body { width: 100%; height: 100%; margin: 0; overflow: hidden; font-family: minecraft,sans-serif; pointer-events: none; }
+  .findme-context-overlay-root { position: relative; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
+  .findme-context-layer,.findme-transition-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
+  .findme-context-dismiss { position: absolute; z-index: 1; inset: 0; display: block; background-color: rgba(0,0,0,0); pointer-events: auto; }
+
+  .context-menu,.house-context-menu { position: absolute; z-index: 2; left: 0; top: 0; width: 91px; max-height: var(--fm-context-max-height); display: flex; flex-direction: column; gap: 1px; padding: 3px; overflow-x: hidden; overflow-y: auto; color: #eef1f2; border-left: 1px solid #16b5df; background-color: rgba(32,40,45,0.995); box-shadow: 0 1px 3px rgba(0,0,0,0.42); transform-origin: center center; pointer-events: auto; }
+  .context-menu.warehouse-context { width: 100px; }
+  .menu-title,.house-menu-title { min-height: 15px; display: flex; align-items: center; overflow: hidden; color: #ffffff; font-size: 12px; line-height: 12px; font-weight: bold; white-space: nowrap; }
+  .menu-input,.house-menu-input { width: 100%; height: 15px; padding: 2px 3px; border: 1px solid #606b70; background-color: #11171b; color: #ffffff; font-family: minecraft,sans-serif; font-size: 8px; transition: border-color 80ms ease-out,background-color 80ms ease-out; }
+  .menu-input:focus,.house-menu-input:focus { color: #ffffff; border-color: #16b5df; background-color: #11171b; box-shadow: inset 2px 0 rgba(22,181,223,0.28); }
+  .menu-button,.house-menu-button { width: 100%; min-height: 14px; display: flex; align-items: center; padding: 2px 3px; border: 1px solid #4d5960; color: #dbe0e2; background-color: rgba(255,255,255,0.025); font-size: 9px; line-height: 9px; transition: transform 65ms ease-out,border-color 80ms ease-out,background-color 80ms ease-out; pointer-events: auto; }
+  .menu-button:hover,.house-menu-button:hover { color: #ffffff; border-color: #16b5df; background-color: rgba(22,181,223,0.12); }
+  .menu-button:active,.house-menu-button:active { transform: translateX(1px) translateY(1px); }
+  .menu-button > span { min-width: 0; display: block; flex: 1; overflow: hidden; white-space: nowrap; }
+  .menu-button > small { display: block; margin-left: 3px; color: #9da8ad; font-size: 7px; white-space: nowrap; }
+  .menu-button.disabled { color: #778288; border-color: #465158; pointer-events: none; }
+  .menu-button.active { color: #172027; border-color: #16b5df; background-color: #16b5df; }
+  .house-menu-button.muted { color: #9aa5aa; }
+  .warehouse-team-menu,.warehouse-style-menu { width: 100%; max-height: 77px; display: flex; flex-direction: column; gap: 1px; overflow-x: hidden; overflow-y: auto; }
+  .animation-purpose { min-height: 16px; }
+  .danger { color: #efaaaa; border-color: #9d4e4e; }
+  .menu-divider { width: 100%; height: 1px; margin: 1px 0; background-color: #47535a; }
+
+  .house-menu-detail { width: 100%; min-height: 23px; display: flex; flex-direction: column; justify-content: center; padding: 2px 3px; overflow: hidden; border: 1px solid #465158; background-color: rgba(255,255,255,0.025); }
+  .house-menu-detail small { display: block; color: #879399; font-size: 7px; }
+  .house-menu-detail b { display: block; margin-top: 2px; overflow: hidden; color: #dbe0e2; font-size: 8px; font-weight: normal; white-space: nowrap; }
+
+  .fm-context-open { animation: fm-context-paper-open 110ms cubic-bezier(0.18,0.80,0.22,1) both; }
+  .fm-context-forward { animation: fm-context-page-forward 105ms ease-out both; }
+  .fm-context-back { animation: fm-context-page-back 105ms ease-out both; }
+  .fm-context-alert { animation: fm-context-alert-in 115ms ease-out both; }
+  .fm-context-open > *,.fm-context-forward > *,.fm-context-back > *,.fm-context-alert > * { animation: fm-context-content-in 82ms 30ms ease-out both; }
+  @keyframes fm-context-paper-open { 0% { opacity: 0; transform: translateX(-5px) scaleX(0.10) scaleY(0.20) skewX(-8deg); } 62% { opacity: 1; transform: translateX(1px) scaleX(1.03) scaleY(0.94) skewX(1deg); } 100% { opacity: 1; transform: translateX(0) scaleX(1) scaleY(1); } }
+  @keyframes fm-context-page-forward { 0% { opacity: 0.42; transform: translateX(-8px) scaleX(0.78) skewX(-5deg); } 100% { opacity: 1; transform: translateX(0) scaleX(1); } }
+  @keyframes fm-context-page-back { 0% { opacity: 0.42; transform: translateX(8px) scaleX(0.78) skewX(5deg); } 100% { opacity: 1; transform: translateX(0) scaleX(1); } }
+  @keyframes fm-context-alert-in { 0% { opacity: 0.38; transform: translateX(-3px) scaleX(0.82); } 58% { opacity: 1; transform: translateX(1px) scaleX(1.03); } 100% { opacity: 1; transform: translateX(0) scaleX(1); } }
+  @keyframes fm-context-content-in { 0% { opacity: 0; transform: translateX(-3px); } 100% { opacity: 1; transform: translateX(0); } }
+
+  /* The visual fold lives in the page itself. This top document only locks input. */
+  .fm-transition-input-blocker { position: absolute; z-index: 20; inset: 0; width: 100%; height: 100%; display: block; background-color: rgba(0,0,0,0); pointer-events: auto; }
+</style>

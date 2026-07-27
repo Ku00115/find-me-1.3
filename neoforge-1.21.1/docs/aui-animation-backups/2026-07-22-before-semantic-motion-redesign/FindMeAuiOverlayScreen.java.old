@@ -1,0 +1,230 @@
+package com.kuzhi.findme.client;
+
+import com.sighs.apricityui.init.Document;
+import com.sighs.apricityui.init.Element;
+import com.sighs.apricityui.instance.ApricityScreen;
+import com.sighs.apricityui.render.Base;
+import com.sighs.apricityui.style.Cursor;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import org.jetbrains.annotations.NotNull;
+
+/** Apricity screen with a second, truly top-most document for transient menus. */
+abstract class FindMeAuiOverlayScreen extends ApricityScreen {
+    private static final String OVERLAY_PATH = "findme/overlay/context-menu.html";
+    private Document cachedMainDocument;
+    private Document overlayDocument;
+    private final FindMeAuiTransitionController transitionController = new FindMeAuiTransitionController();
+    private boolean closingImmediately;
+    private boolean reusedMainDocument;
+
+    protected FindMeAuiOverlayScreen(String templatePath) {
+        super(templatePath);
+    }
+
+    @Override
+    protected void init() {
+        closingImmediately = false;
+        reusedMainDocument = cachedMainDocument != null && cachedMainDocument.isActive();
+        if (!reusedMainDocument) {
+            super.init();
+            cachedMainDocument = super.getLinkedDocument();
+        } else {
+            attachDocument(cachedMainDocument);
+        }
+        if (overlayDocument == null || !overlayDocument.isActive()) {
+            overlayDocument = Document.create(OVERLAY_PATH);
+        } else {
+            attachDocument(overlayDocument);
+            clearOverlayMarkup();
+            setTransitionMarkup("");
+        }
+        syncOverlaySize();
+        transitionController.enter(transitionHost);
+    }
+
+    @Override
+    public Document getLinkedDocument() {
+        return cachedMainDocument != null && cachedMainDocument.isActive()
+                ? cachedMainDocument : super.getLinkedDocument();
+    }
+
+    protected final boolean reusedMainDocument() {
+        return reusedMainDocument;
+    }
+
+    protected final Document getOverlayDocument() {
+        return overlayDocument;
+    }
+
+    protected final Element getOverlayRoot() {
+        return overlayDocument == null ? null : overlayDocument.getElementById("findme-context-layer");
+    }
+
+    protected final void setOverlayMarkup(String markup) {
+        Element root = getOverlayRoot();
+        if (root == null || overlayDocument == null) return;
+        syncOverlaySize();
+        root.setInnerHTML(markup == null ? "" : markup);
+        overlayDocument.rebuildSelectorIndex();
+        overlayDocument.reapplyStylesFromCache();
+    }
+
+    protected final void clearOverlayMarkup() {
+        setOverlayMarkup("");
+    }
+
+    protected final boolean transitionPage(Runnable pageChange) {
+        return transitionController.start(transitionHost, pageChange, true);
+    }
+
+    protected final boolean transitionClose() {
+        return transitionController.start(transitionHost, this::closeImmediately, false);
+    }
+
+    protected final boolean isPageRevealing() {
+        return transitionController.isRevealing();
+    }
+
+    protected final boolean isTransitionRunning() {
+        return transitionController.isRunning();
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        transitionController.update(transitionHost);
+    }
+
+    @Override
+    public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        transitionController.update(transitionHost);
+        if (getLinkedDocument() != null) {
+            Base.drawScreenDocument(graphics.pose(), getLinkedDocument());
+        }
+        if (overlayDocument != null) {
+            graphics.pose().pushPose();
+            graphics.pose().translate(0.0f, 0.0f, 500.0f);
+            Base.drawScreenDocument(graphics.pose(), overlayDocument);
+            graphics.pose().popPose();
+        }
+        Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
+        Cursor.drawPseudoCursor(graphics);
+    }
+
+    @Override
+    public void onClose() {
+        if (!closingImmediately && transitionClose()) return;
+        closeImmediately();
+    }
+
+    @Override
+    public void removed() {
+        detachDocument(overlayDocument);
+        detachDocument(cachedMainDocument);
+        Cursor.resetToDefault();
+    }
+
+    protected final void discardCachedDocuments() {
+        if (overlayDocument != null && overlayDocument.isActive()) {
+            attachDocument(overlayDocument);
+            overlayDocument.remove();
+        }
+        if (cachedMainDocument != null && cachedMainDocument.isActive()) {
+            attachDocument(cachedMainDocument);
+            cachedMainDocument.remove();
+        }
+        overlayDocument = null;
+        cachedMainDocument = null;
+    }
+
+    private static void attachDocument(Document document) {
+        if (document != null && document.isActive() && !Document.getAll().contains(document)) {
+            Document.getAll().add(document);
+        }
+    }
+
+    private static void detachDocument(Document document) {
+        if (document != null) Document.getAll().remove(document);
+    }
+
+    private void syncOverlaySize() {
+        if (overlayDocument == null) return;
+        Element frame = overlayDocument.getElementById("findme-context-overlay-root");
+        if (frame != null) {
+            frame.setAttribute("style", "width:" + Math.max(1, width) + "px;height:" + Math.max(1, height)
+                    + "px;--fm-context-max-height:" + Math.max(40, height - 8) + "px");
+        }
+    }
+
+    private void setTransitionMarkup(String markup) {
+        if (overlayDocument == null) return;
+        syncOverlaySize();
+        Element root = overlayDocument.getElementById("findme-transition-layer");
+        if (root == null) return;
+        root.setInnerHTML(markup == null ? "" : markup);
+        overlayDocument.rebuildSelectorIndex();
+        overlayDocument.reapplyStylesFromCache();
+    }
+
+    private void closeImmediately() {
+        if (closingImmediately) return;
+        closingImmediately = true;
+        detachDocument(overlayDocument);
+        detachDocument(cachedMainDocument);
+        Cursor.resetToDefault();
+        Minecraft.getInstance().setScreen(null);
+    }
+
+    private void removeTransitionClasses() {
+        Document document = getLinkedDocument();
+        if (document == null) return;
+        for (Element page : document.querySelectorAll(".fm-page-reveal,.fm-page-fold-in")) {
+            String classes = page.getAttribute("class");
+            if (classes != null) {
+                page.setClassName((" " + classes + " ")
+                        .replace(" fm-page-reveal ", " ")
+                        .replace(" fm-page-fold-in ", " ").trim());
+            }
+        }
+    }
+
+    private void addPageClass(String className) {
+        Document document = getLinkedDocument();
+        if (document == null || className == null || className.isBlank()) return;
+        for (String selector : new String[]{".fm-page", ".house-page"}) {
+            Element page = document.querySelector(selector);
+            if (page == null) continue;
+            String classes = page.getAttribute("class");
+            String padded = " " + (classes == null ? "" : classes.trim()) + " ";
+            if (!padded.contains(" " + className + " ")) {
+                page.setClassName((padded + className).trim());
+            }
+            break;
+        }
+    }
+
+    private final FindMeAuiTransitionController.Host transitionHost = new FindMeAuiTransitionController.Host() {
+        @Override
+        public void beginFoldIn() {
+            removeTransitionClasses();
+            addPageClass("fm-page-fold-in");
+        }
+
+        @Override
+        public void beginFoldOut() {
+            removeTransitionClasses();
+            addPageClass("fm-page-reveal");
+        }
+
+        @Override
+        public void finishFoldOut() {
+            removeTransitionClasses();
+        }
+
+        @Override
+        public void setInputBlocked(boolean blocked) {
+            setTransitionMarkup(blocked ? "<div class='fm-transition-input-blocker'></div>" : "");
+        }
+    };
+}

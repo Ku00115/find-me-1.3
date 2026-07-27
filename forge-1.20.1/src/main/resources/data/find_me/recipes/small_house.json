@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "tag": "minecraft:wooden_slabs"
+    },
+    {
+      "item": "find_me:name_paper"
+    }
+  ],
+  "result": {
+    "item": "find_me:small_house",
+    "count": 1
+  }
+}

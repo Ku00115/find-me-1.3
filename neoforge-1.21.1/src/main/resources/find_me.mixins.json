@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.kuzhi.findme.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "HomeResidentCollisionMixin",
+    "ServerGamePacketListenerImplMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,27 @@
+### Gradle and IDE ###
+**/.gradle/
+**/build/
+**/out/
+**/.idea/
+**/.run/
+**/run/
+**/run-data/
+**/repo/
+*.iml
+
+### Local artifacts and diagnostics ###
+**/logs/
+**/recovery-backups/
+**/.restore-compare/
+**/dist/
+**/libs/*.jar
+*.jar
+*.zip
+
+### Keep Gradle wrappers ###
+!**/gradle/wrapper/gradle-wrapper.jar
+
+### OS and editor ###
+.DS_Store
+Thumbs.db
+.vscode/

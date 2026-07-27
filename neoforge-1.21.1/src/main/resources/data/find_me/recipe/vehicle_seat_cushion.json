@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    "P",
+    "S"
+  ],
+  "key": {
+    "P": { "item": "find_me:name_paper" },
+    "S": { "item": "minecraft:stick" }
+  },
+  "result": {
+    "id": "find_me:vehicle_seat_cushion",
+    "count": 1
+  }
+}

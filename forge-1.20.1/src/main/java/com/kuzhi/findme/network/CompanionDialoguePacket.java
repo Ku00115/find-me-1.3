@@ -1,0 +1,37 @@
+package com.kuzhi.findme.network;
+
+import net.minecraft.resources.ResourceLocation;
+
+import com.kuzhi.findme.FindMeMod;
+
+import com.kuzhi.findme.client.ClientCompanionDialogueState;
+import java.util.function.Supplier;
+import net.minecraft.network.FriendlyByteBuf;
+import com.kuzhi.findme.network.FindMeNetworkContext;
+
+public record CompanionDialoguePacket(String call, String reply, String playerName, String creatureName, String seconds, int durationTicks, int replyDelayTicks, boolean urgent) {
+public static void encode(CompanionDialoguePacket packet, FriendlyByteBuf buffer) {
+        buffer.writeUtf(safe(packet.call));
+        buffer.writeUtf(safe(packet.reply));
+        buffer.writeUtf(safe(packet.playerName));
+        buffer.writeUtf(safe(packet.creatureName));
+        buffer.writeUtf(safe(packet.seconds));
+        buffer.writeVarInt(packet.durationTicks);
+        buffer.writeVarInt(packet.replyDelayTicks);
+        buffer.writeBoolean(packet.urgent);
+    }
+
+    public static CompanionDialoguePacket decode(FriendlyByteBuf buffer) {
+        return new CompanionDialoguePacket(buffer.readUtf(), buffer.readUtf(), buffer.readUtf(), buffer.readUtf(), buffer.readUtf(), buffer.readVarInt(), buffer.readVarInt(), buffer.readBoolean());
+    }
+
+    public static void handle(CompanionDialoguePacket packet, Supplier<FindMeNetworkContext.Context> contextSupplier) {
+        FindMeNetworkContext.Context context = contextSupplier.get();
+        context.enqueueWork(() -> ClientCompanionDialogueState.start(packet));
+        context.setPacketHandled(true);
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
+    }
+}

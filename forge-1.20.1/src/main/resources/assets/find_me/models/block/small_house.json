@@ -1,0 +1,59 @@
+{
+  "parent": "minecraft:block/block",
+  "render_type": "cutout",
+  "textures": {
+    "particle": "minecraft:block/oak_planks",
+    "planks": "minecraft:block/oak_planks",
+    "cushion": "minecraft:block/white_wool"
+  },
+  "elements": [
+    {
+      "from": [2, 0, 2],
+      "to": [14, 3, 14],
+      "faces": {
+        "down": { "texture": "#planks", "cullface": "down" },
+        "up": { "texture": "#planks" },
+        "north": { "texture": "#planks" },
+        "south": { "texture": "#planks" },
+        "west": { "texture": "#planks" },
+        "east": { "texture": "#planks" }
+      }
+    },
+    {
+      "from": [4, 3.05, 5],
+      "to": [12, 3.45, 11],
+      "faces": {
+        "up": { "texture": "#cushion" },
+        "down": { "texture": "#cushion" },
+        "north": { "texture": "#cushion" },
+        "south": { "texture": "#cushion" },
+        "west": { "texture": "#cushion" },
+        "east": { "texture": "#cushion" }
+      }
+    },
+    {
+      "from": [5, 3.05, 4],
+      "to": [11, 3.45, 5],
+      "faces": {
+        "up": { "texture": "#cushion" },
+        "down": { "texture": "#cushion" },
+        "north": { "texture": "#cushion" },
+        "south": { "texture": "#cushion" },
+        "west": { "texture": "#cushion" },
+        "east": { "texture": "#cushion" }
+      }
+    },
+    {
+      "from": [5, 3.05, 11],
+      "to": [11, 3.45, 12],
+      "faces": {
+        "up": { "texture": "#cushion" },
+        "down": { "texture": "#cushion" },
+        "north": { "texture": "#cushion" },
+        "south": { "texture": "#cushion" },
+        "west": { "texture": "#cushion" },
+        "east": { "texture": "#cushion" }
+      }
+    }
+  ]
+}
