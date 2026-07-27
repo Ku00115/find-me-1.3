@@ -37,6 +37,36 @@ public final class VehicleCompatibilityService {
         return false;
     }
 
+    /**
+     * Cross-system handoffs must give the destination mod a chance to initialize its native
+     * controller before falling back to Minecraft's raw passenger relation.
+     */
+    public static boolean tryBoardVehicleNativeFirst(ServerPlayer player, Entity target, Entity previousRide) {
+        if (target == null || target.isRemoved()) {
+            restorePreviousRide(player, previousRide);
+            return false;
+        }
+        if (isRiding(player, target)) {
+            return true;
+        }
+        if (tryInteractionRide(player, target)) {
+            FindMeDebugLogger.info("vehicle-handoff",
+                    "phase=BOARD_NATIVE_ACCEPTED player={} target={} targetType={} passengers={}",
+                    player.getUUID(), target.getUUID(), target.getType(), target.getPassengers().size());
+            return true;
+        }
+        if (tryForcedRide(player, target, "forced_after_native")) {
+            return true;
+        }
+        FindMeDebugLogger.info("vehicle-handoff",
+                "phase=BOARD_NATIVE_REJECTED player={} target={} targetType={} removed={} passengers={} previous={} current={}",
+                player.getUUID(), target.getUUID(), target.getType(), target.isRemoved(), target.getPassengers().size(),
+                previousRide == null ? "none" : previousRide.getUUID(),
+                player.getVehicle() == null ? "none" : player.getVehicle().getUUID());
+        restorePreviousRide(player, previousRide);
+        return false;
+    }
+
     private static boolean tryForcedRide(ServerPlayer player, Entity target, String attempt) {
         if (target.isRemoved()) {
             return false;

@@ -176,6 +176,15 @@ public final class VehicleSeatService {
         return data.vehicleSeatOffset(vehicleUuid).isPresent();
     }
 
+    public static boolean isSeatedOn(ServerPlayer player, UUID vehicleUuid) {
+        if (player == null || vehicleUuid == null) {
+            return false;
+        }
+        SeatSession session = SESSIONS.get(player.getUUID());
+        return session != null && vehicleUuid.equals(session.vehicleUuid)
+                && !session.anchor.isRemoved() && player.getVehicle() == session.anchor;
+    }
+
     public static void tick(MinecraftServer server) {
         Iterator<SeatSession> iterator = SESSIONS.values().iterator();
         while (iterator.hasNext()) {
