@@ -5,6 +5,8 @@ import com.kuzhi.findme.api.FindMeApi;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.CompanionTacticalAction;
+import com.kuzhi.findme.network.CompanionTacticalTargetPacket;
+import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.common.FindMeModule;
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
@@ -43,6 +45,7 @@ public final class CompanionTacticalOrderService {
     private static final double GUARD_RADIUS = 32.0;
     private static final double GUARD_PURSUIT_RADIUS = CompanionGuardPostService.HARD_RADIUS;
     private static final double FOLLOW_RELOCATE_DISTANCE = 160.0;
+    private static final double PROTECT_IDLE_RELOCATE_DISTANCE = 160.0;
     private static final double PROTECT_SCAN_RADIUS = 72.0;
     private static final double PROTECT_PURSUIT_RADIUS = 128.0;
     private static final int THREAT_SCAN_INTERVAL_TICKS = 20;
@@ -50,12 +53,54 @@ public final class CompanionTacticalOrderService {
     private static final double NAVIGATION_TARGET_MOVE_SQR = 2.25;
     private static final Map<UUID, CommandRequest> REQUESTS = new HashMap<>();
     private static final Map<UUID, ActiveOrder> ACTIVE = new HashMap<>();
+    private static final Map<UUID, Map<UUID, CompanionFormationPlanner.Offset>> FORMATION_CACHE = new HashMap<>();
 
     private CompanionTacticalOrderService() {
     }
 
     public static void handle(ServerPlayer player, CompanionKind kind, UUID companionUuid,
                               CompanionTacticalAction action, BlockPos requestedPos, int targetEntityId) {
+        if (player != null && companionUuid != null) {
+            CompanionTeamOrderService.detachMember(player.getUUID(), companionUuid);
+        }
+        handleInternal(player, kind, companionUuid, action, requestedPos, targetEntityId);
+    }
+
+    static void handleTeamMember(ServerPlayer player, CompanionKind kind, UUID companionUuid,
+                                 CompanionTacticalAction action, BlockPos requestedPos, int targetEntityId) {
+        handleInternal(player, kind, companionUuid, action, requestedPos, targetEntityId, null);
+    }
+
+    static void handleTeamMember(ServerPlayer player, CompanionKind kind, UUID companionUuid,
+                                 CompanionTacticalAction action, BlockPos requestedPos, int targetEntityId,
+                                 BlockPos plannedSpawn) {
+        CompanionDeploymentPlan plan = plannedSpawn == null ? null
+                : CompanionDeploymentPlan.tactical(intentFor(action), null, plannedSpawn, null);
+        handleInternal(player, kind, companionUuid, action, requestedPos, targetEntityId, plan, true);
+    }
+
+    static void handleTeamMember(ServerPlayer player, CompanionKind kind, UUID companionUuid,
+                                 CompanionTacticalAction action, BlockPos requestedPos, int targetEntityId,
+                                 CompanionDeploymentPlan plan) {
+        handleInternal(player, kind, companionUuid, action, requestedPos, targetEntityId, plan, true);
+    }
+
+    private static void handleInternal(ServerPlayer player, CompanionKind kind, UUID companionUuid,
+                                       CompanionTacticalAction action, BlockPos requestedPos, int targetEntityId) {
+        handleInternal(player, kind, companionUuid, action, requestedPos, targetEntityId, null);
+    }
+
+    private static void handleInternal(ServerPlayer player, CompanionKind kind, UUID companionUuid,
+                                       CompanionTacticalAction action, BlockPos requestedPos, int targetEntityId,
+                                       BlockPos plannedSpawn) {
+        CompanionDeploymentPlan plan = plannedSpawn == null ? null
+                : CompanionDeploymentPlan.tactical(intentFor(action), null, plannedSpawn, null);
+        handleInternal(player, kind, companionUuid, action, requestedPos, targetEntityId, plan, false);
+    }
+
+    private static void handleInternal(ServerPlayer player, CompanionKind kind, UUID companionUuid,
+                                       CompanionTacticalAction action, BlockPos requestedPos, int targetEntityId,
+                                       CompanionDeploymentPlan plan, boolean teamBatch) {
         if (player == null || kind == null || action == null) {
             return;
         }
@@ -89,12 +134,25 @@ public final class CompanionTacticalOrderService {
             return;
         }
 
+        if (action == CompanionTacticalAction.ATTACK_TARGET && targetEntityId >= 0) {
+            ModNetwork.sendToPlayer(player, new CompanionTacticalTargetPacket(targetEntityId, 20 * 20));
+        }
+
+        if (plan == null) {
+            BlockPos destination = action == CompanionTacticalAction.GUARD_HERE ? requestedPos : null;
+            plan = CompanionDeploymentPlan.tactical(intentFor(action), null, destination, attackTarget);
+        } else if (plan.targetUuid() == null && attackTarget != null) {
+            plan = new CompanionDeploymentPlan(plan.operationUuid(), plan.intent(), plan.moveType(),
+                    plan.destination(), plan.origin(), attackTarget, plan.revealOffsetTicks(),
+                    plan.overheadArrival());
+        }
+
         cancelActive(player.getServer(), companionUuid, "command_replaced");
         CommandRequest request = new CommandRequest(player.getUUID(), companionUuid, kind, action,
-                requestedPos, attackTarget);
+                requestedPos, attackTarget, plan, teamBatch);
         trackRequest(request);
-        CompanionSyncService.syncToClient(player, kind);
-        FindMeMod.LOGGER.info("[FindMe command] requested player={} companion={} kind={} action={} pos={} target={}",
+        if (!teamBatch) CompanionSyncService.syncToClient(player, kind);
+        FindMeDebugLogger.info("command", "requested player={} companion={} kind={} action={} pos={} target={}",
                 player.getUUID(), companionUuid, kind, action, requestedPos, attackTarget);
         advanceRequest(player.getServer(), player, data, request);
     }
@@ -120,6 +178,7 @@ public final class CompanionTacticalOrderService {
             if (++request.age > REQUEST_TIMEOUT_TICKS) {
                 terminateRequest(request, () -> {
                     CompanionSyncService.syncToClient(owner, request.kind);
+                    clearTargetOutlineIfIdle(owner, request);
                     CompanionMessageService.tell(owner, "message.find_me.command_summon_failed", ChatFormatting.YELLOW);
                     FindMeMod.LOGGER.warn("[FindMe command] deployment timed out player={} companion={} action={}",
                             request.ownerUuid, request.companionUuid, request.action);
@@ -129,6 +188,7 @@ public final class CompanionTacticalOrderService {
             advanceRequest(server, owner, data, request);
         }
 
+        FORMATION_CACHE.clear();
         for (ActiveOrder order : List.copyOf(ACTIVE.values())) {
             if (ACTIVE.get(order.companionUuid) != order) {
                 continue;
@@ -140,9 +200,17 @@ public final class CompanionTacticalOrderService {
     }
 
     public static int cancelTarget(MinecraftServer server, UUID uuid, String reason) {
+        return cancelTarget(server, uuid, reason, true);
+    }
+
+    static int cancelTargetWithoutSync(MinecraftServer server, UUID uuid, String reason) {
+        return cancelTarget(server, uuid, reason, false);
+    }
+
+    private static int cancelTarget(MinecraftServer server, UUID uuid, String reason, boolean syncRequestOwner) {
         CommandRequest request = REQUESTS.remove(uuid);
         int cancelled = request == null ? 0 : 1;
-        if (request != null) {
+        if (request != null && syncRequestOwner) {
             syncOwner(server, request.ownerUuid, request.kind);
         }
         if (cancelActive(server, uuid, reason)) {
@@ -160,7 +228,52 @@ public final class CompanionTacticalOrderService {
             return request.action;
         }
         ActiveOrder order = ACTIVE.get(uuid);
-        return order == null ? null : order.action;
+        return order == null ? null : order.paused ? CompanionTacticalAction.HOLD : order.action;
+    }
+
+    static boolean isTeamPaused(UUID uuid) {
+        ActiveOrder order = uuid == null ? null : ACTIVE.get(uuid);
+        return order != null && (order.paused || order.action == CompanionTacticalAction.HOLD);
+    }
+
+    static boolean setPaused(MinecraftServer server, UUID uuid, boolean paused) {
+        ActiveOrder order = uuid == null ? null : ACTIVE.get(uuid);
+        if (order == null || order.paused == paused) return false;
+        Entity entity = CompanionEntityLookup.findEntity(server, uuid).orElse(null);
+        if (!(entity instanceof LivingEntity living)) return false;
+        order.paused = paused;
+        if (paused) {
+            order.holdPosition = living.position();
+            clearCombatTarget(living, order);
+            if (order.guardPost) {
+                CompanionGuardPostService.release(uuid, "team_paused");
+                CompanionFixedPostService.release(uuid, CompanionFixedPostService.Reason.GUARD);
+            }
+            if (order.action == CompanionTacticalAction.PROTECT_OWNER) {
+                CompanionProtectIdleService.release(uuid, "team_paused");
+            }
+        } else {
+            order.combatState.rearm();
+            restoreMotionFlags(living, order);
+            if (order.guardPost && order.targetPos != null && living instanceof Mob mob) {
+                CompanionFixedPostService.acquire(living, CompanionFixedPostService.Reason.GUARD);
+                CompanionGuardPostService.acquire(mob, order.targetPos, order.moveType);
+            }
+            if (order.action == CompanionTacticalAction.PROTECT_OWNER && living instanceof Mob mob) {
+                CompanionFixedPostService.acquire(living, CompanionFixedPostService.Reason.PROTECT);
+                CompanionProtectIdleService.acquire(mob);
+            }
+        }
+        return true;
+    }
+
+    static boolean resumeTeamMember(MinecraftServer server, UUID uuid) {
+        ActiveOrder order = uuid == null ? null : ACTIVE.get(uuid);
+        if (order == null) return false;
+        if (!order.paused && order.action == CompanionTacticalAction.HOLD) {
+            return cancelActive(server, uuid, "team_resumed");
+        }
+        return setPaused(server, uuid, false);
     }
 
     public static boolean controls(UUID uuid) {
@@ -204,6 +317,9 @@ public final class CompanionTacticalOrderService {
     public static void resetServerState() {
         REQUESTS.clear();
         ACTIVE.clear();
+        FORMATION_CACHE.clear();
+        CompanionSummonApproachService.reset();
+        CompanionProtectIdleService.reset();
         CompanionGuardPostService.reset();
         CompanionFixedPostService.reset();
     }
@@ -250,7 +366,7 @@ public final class CompanionTacticalOrderService {
 
         CompanionDeployRequestService.Result result = CompanionDeployRequestService.request(owner, data,
                 request.kind, request.companionUuid, CompanionDeployRequestService.Mode.AUTONOMOUS,
-                "command:" + request.action.name().toLowerCase());
+                "command:" + request.action.name().toLowerCase(), request.deploymentPlan);
         request.nextDeployAttempt = owner.serverLevel().getGameTime() + DEPLOY_RETRY_TICKS;
         if (result.state() == CompanionDeployRequestService.State.READY && result.entity() != null) {
             beginOrder(owner, data, request, result.entity());
@@ -258,6 +374,18 @@ public final class CompanionTacticalOrderService {
         }
         if (result.state() == CompanionDeployRequestService.State.STARTED) {
             request.deployStarted = true;
+        }
+        if (result.state() == CompanionDeployRequestService.State.REJECTED) {
+            terminateRequest(request, () -> {
+                CompanionSyncService.syncToClient(owner, request.kind);
+                clearTargetOutlineIfIdle(owner, request);
+                CompanionMessageService.tell(owner, "message.find_me.command_summon_failed", ChatFormatting.YELLOW);
+            });
+            FindMeDebugLogger.info("command",
+                    "deployment rejected player={} companion={} action={} age={} busy={} started={}",
+                    owner.getUUID(), request.companionUuid, request.action, request.age,
+                    CompanionLifecycleFacade.isBusy(owner, data, request.companionUuid), request.deployStarted);
+            return;
         }
         FindMeDebugLogger.info("command",
                 "deployment wait player={} companion={} action={} state={} age={} busy={} started={}",
@@ -274,6 +402,7 @@ public final class CompanionTacticalOrderService {
             return;
         }
         FindMeApi.cancelTemporaryActionsForCompanion(owner.getServer(), living.getUUID(), "command_replaced");
+        CompanionSummonApproachService.cancel(living.getUUID(), "tactical_order");
         if (request.action != CompanionTacticalAction.LAND
                 && (owner.getVehicle() == living || living.hasPassenger(owner))) {
             owner.stopRiding();
@@ -285,7 +414,7 @@ public final class CompanionTacticalOrderService {
         UUID attackTarget = request.attackTarget;
         if (request.action == CompanionTacticalAction.MOVE_TO
                 || request.action == CompanionTacticalAction.GUARD_HERE) {
-            targetPos = validateMoveTarget(owner, living, request.requestedPos).orElse(null);
+            targetPos = validateMoveTarget(owner, living, request.kind, request.requestedPos).orElse(null);
             if (targetPos == null) {
                 rejectOrder(owner, request, "message.find_me.command_invalid_position");
                 return;
@@ -303,7 +432,7 @@ public final class CompanionTacticalOrderService {
                 return;
             }
         } else if (request.action == CompanionTacticalAction.LAND) {
-            CompanionMoveType moveType = CompanionEntityClassifier.moveType(living, request.kind);
+            CompanionMoveType moveType = CompanionEntityClassifier.summonMoveType(living, request.kind);
             targetPos = moveType == CompanionMoveType.FLY
                     ? findLandingPosition((ServerLevel)living.level(), living).orElse(null)
                     : BlockPos.containing(living.position());
@@ -320,36 +449,30 @@ public final class CompanionTacticalOrderService {
         }
         int side = ((owner.getUUID().getLeastSignificantBits() ^ living.getUUID().getLeastSignificantBits()) & 1L) == 0L
                 ? 1 : -1;
-        CompanionMoveType moveType = CompanionEntityClassifier.moveType(living, request.kind);
+        CompanionMoveType moveType = CompanionEntityClassifier.summonMoveType(living, request.kind);
         if (!terminateRequest(request, () -> {})) {
             return;
         }
         ActiveOrder order = new ActiveOrder(owner.getUUID(), living.getUUID(), request.kind, request.action,
                 targetPos, attackTarget, living.position(), side, moveType, living.isNoGravity(), living.noPhysics,
-                living instanceof Mob mob && mob.isNoAi());
+                living instanceof Mob mob && mob.isNoAi(), living.getBbWidth(), living.getBbHeight());
         if (request.action == CompanionTacticalAction.ATTACK_TARGET) {
             order.targetSource = TargetSource.MANUAL;
         }
-        if (request.action == CompanionTacticalAction.PROTECT_OWNER) {
-            order.attackTarget = CompanionThreatResolver.findOwnerThreat(owner, data, living, null,
-                    PROTECT_SCAN_RADIUS, PROTECT_PURSUIT_RADIUS).map(LivingEntity::getUUID).orElse(null);
-            if (order.attackTarget != null) order.targetSource = TargetSource.PROTECT_SCAN;
-        } else if (request.action == CompanionTacticalAction.GUARD_HERE && targetPos != null) {
-            Vec3 center = Vec3.atBottomCenterOf(targetPos);
-            order.attackTarget = CompanionThreatResolver.findAreaThreat(owner, data::contains, living, center,
-                    living.position(), null,
-                    GUARD_RADIUS, GUARD_PURSUIT_RADIUS).map(LivingEntity::getUUID).orElse(null);
-            if (order.attackTarget != null) order.targetSource = TargetSource.GUARD_SCAN;
-        }
+        // Threat scans are offset in tickActive. Running one full-radius scan per member here
+        // made a team command perform all entity queries in the packet-handling tick.
         ACTIVE.put(living.getUUID(), order);
         if (request.action == CompanionTacticalAction.GUARD_HERE && living instanceof Mob mob) {
             CompanionFixedPostService.acquire(living, CompanionFixedPostService.Reason.GUARD);
             CompanionGuardPostService.acquire(mob, targetPos, moveType);
+        } else if (request.action == CompanionTacticalAction.PROTECT_OWNER && living instanceof Mob mob) {
+            CompanionFixedPostService.acquire(living, CompanionFixedPostService.Reason.PROTECT);
+            CompanionProtectIdleService.acquire(mob);
         }
         CompanionMessageService.tell(owner, messageKey(request.action), ChatFormatting.GREEN,
                 living.getDisplayName().getString());
-        CompanionSyncService.syncToClient(owner, request.kind);
-        FindMeMod.LOGGER.info("[FindMe command] active player={} companion={} action={} pos={} target={}",
+        if (!request.teamBatch) CompanionSyncService.syncToClient(owner, request.kind);
+        FindMeDebugLogger.info("command", "active player={} companion={} action={} pos={} target={}",
                 owner.getUUID(), living.getUUID(), request.action, targetPos, attackTarget);
     }
 
@@ -357,6 +480,7 @@ public final class CompanionTacticalOrderService {
         terminateRequest(request, () -> {
             CompanionMessageService.tell(owner, messageKey, ChatFormatting.YELLOW);
             CompanionSyncService.syncToClient(owner, request.kind);
+            clearTargetOutlineIfIdle(owner, request);
             FindMeMod.LOGGER.warn("[FindMe command] rejected after deployment player={} companion={} action={} reason={}",
                     owner.getUUID(), request.companionUuid, request.action, messageKey);
         });
@@ -389,6 +513,12 @@ public final class CompanionTacticalOrderService {
                 || order.action != CompanionTacticalAction.LAND
                 && (owner.getVehicle() == living || living.hasPassenger(owner))) {
             return false;
+        }
+
+        if (order.paused) {
+            hold(living, order);
+            order.age++;
+            return true;
         }
 
         switch (order.action) {
@@ -470,9 +600,8 @@ public final class CompanionTacticalOrderService {
                                     ActiveOrder order) {
         restoreMotionFlags(living, order);
         Entity anchor = owner.getVehicle() == null ? owner : owner.getVehicle();
-        FormationSlot slot = formationSlot(order);
-        Vec3 target = CompanionEscortMovementService.followPosition(owner, anchor, living, order.moveType,
-                order.side, slot.index(), slot.size());
+        CompanionFormationPlanner.Offset slot = formationOffset(order, anchor.getBbWidth());
+        Vec3 target = CompanionEscortMovementService.followPosition(owner, anchor, living, order.moveType, slot);
         if (living.position().distanceToSqr(target) > FOLLOW_RELOCATE_DISTANCE * FOLLOW_RELOCATE_DISTANCE) {
             CompanionEscortMovementService.moveNearPlayer(owner, CompanionDataService.data(owner), living, target,
                     order.moveType);
@@ -481,16 +610,23 @@ public final class CompanionTacticalOrderService {
         }
     }
 
-    private static FormationSlot formationSlot(ActiveOrder current) {
-        List<UUID> followers = ACTIVE.values().stream()
-                .filter(order -> order.ownerUuid.equals(current.ownerUuid))
-                .filter(order -> order.action == CompanionTacticalAction.FOLLOW
-                        || order.action == CompanionTacticalAction.PROTECT_OWNER)
-                .map(order -> order.companionUuid)
-                .sorted()
-                .toList();
-        int index = Math.max(0, followers.indexOf(current.companionUuid));
-        return new FormationSlot(index, Math.max(1, followers.size()));
+    private static CompanionFormationPlanner.Offset formationOffset(ActiveOrder current, double anchorWidth) {
+        Map<UUID, CompanionFormationPlanner.Offset> formation = FORMATION_CACHE.computeIfAbsent(
+                current.ownerUuid, ignored -> {
+                    List<CompanionFormationPlanner.Member> followers = ACTIVE.values().stream()
+                            .filter(order -> order.ownerUuid.equals(current.ownerUuid))
+                            .filter(order -> !order.paused)
+                            .filter(order -> order.action == CompanionTacticalAction.FOLLOW
+                                    || order.action == CompanionTacticalAction.PROTECT_OWNER
+                                    && order.attackTarget == null)
+                            .map(order -> new CompanionFormationPlanner.Member(order.companionUuid,
+                                    order.width, order.width, order.height,
+                                    order.moveType == CompanionMoveType.FLY))
+                            .toList();
+                    return CompanionFormationPlanner.plan(followers, anchorWidth);
+                });
+        return formation.getOrDefault(current.companionUuid,
+                new CompanionFormationPlanner.Offset(current.side * 3.2, 3.2, 0.0));
     }
 
     private static void guard(ServerPlayer owner, CompanionRuntimeIndex runtime, LivingEntity living,
@@ -529,28 +665,51 @@ public final class CompanionTacticalOrderService {
         LivingEntity threat = resolveOrderTarget(owner, runtime, living, order, owner.position(),
                 PROTECT_PURSUIT_RADIUS * PROTECT_PURSUIT_RADIUS);
         if ((order.age + order.threatScanOffset) % THREAT_SCAN_INTERVAL_TICKS == 0) {
-            threat = CompanionThreatResolver.findOwnerThreat(owner, runtime::contains, living, threat,
-                    PROTECT_SCAN_RADIUS, PROTECT_PURSUIT_RADIUS).orElse(null);
-            if (threat != null) order.targetSource = TargetSource.PROTECT_SCAN;
+            Optional<CompanionThreatResolver.ProtectThreat> selected =
+                    CompanionThreatResolver.findProtectOwnerThreat(owner, runtime::contains, living, threat,
+                            PROTECT_SCAN_RADIUS, PROTECT_PURSUIT_RADIUS);
+            threat = selected.map(CompanionThreatResolver.ProtectThreat::entity).orElse(null);
+            if (threat != null) {
+                order.targetSource = TargetSource.PROTECT_SCAN;
+                order.targetTier = selected.orElseThrow().tier().name();
+                FindMeDebugLogger.info("command-target",
+                        "protect select companion={} target={} tier={} current={} distance={}",
+                        living.getUUID(), threat.getUUID(), order.targetTier,
+                        selected.orElseThrow().current(),
+                        String.format(java.util.Locale.ROOT, "%.2f", Math.sqrt(selected.orElseThrow().distanceSqr())));
+            }
         }
         if (threat != null && living instanceof Mob mob) {
             order.attackTarget = threat.getUUID();
+            CompanionProtectIdleService.release(living.getUUID(), "threat_acquired");
             engageThreat(living, mob, threat, order, order.targetSource);
             return;
         }
         order.attackTarget = null;
         order.targetSource = TargetSource.NONE;
+        order.targetTier = "none";
         clearCombatTarget(living, order);
-        // Protect is threat-driven. With no threat, leave a flying mount's
-        // native flight and position alone instead of forcing it into formation.
         restoreMotionFlags(living, order);
+        if (living instanceof Mob mob) {
+            CompanionProtectIdleService.acquire(mob);
+        }
+        if (living.distanceToSqr(owner) > PROTECT_IDLE_RELOCATE_DISTANCE * PROTECT_IDLE_RELOCATE_DISTANCE) {
+            Entity anchor = owner.getVehicle() == null ? owner : owner.getVehicle();
+            CompanionFormationPlanner.Offset slot = formationOffset(order, anchor.getBbWidth());
+            Vec3 target = CompanionEscortMovementService.followPosition(owner, anchor, living,
+                    order.moveType, slot);
+            CompanionEscortMovementService.moveNearPlayer(owner, CompanionDataService.data(owner), living,
+                    target, order.moveType);
+        }
     }
 
     private static void engageThreat(LivingEntity living, Mob mob, LivingEntity threat,
                                      ActiveOrder order, TargetSource source) {
         living.noPhysics = order.originalNoPhysics;
         living.setNoGravity(order.originalNoGravity);
-        CompanionTacticalCombatService.engage(living, mob, threat, order.combatState, source.name());
+        String detail = source == TargetSource.PROTECT_SCAN
+                ? source.name() + ':' + order.targetTier : source.name();
+        CompanionTacticalCombatService.engage(living, mob, threat, order.combatState, detail);
     }
 
     private static void clearCombatTarget(LivingEntity living, ActiveOrder order) {
@@ -572,11 +731,13 @@ public final class CompanionTacticalOrderService {
         return null;
     }
 
-    private static Optional<BlockPos> validateMoveTarget(ServerPlayer player, LivingEntity living, BlockPos requested) {
+    private static Optional<BlockPos> validateMoveTarget(ServerPlayer player, LivingEntity living,
+                                                          CompanionKind kind, BlockPos requested) {
         if (!validMoveRequest(player, requested)) {
             return Optional.empty();
         }
-        return CompanionPlacementFinder.findOpenEntitySpace(player.serverLevel(), living, requested);
+        CompanionMoveType moveType = CompanionEntityClassifier.summonMoveType(living, kind);
+        return CompanionPlacementFinder.findTacticalEntitySpace(player.serverLevel(), living, requested, moveType);
     }
 
     private static boolean validMoveRequest(ServerPlayer player, BlockPos requested) {
@@ -662,7 +823,27 @@ public final class CompanionTacticalOrderService {
         FindMeDebugLogger.info("command", "active order cancelled companion={} action={} reason={}",
                 uuid, order.action, reason);
         syncOwner(server, order.ownerUuid, order.kind);
+        if (order.action == CompanionTacticalAction.ATTACK_TARGET) {
+            ServerPlayer owner = server == null ? null : server.getPlayerList().getPlayer(order.ownerUuid);
+            if (owner != null && !hasAttackIntent(order.ownerUuid)) {
+                ModNetwork.sendToPlayer(owner, new CompanionTacticalTargetPacket(-1, 0));
+            }
+        }
         return true;
+    }
+
+    private static void clearTargetOutlineIfIdle(ServerPlayer owner, CommandRequest completed) {
+        if (owner == null || completed == null || completed.action != CompanionTacticalAction.ATTACK_TARGET) return;
+        if (!hasAttackIntent(owner.getUUID())) {
+            ModNetwork.sendToPlayer(owner, new CompanionTacticalTargetPacket(-1, 0));
+        }
+    }
+
+    private static boolean hasAttackIntent(UUID ownerUuid) {
+        return REQUESTS.values().stream().anyMatch(request -> request.ownerUuid.equals(ownerUuid)
+                && request.action == CompanionTacticalAction.ATTACK_TARGET)
+                || ACTIVE.values().stream().anyMatch(order -> order.ownerUuid.equals(ownerUuid)
+                && order.action == CompanionTacticalAction.ATTACK_TARGET);
     }
 
     private static void syncOwner(MinecraftServer server, UUID ownerUuid, CompanionKind kind) {
@@ -679,6 +860,10 @@ public final class CompanionTacticalOrderService {
         if (order != null && order.guardPost) {
             CompanionGuardPostService.release(order.companionUuid, "order_restore");
             CompanionFixedPostService.release(order.companionUuid, CompanionFixedPostService.Reason.GUARD);
+        }
+        if (order != null && order.action == CompanionTacticalAction.PROTECT_OWNER) {
+            CompanionProtectIdleService.release(order.companionUuid, "order_restore");
+            CompanionFixedPostService.release(order.companionUuid, CompanionFixedPostService.Reason.PROTECT);
         }
         if (!(entity instanceof LivingEntity living)) {
             return;
@@ -714,6 +899,16 @@ public final class CompanionTacticalOrderService {
         };
     }
 
+    private static CompanionDeploymentPlan.Intent intentFor(CompanionTacticalAction action) {
+        return switch (action) {
+            case FOLLOW -> CompanionDeploymentPlan.Intent.FOLLOW;
+            case PROTECT_OWNER -> CompanionDeploymentPlan.Intent.PROTECT;
+            case GUARD_HERE, HOLD -> CompanionDeploymentPlan.Intent.GUARD;
+            case ATTACK_TARGET -> CompanionDeploymentPlan.Intent.ATTACK;
+            default -> CompanionDeploymentPlan.Intent.ORDINARY;
+        };
+    }
+
     static final class CommandRequest {
         private final UUID ownerUuid;
         private final UUID companionUuid;
@@ -721,18 +916,36 @@ public final class CompanionTacticalOrderService {
         private final CompanionTacticalAction action;
         private final BlockPos requestedPos;
         private final UUID attackTarget;
+        private final CompanionDeploymentPlan deploymentPlan;
+        private final boolean teamBatch;
         private boolean deployStarted;
         private int age;
         private long nextDeployAttempt;
 
         CommandRequest(UUID ownerUuid, UUID companionUuid, CompanionKind kind,
                        CompanionTacticalAction action, BlockPos requestedPos, UUID attackTarget) {
+            this(ownerUuid, companionUuid, kind, action, requestedPos, attackTarget, null);
+        }
+
+        CommandRequest(UUID ownerUuid, UUID companionUuid, CompanionKind kind,
+                       CompanionTacticalAction action, BlockPos requestedPos, UUID attackTarget,
+                       BlockPos plannedSpawn) {
+            this(ownerUuid, companionUuid, kind, action, requestedPos, attackTarget,
+                    plannedSpawn == null ? null : CompanionDeploymentPlan.tactical(intentFor(action), null,
+                            plannedSpawn, attackTarget), false);
+        }
+
+        CommandRequest(UUID ownerUuid, UUID companionUuid, CompanionKind kind,
+                       CompanionTacticalAction action, BlockPos requestedPos, UUID attackTarget,
+                       CompanionDeploymentPlan deploymentPlan, boolean teamBatch) {
             this.ownerUuid = ownerUuid;
             this.companionUuid = companionUuid;
             this.kind = kind;
             this.action = action;
             this.requestedPos = requestedPos;
             this.attackTarget = attackTarget;
+            this.deploymentPlan = deploymentPlan;
+            this.teamBatch = teamBatch;
         }
     }
 
@@ -744,6 +957,7 @@ public final class CompanionTacticalOrderService {
         private final BlockPos targetPos;
         private UUID attackTarget;
         private TargetSource targetSource = TargetSource.NONE;
+        private String targetTier = "none";
         private Vec3 holdPosition;
         private final int side;
         private final CompanionMoveType moveType;
@@ -752,6 +966,9 @@ public final class CompanionTacticalOrderService {
         private final boolean originalNoAi;
         private final boolean guardPost;
         private final int threatScanOffset;
+        private boolean paused;
+        private final double width;
+        private final double height;
         private Vec3 lastNavigationTarget;
         private int lastNavigationRequestAge = Integer.MIN_VALUE / 2;
         private final CompanionTacticalCombatService.State combatState = new CompanionTacticalCombatService.State();
@@ -759,8 +976,9 @@ public final class CompanionTacticalOrderService {
 
         private ActiveOrder(UUID ownerUuid, UUID companionUuid, CompanionKind kind,
                             CompanionTacticalAction action, BlockPos targetPos, UUID attackTarget,
-                            Vec3 holdPosition, int side, CompanionMoveType moveType,
-                            boolean originalNoGravity, boolean originalNoPhysics, boolean originalNoAi) {
+                             Vec3 holdPosition, int side, CompanionMoveType moveType,
+                             boolean originalNoGravity, boolean originalNoPhysics, boolean originalNoAi,
+                             double width, double height) {
             this.ownerUuid = ownerUuid;
             this.companionUuid = companionUuid;
             this.kind = kind;
@@ -773,12 +991,11 @@ public final class CompanionTacticalOrderService {
             this.originalNoGravity = originalNoGravity;
             this.originalNoPhysics = originalNoPhysics;
             this.originalNoAi = originalNoAi;
+            this.width = width;
+            this.height = height;
             this.guardPost = action == CompanionTacticalAction.GUARD_HERE;
             this.threatScanOffset = Math.floorMod(companionUuid.hashCode(), THREAT_SCAN_INTERVAL_TICKS);
         }
-    }
-
-    private record FormationSlot(int index, int size) {
     }
 
     private enum TargetSource {

@@ -1,3 +1,29 @@
+# FindMe 1.3.0-test.3（测试版）
+
+## 中文
+
+- 新增独立的全队指令轮盘，可让当前伙伴编队执行跟随、保护、守卫、攻击、停止/恢复与全部收纳；坐骑轮盘不会误开全队指令。
+- 完善伙伴战术控制：提高威胁选择与攻击意愿，保护和守卫使用分散站位，限制无意义跟随、模型堆叠和远距离目标干扰。
+- 统一伙伴召唤与战术部署表现：普通召唤、单体战术和全队部署使用中心魔法阵、白色连接线、成员魔法阵及落位动画，并带有魔法阵开启与显现音效；紧急救援仍使用独立安全流程。
+- 增加召唤实体描边开关及黑色/白色选择，并分别提供坐骑动画和伙伴动画开关。
+- 增加“优先使用坐骑原生右键交互”设置，默认关闭，便于兼顾喂食、模组原生交互与 FindMe 骑乘行为。
+- 修复设置页修改选项后自动滚动、仓库加入高编号编队时无法滚动、死亡仓库导航与睡眠复活、沉浸式对话开关等界面和交互问题。
+- 修复缺失存档快照的战术部署反复重试、全队指令调度压力过高、重复诊断输出等问题；诊断日志仍由总开关控制。
+- Forge 1.20.1 与 NeoForge 1.21.1 的网络协议、设置、指令、动画和测试已同步。
+
+## English
+
+- Added a dedicated team command wheel for Follow, Protect, Guard, Attack, contextual Pause/Resume, and Recall All. The mount wheel can no longer open team commands by mistake.
+- Improved companion tactical control with stronger threat selection, distributed Protect/Guard positions, and safeguards against unwanted following, model stacking, and distant-target interference.
+- Unified companion summon and tactical deployment presentation. Ordinary summons, single tactical deployments, and team deployments now use a center circle, white links, member circles, overhead arrival, and matching circle/reveal sounds. Emergency rescue remains an independent safety flow.
+- Added summoned-entity outlines with black or white color selection, plus independent mount and companion summon-animation toggles.
+- Added a disabled-by-default option to prefer a mount's native right-click interaction, allowing feeding and mod-native interactions when desired.
+- Fixed settings scroll jumps, scrolling when assigning warehouse entries to later teams, death warehouse navigation and sleep revival, immersive dialogue settings, and related UI behavior.
+- Prevented missing-snapshot tactical requests from retrying indefinitely, reduced team-command scheduling pressure and duplicate diagnostics, and kept all diagnostic output behind the master logging switch.
+- Synchronized protocol, settings, commands, animation behavior, and regression tests across Forge 1.20.1 and NeoForge 1.21.1.
+
+---
+
 # FindMe 1.3.0-test.2（测试候选）
 
 ## 中文

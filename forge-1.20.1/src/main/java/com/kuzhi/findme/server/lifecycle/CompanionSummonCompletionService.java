@@ -41,10 +41,11 @@ public final class CompanionSummonCompletionService {
             CompanionDeploymentService.rememberDeployedWithinLimit(player, data, kind, living.getUUID());
         } else if (kind == CompanionKind.MOUNT) {
             completeMountSummon(player, living, moveType, mode, restoredFromStorage, inCombat,
-                    !arrivalStarted && !presentationAlreadyPlayed);
+                    !arrivalStarted && !presentationAlreadyPlayed,
+                    data.uiSettings().mountSummonAnimations() || mode.isRescue());
         } else {
             completeCompanionSummon(player, data, kind, living, companionRescue, companionRescueTarget,
-                    !arrivalStarted && !presentationAlreadyPlayed);
+                    !arrivalStarted && !presentationAlreadyPlayed, moveType, tacticalDeploy);
         }
         data.setLifecycleState(living.getUUID(), CompanionLifecycleState.DEPLOYED);
         int cooldown = Config.summonCooldownTicks;
@@ -90,22 +91,30 @@ public final class CompanionSummonCompletionService {
         CompanionSummonLineService.showVoidFlyingMount(player, living);
     }
 
-    private static void completeMountSummon(ServerPlayer player, LivingEntity living, CompanionMoveType moveType, MountCinematicMode mode, boolean restoredFromStorage, boolean inCombat, boolean sendArrivalMagic) {
+    private static void completeMountSummon(ServerPlayer player, LivingEntity living, CompanionMoveType moveType,
+                                            MountCinematicMode mode, boolean restoredFromStorage,
+                                            boolean inCombat, boolean sendArrivalMagic,
+                                            boolean presentationEnabled) {
         CompanionMoveType cinematicMoveType = CompanionSummonModeService.landPresentationMoveType(moveType);
         player.fallDistance = 0.0f;
         player.invulnerableTime = Math.max(player.invulnerableTime, Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
         // All flying rescues use the same approach/wait cinematic. The former
         // direct catch shortcut skipped the visible hover phase and mounted too
         // early for a player still in free fall.
-        CompanionMountCinematicFlowService.scheduleMountCinematic(player, living, cinematicMoveType, mode, restoredFromStorage, sendArrivalMagic);
+        CompanionMountCinematicFlowService.scheduleMountCinematic(player, living, cinematicMoveType, mode,
+                restoredFromStorage, sendArrivalMagic && presentationEnabled, presentationEnabled);
     }
 
-    private static void completeCompanionSummon(ServerPlayer player, PlayerCompanionData data, CompanionKind kind, LivingEntity living, boolean companionRescue, LivingEntity companionRescueTarget, boolean sendArrivalMagic) {
+    private static void completeCompanionSummon(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
+                                                LivingEntity living, boolean companionRescue,
+                                                LivingEntity companionRescueTarget, boolean sendArrivalMagic,
+                                                CompanionMoveType moveType, boolean tacticalDeploy) {
         CompanionDeploymentService.rememberDeployedWithinLimit(player, data, kind, living.getUUID());
         if (companionRescue) {
             CompanionCombatRescueService.applyArrival(player, living, companionRescueTarget, sendArrivalMagic);
-        } else if (sendArrivalMagic) {
-            CompanionArrivalMagicService.sendGround(player, living, player.position(), 42);
+        }
+        if (!companionRescue && !tacticalDeploy && data.uiSettings().companionSummonAnimations()) {
+            CompanionDeploymentPresentationService.startOrdinary(player, living, moveType);
         }
     }
 

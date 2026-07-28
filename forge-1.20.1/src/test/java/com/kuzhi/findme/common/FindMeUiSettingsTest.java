@@ -55,6 +55,7 @@ class FindMeUiSettingsTest {
         assertFalse(loaded.showHealth());
         assertEquals(3, loaded.defaultTeamIndex());
     }
+
     @Test
     void nativeMountInteractionDefaultsOffAndRoundTrips() {
         assertFalse(FindMeUiSettings.load(new CompoundTag()).preferNativeMountInteraction());
@@ -62,5 +63,44 @@ class FindMeUiSettingsTest {
         FindMeUiSettings enabled = FindMeUiSettings.defaults().changed(0, 4);
         assertTrue(FindMeUiSettings.load(enabled.save()).preferNativeMountInteraction());
         assertFalse(enabled.resetSection(0).preferNativeMountInteraction());
+    }
+
+    @Test
+    void riddenCompanionPromotionDefaultsOnAndRoundTrips() {
+        assertTrue(FindMeUiSettings.load(new CompoundTag()).autoPromoteRiddenCompanions());
+
+        FindMeUiSettings disabled = FindMeUiSettings.defaults().changed(0, 5);
+        assertFalse(FindMeUiSettings.load(disabled.save()).autoPromoteRiddenCompanions());
+        assertTrue(disabled.resetSection(0).autoPromoteRiddenCompanions());
+    }
+
+    @Test
+    void summonedOutlineDefaultsOffAndColorRoundTrips() {
+        assertEquals(SummonedOutlineMode.OFF,
+                FindMeUiSettings.load(new CompoundTag()).summonedOutlineMode());
+
+        FindMeUiSettings black = FindMeUiSettings.defaults()
+                .withSummonedOutlineMode(SummonedOutlineMode.BLACK);
+        assertEquals(SummonedOutlineMode.BLACK,
+                FindMeUiSettings.load(black.save()).summonedOutlineMode());
+        assertEquals(SummonedOutlineMode.OFF, black.resetSection(0).summonedOutlineMode());
+    }
+
+    @Test
+    void summonAnimationPreferencesAreIndependentAndDefaultOn() {
+        FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
+        assertTrue(defaults.mountSummonAnimations());
+        assertTrue(defaults.companionSummonAnimations());
+
+        FindMeUiSettings changed = defaults.changed(0, 6);
+        assertFalse(changed.mountSummonAnimations());
+        assertTrue(changed.companionSummonAnimations());
+
+        changed = changed.changed(0, 7);
+        FindMeUiSettings loaded = FindMeUiSettings.load(changed.save());
+        assertFalse(loaded.mountSummonAnimations());
+        assertFalse(loaded.companionSummonAnimations());
+        assertTrue(loaded.resetSection(0).mountSummonAnimations());
+        assertTrue(loaded.resetSection(0).companionSummonAnimations());
     }
 }

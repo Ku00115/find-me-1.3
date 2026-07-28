@@ -17,7 +17,9 @@ import net.minecraft.world.entity.ai.goal.WrappedGoal;
 public final class CompanionFixedPostService {
     public enum Reason {
         HOME,
-        GUARD
+        GUARD,
+        PROTECT,
+        ARRIVAL
     }
 
     private static final Map<UUID, Suspension> SUSPENDED = new HashMap<>();

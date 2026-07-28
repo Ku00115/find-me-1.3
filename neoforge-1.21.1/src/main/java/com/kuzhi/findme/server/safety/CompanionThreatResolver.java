@@ -48,6 +48,40 @@ public final class CompanionThreatResolver {
         return findOwnerThreat(owner, data::contains, responder, current, scanRadius, pursuitRadius, false);
     }
 
+    public static Optional<LivingEntity> findCombatRescueThreat(ServerPlayer owner, PlayerCompanionData data,
+                                                                 double scanRadius, double pursuitRadius) {
+        if (owner == null || owner.isCreative() || owner.isSpectator()) return Optional.empty();
+        Set<LivingEntity> candidates = new LinkedHashSet<>(); Vec3 center = owner.position();
+        CompanionThreatMemoryService.findRecentThreat(owner, pursuitRadius).ifPresent(candidate ->
+                addCombatRescueCandidate(candidates, owner, data::contains, candidate, center, pursuitRadius));
+        addRecentCombatRescueCandidate(candidates, owner, data::contains, owner.getLastHurtByMob(),
+                owner.getLastHurtByMobTimestamp(), center, pursuitRadius);
+        AABB area = owner.getBoundingBox().inflate(scanRadius, Math.min(scanRadius, 12.0), scanRadius);
+        for (Mob candidate : owner.serverLevel().getEntitiesOfClass(Mob.class, area))
+            if (candidate.getTarget() == owner) addCombatRescueCandidate(candidates, owner, data::contains, candidate, center, scanRadius);
+        return candidates.stream().min(java.util.Comparator.comparingDouble(owner::distanceToSqr));
+    }
+    public static Optional<ProtectThreat> findProtectOwnerThreat(ServerPlayer owner, Predicate<UUID> rosterContains,
+                                                                 LivingEntity responder, LivingEntity current,
+                                                                 double scanRadius, double pursuitRadius) {
+        Vec3 center = owner.position(); Set<LivingEntity> candidates = new LinkedHashSet<>();
+        addIfValid(candidates, owner, rosterContains, responder, current, center, pursuitRadius, true);
+        CompanionThreatMemoryService.findRecentThreat(owner, pursuitRadius).ifPresent(candidate ->
+                addIfValid(candidates, owner, rosterContains, responder, candidate, center, pursuitRadius, true));
+        addIfRecent(candidates, owner, rosterContains, responder, owner.getLastHurtByMob(), owner.getLastHurtByMobTimestamp(), center, pursuitRadius, true);
+        AABB area = owner.getBoundingBox().inflate(scanRadius, Math.min(scanRadius, 12.0), scanRadius);
+        for (Mob candidate : owner.serverLevel().getEntitiesOfClass(Mob.class, area))
+            addIfValid(candidates, owner, rosterContains, responder, candidate, center, scanRadius, true);
+        ProtectThreat best = null; LivingEntity remembered = CompanionThreatMemoryService.findRecentThreat(owner, pursuitRadius).orElse(null);
+        for (LivingEntity candidate : candidates) {
+            ProtectTier tier = protectTier(owner, rosterContains, responder, candidate, remembered);
+            if (tier == null) continue;
+            ProtectThreat next = new ProtectThreat(candidate, tier, candidate.distanceToSqr(owner), candidate == current);
+            if (best == null || next.betterThan(best)) best = next;
+        }
+        return Optional.ofNullable(best);
+    }
+
     private static Optional<LivingEntity> findOwnerThreat(ServerPlayer owner, Predicate<UUID> rosterContains,
                                                            LivingEntity responder, LivingEntity current,
                                                            double scanRadius, double pursuitRadius,
@@ -216,5 +250,55 @@ public final class CompanionThreatResolver {
         Vec3 toOwner = owner.position().subtract(candidate.position());
         return motion.horizontalDistanceSqr() > 0.0025 && toOwner.horizontalDistanceSqr() > 0.01
                 && motion.normalize().dot(toOwner.normalize()) > 0.45;
+    }
+    private static void addRecentCombatRescueCandidate(Set<LivingEntity> candidates, ServerPlayer owner,
+                                                        Predicate<UUID> rosterContains, LivingEntity candidate,
+                                                        int timestamp, Vec3 center, double range) {
+        if (candidate != null && owner.tickCount - timestamp <= RECENT_COMBAT_TICKS)
+            addCombatRescueCandidate(candidates, owner, rosterContains, candidate, center, range);
+    }
+    private static void addCombatRescueCandidate(Set<LivingEntity> candidates, ServerPlayer owner,
+                                                  Predicate<UUID> rosterContains, LivingEntity candidate,
+                                                  Vec3 center, double range) {
+        if (valid(owner, rosterContains, null, candidate, center, range)) candidates.add(candidate);
+    }
+    private static ProtectTier protectTier(ServerPlayer owner, Predicate<UUID> rosterContains,
+                                            LivingEntity responder, LivingEntity candidate, LivingEntity remembered) {
+        if (candidate == owner.getLastHurtByMob() && owner.tickCount - owner.getLastHurtByMobTimestamp() <= RECENT_COMBAT_TICKS
+                || candidate == remembered) return ProtectTier.RECENT_ATTACKER;
+        if (candidate instanceof Mob mob) {
+            LivingEntity target = mob.getTarget();
+            if (target == owner) return candidate.distanceToSqr(owner) <= 32.0 * 32.0 ? ProtectTier.NEAR_OWNER_TARGET : ProtectTier.FAR_OWNER_TARGET;
+            if (target == responder || target != null && rosterContains.test(target.getUUID())) return ProtectTier.TEAM_TARGET;
+        }
+        boolean hostile = candidate instanceof Enemy || candidate.getType().getCategory() == MobCategory.MONSTER;
+        if (!hostile) return null;
+        if (candidate.distanceToSqr(owner) <= 20.0 * 20.0 && isApproaching(candidate, owner)) {
+            return ProtectTier.APPROACHING_HOSTILE;
+        }
+        return candidate.distanceToSqr(owner) <= 32.0 * 32.0
+                ? ProtectTier.HOSTILE_IN_PROTECTION_ZONE : null;
+    }
+    public static boolean isActiveCombatRescueThreat(ServerPlayer owner, LivingEntity threat) {
+        if (owner == null || threat == null || owner.isCreative() || owner.isSpectator()
+                || !threat.isAlive() || threat.level() != owner.level()) return false;
+        if (threat instanceof Mob mob && mob.getTarget() == owner) return true;
+        if (threat == owner.getLastHurtByMob() && owner.tickCount - owner.getLastHurtByMobTimestamp() <= RECENT_COMBAT_TICKS) return true;
+        return CompanionThreatMemoryService.findRecentThreat(owner, 48.0).orElse(null) == threat;
+    }
+    public enum ProtectTier {
+        RECENT_ATTACKER,
+        NEAR_OWNER_TARGET,
+        FAR_OWNER_TARGET,
+        TEAM_TARGET,
+        APPROACHING_HOSTILE,
+        HOSTILE_IN_PROTECTION_ZONE
+    }
+    public record ProtectThreat(LivingEntity entity, ProtectTier tier, double distanceSqr, boolean current) {
+        private boolean betterThan(ProtectThreat other) {
+            if (this.tier.ordinal() != other.tier.ordinal()) return this.tier.ordinal() < other.tier.ordinal();
+            if (this.current != other.current) return this.current;
+            return this.distanceSqr < other.distanceSqr;
+        }
     }
 }

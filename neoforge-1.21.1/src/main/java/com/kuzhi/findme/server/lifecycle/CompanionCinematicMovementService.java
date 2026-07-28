@@ -89,27 +89,41 @@ public final class CompanionCinematicMovementService {
     }
 
     private static void moveTowardTarget(PendingMountCinematic cinematic, LivingEntity mount, ServerPlayer player, Vec3 target, double stepDistance, double speed, boolean forceFlyingPose) {
-        Vec3 direction = target.subtract(mount.position()).normalize();
-        float lookYaw = CompanionCinematicOrientationHelper.yawTowardStable(mount, direction);
-        if (cinematic.moveType() == CompanionMoveType.FLY) {
-            Vec3 next = mount.position().add(direction.scale(stepDistance));
-            float pitch = cinematic.mode().isFlyingRescue() ? CompanionCinematicOrientationHelper.pitchToward(direction) : mount.getXRot();
-            mount.moveTo(next.x, next.y, next.z, lookYaw, pitch);
-            mount.setPos(next.x, next.y, next.z);
-            mount.setXRot(pitch);
-            if (forceFlyingPose) {
-                CompanionAnimationHelper.forceFlyingAnimationPose(mount);
-            }
-        } else if (cinematic.moveType() == CompanionMoveType.WALK) {
-            walkCinematicStep(cinematic, mount, direction, stepDistance, target, lookYaw);
-        } else {
-            mount.move(MoverType.SELF, direction.scale(stepDistance));
-        }
-        CompanionCinematicOrientationHelper.faceYaw(mount, lookYaw);
-        mount.setDeltaMovement(direction.scale(cinematic.moveType() == CompanionMoveType.FLY ? speed * 0.35 : speed * 0.55));
-        mount.fallDistance = 0.0f;
+        double groundOffset = CompanionCinematicLandingService.rescueGroundYOffset(cinematic);
+        moveArrivalStep(mount, cinematic.moveType(), target, stepDistance, speed,
+                forceFlyingPose || cinematic.mode().isFlyingRescue(), groundOffset, cinematic);
         CompanionCinematicPositionService.keepFlyingRescueAboveLanding(cinematic, mount, player);
         cinematic.rememberPosition(mount.position());
+    }
+
+    private static void moveArrivalStep(LivingEntity living, CompanionMoveType moveType, Vec3 target,
+                                        double stepDistance, double speed, boolean forceFlyingPose,
+                                        double groundOffset, PendingMountCinematic cinematic) {
+        Vec3 direction = target.subtract(living.position()).normalize();
+        float lookYaw = CompanionCinematicOrientationHelper.yawTowardStable(living, direction);
+        if (moveType == CompanionMoveType.FLY) {
+            Vec3 next = living.position().add(direction.scale(stepDistance));
+            float pitch = forceFlyingPose
+                    ? CompanionCinematicOrientationHelper.pitchToward(direction) : living.getXRot();
+            living.moveTo(next.x, next.y, next.z, lookYaw, pitch);
+            living.setPos(next.x, next.y, next.z);
+            living.setXRot(pitch);
+            if (forceFlyingPose) CompanionAnimationHelper.forceFlyingAnimationPose(living);
+        } else if (moveType == CompanionMoveType.WALK) {
+            Vec3 horizontal = new Vec3(direction.x, 0.0, direction.z);
+            if (horizontal.lengthSqr() < 0.001) horizontal = new Vec3(0.0, 0.0, 1.0);
+            if (cinematic != null) {
+                walkCinematicStep(cinematic, living, direction, stepDistance, target, lookYaw);
+            } else {
+                moveWalkStep(living, horizontal.normalize(), stepDistance, target, groundOffset, lookYaw);
+            }
+        } else {
+            living.move(MoverType.SELF, direction.scale(stepDistance));
+        }
+        CompanionCinematicOrientationHelper.faceYaw(living, lookYaw);
+        living.setDeltaMovement(direction.scale(moveType == CompanionMoveType.FLY ? speed * 0.35 : speed * 0.55));
+        living.fallDistance = 0.0f;
+        living.hasImpulse = true;
     }
 
     private static void walkCinematicStep(PendingMountCinematic cinematic, LivingEntity mount, Vec3 direction, double speed, Vec3 target, float lookYaw) {

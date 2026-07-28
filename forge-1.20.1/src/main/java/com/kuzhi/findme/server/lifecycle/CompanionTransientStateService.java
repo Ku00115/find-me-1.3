@@ -38,6 +38,7 @@ public final class CompanionTransientStateService {
         cancelled += FindMeApi.cancelTemporaryActionsForCompanion(player.getServer(), uuid, reason.name());
         cancelled += CompanionCombatRescueService.cancelForCompanion(player, uuid, reason.name());
         cancelled += CompanionMountCinematicFlowService.cancelForCompanion(player, uuid, reason.name());
+        cancelled += CompanionSummonApproachService.cancel(uuid, reason.name());
         if (!preserveTacticalRequest) {
             cancelled += CompanionTacticalOrderService.cancelTarget(player.getServer(), uuid, reason.name());
         }
@@ -83,6 +84,8 @@ public final class CompanionTransientStateService {
         }
         cancelCombat(player, reason);
         CompanionMountCinematicFlowService.cancelForPlayer(player, reason.name());
+        CompanionSummonApproachService.cancelPlayer(player.getUUID(), reason.name());
+        CompanionTeamOrderService.cancelPlayer(player.getUUID());
         CompanionTacticalOrderService.cancelPlayer(player.getServer(), player.getUUID(), reason.name());
         CompanionEscortService.cancelForTransition(player);
         int clearedLocks = CompanionOperationLockService.clearForPlayer(player,

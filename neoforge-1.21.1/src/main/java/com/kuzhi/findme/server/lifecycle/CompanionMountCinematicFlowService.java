@@ -314,14 +314,26 @@ public final class CompanionMountCinematicFlowService {
     }
 
     public static void scheduleMountCinematic(ServerPlayer player, LivingEntity mount, CompanionMoveType moveType, MountCinematicMode mode, boolean restoredFromStorage, boolean sendArrivalMagic) {
-        scheduleMountCinematic(player, mount, moveType, mode, restoredFromStorage, sendArrivalMagic, false);
+        scheduleMountCinematic(player, mount, moveType, mode, restoredFromStorage,
+                sendArrivalMagic, false, true);
+    }
+
+    public static void scheduleMountCinematic(ServerPlayer player, LivingEntity mount,
+                                              CompanionMoveType moveType, MountCinematicMode mode,
+                                              boolean restoredFromStorage, boolean sendArrivalMagic,
+                                              boolean presentationEnabled) {
+        scheduleMountCinematic(player, mount, moveType, mode, restoredFromStorage,
+                sendArrivalMagic, false, presentationEnabled);
     }
 
     public static void scheduleExternalMountCinematic(ServerPlayer player, LivingEntity mount, CompanionMoveType moveType, MountCinematicMode mode) {
-        scheduleMountCinematic(player, mount, moveType, mode, false, false, true);
+        scheduleMountCinematic(player, mount, moveType, mode, false, false, true, true);
     }
 
-    private static void scheduleMountCinematic(ServerPlayer player, LivingEntity mount, CompanionMoveType moveType, MountCinematicMode mode, boolean restoredFromStorage, boolean sendArrivalMagic, boolean externalMount) {
+    private static void scheduleMountCinematic(ServerPlayer player, LivingEntity mount,
+                                               CompanionMoveType moveType, MountCinematicMode mode,
+                                               boolean restoredFromStorage, boolean sendArrivalMagic,
+                                               boolean externalMount, boolean presentationEnabled) {
         double catchY;
         Level level = player.level();
         boolean originalNoGravity = mount.isNoGravity();
@@ -362,13 +374,17 @@ public final class CompanionMountCinematicFlowService {
         if (rideSource.type() != RideHandoffService.SourceType.SABLE) {
             CompanionMountSwitchService.beginSimultaneousAirToGroundRetirement(pending, player, mount);
         }
+        if (!presentationEnabled && !mode.isRescue()) {
+            pending.latchContact();
+            pending.beginSwitch();
+        }
         FindMeDebugLogger.info("mount-cinematic", "scheduled player={} mount={} moveType={} mode={} rescueFlightMode={} restoredFromStorage={} sendArrivalMagic={} external={} warmup={} sourceType={} source={} originalNoGravity={} originalNoAi={} pos={}",
                 FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), moveType, mode,
                 rescueFlightMode, restoredFromStorage, sendArrivalMagic, externalMount, warmupTicks, rideSource.type(),
                 rideSource.uuid(), originalNoGravity, originalNoAi, mount.position());
-        if (mode.isMountSwitch() || mode.isAirToAirSwitch()) {
+        if (presentationEnabled && (mode.isMountSwitch() || mode.isAirToAirSwitch())) {
             sendMountApproachMask(player, mount);
-        } else if (mode == MountCinematicMode.NORMAL_SUMMON) {
+        } else if (presentationEnabled && mode == MountCinematicMode.NORMAL_SUMMON) {
             sendMountApproachMask(player, mount);
         } else if (mode.isRescue() && restoredFromStorage
                 && rescueFlightMode != RescueFlightMode.LANDING_SUMMON) {
@@ -379,7 +395,7 @@ public final class CompanionMountCinematicFlowService {
         // The pending list is normally consumed on the next server pass. Prime an
         // ordinary summon once now so the entity does not spend that first visible
         // frame parked at the magic-circle anchor.
-        if (!CompanionArrivalSequenceService.isPending(mount)
+        if (presentationEnabled && !CompanionArrivalSequenceService.isPending(mount)
                 && ((mode == MountCinematicMode.NORMAL_SUMMON && warmupTicks == 0)
                 || (mode.isRescue() && restoredFromStorage))) {
             mount.noPhysics = shouldUseCinematicNoPhysics(pending, mount);
@@ -599,7 +615,7 @@ public final class CompanionMountCinematicFlowService {
         }
     }
 
-    private static void sendMountApproachMask(ServerPlayer player, LivingEntity mount) {
+    static void sendMountApproachMask(ServerPlayer player, LivingEntity mount) {
         if (player == null || mount == null) return;
         ModNetwork.sendToPlayer(player, new ContractCameraPacket(true, mount.getId(), 6,
                 mount.getYRot(), mount.getXRot(), player.getX(), player.getY(), player.getZ(),
@@ -640,10 +656,14 @@ public final class CompanionMountCinematicFlowService {
     }
 
     static boolean shouldUseCinematicNoPhysics(PendingMountCinematic cinematic, LivingEntity living) {
-        if (cinematic.moveType() == CompanionMoveType.FLY) {
+        return shouldUseCinematicNoPhysics(cinematic.moveType(), living);
+    }
+
+    static boolean shouldUseCinematicNoPhysics(CompanionMoveType moveType, LivingEntity living) {
+        if (moveType == CompanionMoveType.FLY) {
             return false;
         }
-        if (cinematic.moveType() == CompanionMoveType.WALK) {
+        if (moveType == CompanionMoveType.WALK) {
             return true;
         }
         double maxSize = Math.max(living.getBbWidth(), living.getBbHeight());

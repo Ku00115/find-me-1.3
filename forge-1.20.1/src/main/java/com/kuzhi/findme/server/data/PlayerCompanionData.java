@@ -157,10 +157,6 @@ public class PlayerCompanionData {
         int previousTeamMemberIndex = previousTeamIndex < 0 ? -1
                 : this.teams.get(targetFor(sourceKind)).get(previousTeamIndex).indexOf(uuid);
         CompanionTeamTarget destinationTeam = targetFor(targetKind);
-        boolean destinationTeamApplied = previousTeamIndex >= 0
-                && previousTeamIndex < this.teamCount(destinationTeam)
-                && this.teamMatchesAppliedWheel(destinationTeam,
-                this.teams.get(destinationTeam).get(previousTeamIndex));
 
         source.remove(uuid);
         this.wheelSlots.get(sourceKind).remove(uuid);
@@ -186,19 +182,29 @@ public class PlayerCompanionData {
             this.vehicleMounts.remove(uuid);
         }
 
-        if (previousTeamIndex >= 0 && previousTeamIndex < this.teamCount(destinationTeam)) {
-            List<UUID> team = this.teams.get(destinationTeam).get(previousTeamIndex);
-            if (team.size() < TEAM_SIZE) {
-                team.add(Math.min(Math.max(0, previousTeamMemberIndex), team.size()), uuid);
-                if (destinationTeamApplied) {
-                    this.replaceWheelSlots(targetKind, team);
-                    if (targetActive != null) {
-                        this.setActiveUuid(targetKind, targetActive);
-                    }
-                }
+        if (previousTeamIndex >= 0) {
+            int assignedTeam = previousTeamIndex < this.teamCount(destinationTeam)
+                    && this.teams.get(destinationTeam).get(previousTeamIndex).size() < TEAM_SIZE
+                    ? previousTeamIndex : firstTeamWithRoom(destinationTeam);
+            if (assignedTeam < 0) assignedTeam = this.createTeam(destinationTeam);
+            List<UUID> team = this.teams.get(destinationTeam).get(assignedTeam);
+            boolean destinationTeamApplied = this.teamMatchesAppliedWheel(destinationTeam, team);
+            int insertAt = assignedTeam == previousTeamIndex
+                    ? Math.min(Math.max(0, previousTeamMemberIndex), team.size()) : team.size();
+            team.add(insertAt, uuid);
+            if (destinationTeamApplied) {
+                this.replaceWheelSlots(targetKind, team);
+                if (targetActive != null) this.setActiveUuid(targetKind, targetActive);
             }
         }
         return true;
+    }
+
+    private int firstTeamWithRoom(CompanionTeamTarget target) {
+        for (int index = 0; index < this.teamCount(target); index++) {
+            if (this.teams.get(target).get(index).size() < TEAM_SIZE) return index;
+        }
+        return -1;
     }
 
     public boolean contains(UUID uuid) {

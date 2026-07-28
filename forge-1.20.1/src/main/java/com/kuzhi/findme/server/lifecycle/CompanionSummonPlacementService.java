@@ -10,6 +10,7 @@ import com.kuzhi.findme.server.safety.CompanionCombatRescueService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
+import com.kuzhi.findme.server.profile.CompanionEntityVisualBoundsService;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
@@ -21,7 +22,9 @@ public final class CompanionSummonPlacementService {
     private CompanionSummonPlacementService() {
     }
 
-    public static StoredRestore findStoredRestoreSpawn(ServerPlayer player, PlayerCompanionData data, UUID uuid, CompanionKind kind, Optional<CompoundTag> storedTag, boolean fallingRescue, LivingEntity companionRescueTarget) {
+    public static StoredRestore findStoredRestoreSpawn(ServerPlayer player, PlayerCompanionData data, UUID uuid,
+            CompanionKind kind, Optional<CompoundTag> storedTag, boolean fallingRescue,
+            LivingEntity companionRescueTarget, boolean tacticalDeploy) {
         CompanionMoveType storedMoveType = storedTag.map(CompanionEntitySnapshots::storedEntityType)
                 .map(type -> CompanionEntityClassifier.summonMoveType(player.getServer(), type, kind))
                 .orElse(CompanionMoveType.WALK);
@@ -38,48 +41,70 @@ public final class CompanionSummonPlacementService {
         RescueFlightMode rescueFlightMode = restoreRescue && storedMoveType == CompanionMoveType.FLY
                 ? CompanionRescuePlanner.plan(player).flightMode() : null;
         String storedEntityType = storedTag.map(CompanionEntitySnapshots::storedEntityType).orElse("");
+        CompanionEntityVisualBoundsService.VisualDimensions storedDimensions = storedTag
+                .flatMap(CompanionEntityVisualBoundsService::storedEffectDimensions).orElse(null);
         boolean burrowSummon = !restoreRescue && data.animationStyle(uuid, CompanionAnimationPurpose.SUMMON,
                 storedEntityType) == CompanionAnimationStyle.GROUND_EMERGE;
+        boolean presentationEnabled = CompanionSummonPresentationPolicy.enabled(data, kind,
+                restoreRescue ? CompanionAnimationPurpose.RESCUE : CompanionAnimationPurpose.SUMMON,
+                tacticalDeploy);
         BlockPos pos = storedTag.map(CompanionEntitySnapshots::storedEntityType)
                 .map(type -> {
                     CompanionMoveType summonMoveType = CompanionEntityClassifier.summonMoveType(player.getServer(), type, kind);
                     if (companionRescue) {
                         return CompanionCombatRescueService.findSpawn(player, null, summonMoveType, companionRescueTarget);
                     }
-                    if (kind == CompanionKind.MOUNT && burrowSummon) {
+                    if (kind == CompanionKind.MOUNT && burrowSummon && presentationEnabled) {
                         return CompanionSpawnPlacementService.findBurrowMountRideSpot(player);
                     }
-                    if (kind == CompanionKind.MOUNT || airborneGroundCompanion) {
-                        return CompanionSpawnPlacementService.findArrivalSpawn(player, summonMoveType, restoreRescue, storedEntityType, rescueFlightMode);
+                    if ((kind == CompanionKind.MOUNT && presentationEnabled) || airborneGroundCompanion
+                            || (kind == CompanionKind.COMPANION && presentationEnabled && !tacticalDeploy)) {
+                        return CompanionSpawnPlacementService.findArrivalSpawn(player, summonMoveType,
+                                restoreRescue, storedEntityType, rescueFlightMode, storedDimensions);
                     }
-                    return burrowSummon ? CompanionSpawnPlacementService.findBurrowSummonSpot(player, kind, summonMoveType) : CompanionSpawnPlacementService.findSummonSpot(player, kind, summonMoveType);
+                    return burrowSummon && presentationEnabled
+                            ? CompanionSpawnPlacementService.findBurrowSummonSpot(player, kind, summonMoveType)
+                            : CompanionSpawnPlacementService.findSummonSpot(player, kind, summonMoveType);
                 })
                 .orElseGet(() -> {
                     if (companionRescue) {
                         return CompanionCombatRescueService.findSpawn(player, null, storedMoveType, companionRescueTarget);
                     }
                     if (airborneGroundCompanion || airborneGroundMountSwitch || airborneGroundVehicleRescue) {
-                        return CompanionSpawnPlacementService.findArrivalSpawn(player, storedMountMoveType, true, storedEntityType, rescueFlightMode);
+                    return CompanionSpawnPlacementService.findArrivalSpawn(player, storedMountMoveType,
+                            true, storedEntityType, rescueFlightMode, storedDimensions);
                     }
-                    if (kind == CompanionKind.MOUNT && burrowSummon) {
+                    if (kind == CompanionKind.MOUNT && burrowSummon && presentationEnabled) {
                         return CompanionSpawnPlacementService.findBurrowMountRideSpot(player);
                     }
-                    return burrowSummon ? CompanionSpawnPlacementService.findBurrowSummonSpot(player, kind, CompanionMoveType.WALK) : CompanionSpawnPlacementService.findSummonSpot(player, kind, CompanionMoveType.WALK);
+                    return burrowSummon && presentationEnabled
+                            ? CompanionSpawnPlacementService.findBurrowSummonSpot(player, kind, CompanionMoveType.WALK)
+                            : CompanionSpawnPlacementService.findSummonSpot(player, kind, CompanionMoveType.WALK);
                 });
         return new StoredRestore(pos, restoreRescue);
     }
 
-    public static BlockPos findLiveMoveTarget(ServerPlayer player, PlayerCompanionData data, CompanionKind kind, LivingEntity living, CompanionMoveType moveType, CompanionMoveType summonMoveType, MountCinematicMode mode, boolean airborneGroundCompanion, LivingEntity companionRescueTarget) {
+    public static BlockPos findLiveMoveTarget(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
+            LivingEntity living, CompanionMoveType moveType, CompanionMoveType summonMoveType,
+            MountCinematicMode mode, boolean airborneGroundCompanion,
+            LivingEntity companionRescueTarget, boolean tacticalDeploy) {
         String entityType = net.minecraft.world.entity.EntityType.getKey(living.getType()).toString();
+        CompanionEntityVisualBoundsService.VisualDimensions liveDimensions =
+                CompanionEntityVisualBoundsService.effectDimensions(living);
         if (kind == CompanionKind.MOUNT && !mode.isRescue()
+                && CompanionSummonPresentationPolicy.enabled(data, kind,
+                CompanionAnimationPurpose.SUMMON, tacticalDeploy)
                 && data.animationStyle(living.getUUID(), CompanionAnimationPurpose.SUMMON,
                 entityType) == CompanionAnimationStyle.GROUND_EMERGE) {
             return CompanionSpawnPlacementService.findBurrowMountRideSpot(player);
         }
-        if (kind == CompanionKind.MOUNT) {
+        boolean presentationEnabled = CompanionSummonPresentationPolicy.enabled(data, kind,
+                animationPurpose(mode, companionRescueTarget != null), tacticalDeploy);
+        if (kind == CompanionKind.MOUNT && presentationEnabled) {
             RescueFlightMode rescueFlightMode = mode.isFlyingRescue()
                     ? CompanionRescuePlanner.plan(player).flightMode() : null;
-            return CompanionSpawnPlacementService.findArrivalSpawn(player, moveType, mode.isRescue(), entityType, rescueFlightMode);
+            return CompanionSpawnPlacementService.findArrivalSpawn(player, moveType, mode.isRescue(),
+                    entityType, rescueFlightMode, liveDimensions);
         }
         if (companionRescueTarget != null) {
             return CompanionCombatRescueService.findSpawn(player, living, summonMoveType, companionRescueTarget);
@@ -89,11 +114,21 @@ public final class CompanionSummonPlacementService {
                     ? CompanionRescuePlanner.plan(player).flightMode() : null;
             return CompanionSpawnPlacementService.findArrivalSpawn(player, summonMoveType, true, "", rescueFlightMode);
         }
+        if (kind == CompanionKind.COMPANION && presentationEnabled && !tacticalDeploy) {
+            return CompanionSpawnPlacementService.findArrivalSpawn(player, summonMoveType, false,
+                    entityType, null, liveDimensions);
+        }
         if (data.animationStyle(living.getUUID(), CompanionAnimationPurpose.SUMMON,
                 entityType) == CompanionAnimationStyle.GROUND_EMERGE) {
             return CompanionSpawnPlacementService.findBurrowSummonSpot(player, kind, summonMoveType);
         }
         return CompanionSpawnPlacementService.findSummonSpot(player, kind, summonMoveType);
+    }
+
+    private static CompanionAnimationPurpose animationPurpose(MountCinematicMode mode, boolean companionRescue) {
+        if (mode.isMountSwitch()) return CompanionAnimationPurpose.SWITCH;
+        return mode.isRescue() || companionRescue
+                ? CompanionAnimationPurpose.RESCUE : CompanionAnimationPurpose.SUMMON;
     }
 
     public static Optional<BlockPos> adjustForOpenLiveSpace(ServerPlayer player, LivingEntity living, BlockPos target, MountCinematicMode mode) {

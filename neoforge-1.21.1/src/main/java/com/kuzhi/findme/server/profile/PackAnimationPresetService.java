@@ -42,6 +42,8 @@ import java.util.Set;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.DefaultAttributes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.TagParser;
@@ -356,8 +358,16 @@ public final class PackAnimationPresetService {
         if (isLikelyVehicleKey(normalized)) {
             return true;
         }
+        if (hasLivingAttributes(type)) {
+            return true;
+        }
         MobCategory category = type.getCategory();
         return category != MobCategory.MISC;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean hasLivingAttributes(EntityType<?> type) {
+        return DefaultAttributes.hasSupplier((EntityType<? extends LivingEntity>) type);
     }
 
     private static PackAnimationPresetCategory category(String key, EntityType<?> type) {
@@ -379,7 +389,7 @@ public final class PackAnimationPresetService {
     }
 
     private static PackAnimationPresetCategory autoCategory(String key, EntityType<?> type) {
-        if (isLikelyVehicleKey(key) || type.getCategory() == MobCategory.MISC && !key.startsWith("minecraft:")) {
+        if (isLikelyVehicleKey(key)) {
             return PackAnimationPresetCategory.VEHICLE;
         }
         if (CompanionEntityClassifier.isLikelyMountKey(key)) {

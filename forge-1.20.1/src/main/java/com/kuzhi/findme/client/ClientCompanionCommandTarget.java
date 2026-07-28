@@ -5,10 +5,13 @@ import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.FindMeModule;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.CompanionTacticalAction;
+import com.kuzhi.findme.common.CompanionTeamCommandAction;
+import com.kuzhi.findme.common.CompanionTeamTarget;
 import com.kuzhi.findme.api.client.CompanionCommandTarget;
 import com.kuzhi.findme.network.CompanionCommandPacket;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.kuzhi.findme.network.CompanionTacticalCommandPacket;
+import com.kuzhi.findme.network.CompanionTeamTacticalCommandPacket;
 import com.kuzhi.findme.network.CompanionWheelIntentPacket;
 import com.kuzhi.findme.network.ModNetwork;
 import java.util.List;
@@ -181,6 +184,14 @@ final class ClientCompanionCommandTarget {
     static boolean hasAction(CompanionCommandTarget target, CompanionTacticalAction action) {
         return target != null && target.entry() != null && target.entry().tacticalAction() == action;
     }
+    static boolean sendTeamCommand(CompanionTeamTarget target, int teamIndex, CompanionTeamCommandAction action,
+                                    net.minecraft.core.BlockPos targetPos, int targetEntityId) {
+        if (target == null || teamIndex < 0 || action == null || ClientCompanionTeamState.currentMembers(target).isEmpty()) {
+            showUnavailable(); return false;
+        }
+        ModNetwork.sendToServer(new CompanionTeamTacticalCommandPacket(target, teamIndex, action, targetPos, targetEntityId));
+        return true;
+    }
 
     private static boolean sendTactical(CompanionCommandTarget target, CompanionTacticalAction action,
                                         net.minecraft.core.BlockPos targetPos, int targetEntityId) {
@@ -279,7 +290,7 @@ final class ClientCompanionCommandTarget {
     static boolean canUseWaystones(CompanionCommandTarget target) {
         return target != null && target.kind() == CompanionKind.MOUNT && target.entry().alive()
                 && ClientFindMeModuleState.enabled(FindMeModule.RIDING)
-                && net.minecraftforge.fml.ModList.get().isLoaded("waystones");
+                && com.kuzhi.findme.compat.waystones.WaystonesIntegration.available();
     }
 
 }

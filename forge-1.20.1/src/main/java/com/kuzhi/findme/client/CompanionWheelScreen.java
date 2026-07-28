@@ -46,7 +46,6 @@ extends FindMeScreen {
     private int page;
     private boolean selectionRestored;
     private int openTicks;
-    private boolean centerCancelHovered;
     private boolean followCommandMode;
     private final BlockPos commandAimPosition;
     private final int commandAimEntityId;
@@ -102,8 +101,6 @@ extends FindMeScreen {
 
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         FindMeWheelStyle layout = ClientWheelPresentationState.rosterLayout();
-        this.centerCancelHovered = layout != FindMeWheelStyle.TACTICAL_STRIP
-                && this.isCenterCancel(mouseX, mouseY);
         float openFade = this.fade(partialTick);
         ClientWheelPageTransition.Motion pageMotion = this.pageTransition.motion(partialTick);
         float fade = openFade * pageMotion.alpha();
@@ -442,10 +439,6 @@ extends FindMeScreen {
 
     public void confirmSelection() {
         this.pageTransition.finish();
-        if (this.centerCancelHovered) {
-            Minecraft.getInstance().setScreen(null);
-            return;
-        }
         if (this.hoveredIndex >= 0) {
             if (this.followCommandMode) {
                 this.activateSlot(this.hoveredIndex);
@@ -458,18 +451,15 @@ extends FindMeScreen {
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (FindMeUiKeys.isPrimaryMouse(button)) this.pageTransition.finish();
+        if (FindMeUiKeys.isMiddleMouse(button) && this.kind == CompanionKind.COMPANION) {
+            this.pageTransition.finish();
+            this.playConfirmSound();
+            this.openTeamCommandWheel();
+            return true;
+        }
         if (FindMeUiKeys.isSecondaryMouse(button) && this.hoveredIndex >= 0) {
             this.pageTransition.finish();
             return this.openContextWheel(this.hoveredIndex, CompanionCommandWheelScreen.Mode.COMMAND);
-        }
-        if (FindMeUiKeys.isMiddleMouse(button) && this.hoveredIndex >= 0) {
-            this.pageTransition.finish();
-            return this.openContextWheel(this.hoveredIndex, CompanionCommandWheelScreen.Mode.ABILITY);
-        }
-        if (FindMeUiKeys.isPrimaryMouse(button) && this.isCenterCancel(mouseX, mouseY)) {
-            this.playConfirmSound();
-            Minecraft.getInstance().setScreen(null);
-            return true;
         }
         if (FindMeUiKeys.isPrimaryMouse(button) && this.hoveredIndex >= 0) {
             return this.activateSlot(this.hoveredIndex);
@@ -481,7 +471,12 @@ extends FindMeScreen {
         this.openTicks = 0;
         this.pageTransition.finish();
     }
-
+    private void openTeamCommandWheel() {
+        CompanionTeamTarget target = CompanionTeamTarget.COMPANION;
+        int team = ClientCompanionTeamState.currentTeam(target);
+        Minecraft.getInstance().setScreen(new CompanionCommandWheelScreen(target, team, this,
+                new CompanionCommandWheelScreen.AimSnapshot(this.commandAimPosition, this.commandAimEntityId)));
+    }
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
         if (delta == 0.0 || this.pageTransition.active()) return true;
         if (this.kind == CompanionKind.MOUNT) {

@@ -11,7 +11,7 @@
     "ServerGamePacketListenerImplMixin",
     "SalvationRitualServiceMixin"
   ],
-  "client": [],
+  "client": ["client.MinecraftOutlineMixin", "client.EntityOutlineColorMixin"],
   "injectors": {
     "defaultRequire": 1
   }

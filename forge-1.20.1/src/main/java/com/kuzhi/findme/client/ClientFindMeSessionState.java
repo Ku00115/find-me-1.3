@@ -26,6 +26,8 @@ public final class ClientFindMeSessionState {
         ClientRideHomeTransitionState.clear();
         ClientExternalRideHandoffState.clear();
         ClientRescueMagicRenderState.clear();
+        ClientTacticalFormationState.clear();
+        ClientTacticalTargetOutlineState.clear();
         ClientStorageEffectState.clear();
         ClientBurrowEffectState.clear();
         ClientVehicleSealEffectState.clear();

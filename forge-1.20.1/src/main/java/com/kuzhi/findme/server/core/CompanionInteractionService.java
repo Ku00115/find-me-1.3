@@ -63,7 +63,10 @@ public final class CompanionInteractionService {
     }
 
     private static InteractionResult mount(ServerPlayer player, LivingEntity mount) {
-        boolean riding = player.getVehicle() == mount || player.startRiding(mount, true);
+        if (player.getVehicle() == mount) {
+            return InteractionResult.CONSUME;
+        }
+        boolean riding = player.startRiding(mount, true);
         FindMeMod.LOGGER.info("[FindMe ride/right-click] player={} target={} type={} result={}",
                 player.getUUID(), mount.getUUID(), EntityType.getKey(mount.getType()), riding ? "MOUNTED" : "REJECTED");
         return riding ? InteractionResult.CONSUME : InteractionResult.FAIL;

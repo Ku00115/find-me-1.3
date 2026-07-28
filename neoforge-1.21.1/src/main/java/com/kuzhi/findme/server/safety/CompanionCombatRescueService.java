@@ -50,7 +50,7 @@ public final class CompanionCombatRescueService {
     }
 
     public static Optional<LivingEntity> findThreat(ServerPlayer player, PlayerCompanionData data) {
-        return CompanionThreatResolver.findImmediateOwnerThreat(player, data, null, null,
+        return CompanionThreatResolver.findCombatRescueThreat(player, data,
                 SCAN_THREAT_RANGE, RECENT_THREAT_RANGE);
     }
 
@@ -119,6 +119,12 @@ public final class CompanionCombatRescueService {
             if (CompanionStorageService.isStoragePending(companion) || CompanionHomeResidentService.isResident(companion.getUUID())) {
                 cancelRescueControl(companion);
                 iterator.remove();
+                continue;
+            }
+            if (!CompanionThreatResolver.isActiveCombatRescueThreat(player, threat)) {
+                cancelRescueControl(companion); iterator.remove();
+                FindMeDebugLogger.info("rescue-combat", "cancel player={} companion={} threat={} reason=threat_invalid",
+                        player.getUUID(), companion.getUUID(), threat.getUUID());
                 continue;
             }
             if (CompanionArrivalSequenceService.isPending(companion)) {

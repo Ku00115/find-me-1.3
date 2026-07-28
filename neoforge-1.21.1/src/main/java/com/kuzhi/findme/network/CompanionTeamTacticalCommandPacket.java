@@ -1,0 +1,37 @@
+package com.kuzhi.findme.network;
+
+import com.kuzhi.findme.FindMeMod;
+import com.kuzhi.findme.common.CompanionTeamCommandAction;
+import com.kuzhi.findme.common.CompanionTeamTarget;
+import com.kuzhi.findme.server.lifecycle.CompanionTeamOrderService;
+import java.util.function.Supplier;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+
+public record CompanionTeamTacticalCommandPacket(CompanionTeamTarget target, int teamIndex,
+                                                  CompanionTeamCommandAction action, BlockPos targetPos,
+                                                  int targetEntityId) implements CustomPacketPayload {
+    public static final Type<CompanionTeamTacticalCommandPacket> TYPE = new Type<>(
+            ResourceLocation.fromNamespaceAndPath(FindMeMod.MODID, "companion_team_tactical_command"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, CompanionTeamTacticalCommandPacket> STREAM_CODEC =
+            NetworkCodecs.of(CompanionTeamTacticalCommandPacket::encode, CompanionTeamTacticalCommandPacket::decode);
+    @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    private static void encode(CompanionTeamTacticalCommandPacket packet, FriendlyByteBuf buffer) {
+        buffer.writeEnum(packet.target); buffer.writeVarInt(packet.teamIndex); buffer.writeEnum(packet.action);
+        buffer.writeBlockPos(packet.targetPos == null ? BlockPos.ZERO : packet.targetPos); buffer.writeInt(packet.targetEntityId);
+    }
+    private static CompanionTeamTacticalCommandPacket decode(FriendlyByteBuf buffer) {
+        return new CompanionTeamTacticalCommandPacket(buffer.readEnum(CompanionTeamTarget.class), buffer.readVarInt(),
+                buffer.readEnum(CompanionTeamCommandAction.class), buffer.readBlockPos(), buffer.readInt());
+    }
+    public static void handle(CompanionTeamTacticalCommandPacket packet, Supplier<FindMeNetworkContext.Context> contexts) {
+        FindMeNetworkContext.Context context = contexts.get();
+        context.enqueueWork(() -> { if (context.getSender() != null) CompanionTeamOrderService.handle(
+                context.getSender(), packet.target, packet.teamIndex, packet.action, packet.targetPos, packet.targetEntityId); });
+        context.setPacketHandled(true);
+    }
+}

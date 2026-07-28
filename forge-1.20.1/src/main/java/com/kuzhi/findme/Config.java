@@ -380,6 +380,12 @@ public class Config {
         syncServerFromSpec();
     }
 
+    public static void setCompanionDeploymentLimit(int limit) {
+        COMPANION_DEPLOYMENT_LIMIT.set(Math.max(1, Math.min(32, limit)));
+        COMPANION_DEPLOYMENT_LIMIT.save();
+        syncServerFromSpec();
+    }
+
     public static void resetModulesToDefaults() {
         ENABLE_RIDING_MODULE.set(true);
         ENABLE_COMPANION_MODULE.set(true);

@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -42,7 +43,8 @@ public final class CompanionStorageService {
     private static final Map<UUID, Long> INTENTIONAL_STORAGE_REMOVALS = new HashMap<>();
     private static final List<PendingStorageEffect> PENDING_STORAGE_EFFECTS = new ArrayList<>();
     private static final String SHOULDER_COMPANION_UUID = "FindMeCompanionUUID";
-    private static final int STORAGE_EFFECT_TICKS = 18;
+    private static final int STORAGE_EFFECT_TICKS = 12;
+    private static final int STORAGE_PRESENTATION_TICKS = 17;
 
     private CompanionStorageService() {
     }
@@ -326,6 +328,40 @@ public final class CompanionStorageService {
         return true;
     }
 
+    /** Immediate write-before-remove boundary used by an authoritative category transfer. */
+    public static boolean storeImmediatelyForCategoryTransfer(ServerPlayer player, PlayerCompanionData data,
+                                                               CompanionKind kind, LivingEntity living) {
+        if (player == null || data == null || kind == null || living == null || !living.isAlive()
+                || !data.contains(kind, living.getUUID()) || isStoragePending(living)) {
+            return false;
+        }
+        UUID uuid = living.getUUID();
+        if (!CompanionOperationLockService.tryBegin(player, uuid,
+                CompanionOperationLockService.Operation.STORE, "category_transfer")) {
+            return false;
+        }
+        CompanionTransientStateService.cancelTarget(player, data, uuid,
+                CompanionTransientStateService.Reason.MANUAL_STORE);
+        CompanionHomeResidentService.clearResident(living);
+        if (!storeEntity(player, data, living) || !hasValidStoredSnapshot(data, uuid)) {
+            CompanionOperationLockService.end(player, uuid,
+                    CompanionOperationLockService.Operation.STORE, "category_snapshot_failed");
+            return false;
+        }
+        if (player.getVehicle() == living) player.stopRiding();
+        living.stopRiding();
+        markIntentionalStorageRemoval(player.getServer(), uuid);
+        living.discard();
+        data.clearDeployed(kind, uuid);
+        data.setLifecycleState(uuid, CompanionLifecycleState.STORED);
+        CompanionDataService.save(player, data);
+        CompanionOperationLockService.end(player, uuid,
+                CompanionOperationLockService.Operation.STORE, "category_stored");
+        FindMeDebugLogger.lifecycle("CATEGORY_TRANSFER_STORED", player, uuid, living,
+                "DEPLOYED", "STORED", "warehouse:category_transfer", true, false);
+        return true;
+    }
+
     /**
      * Immediate write-before-remove storage used when the house block itself no longer exists.
      * This path deliberately accepts an offline owner because house destruction is world-owned,
@@ -442,6 +478,30 @@ public final class CompanionStorageService {
         return tag;
     }
 
+    public static Optional<CompoundTag> createDeathSnapshot(LivingEntity living, long storedAt) {
+        if (living == null) {
+            return Optional.empty();
+        }
+        CompoundTag tag = new CompoundTag();
+        if (!living.save(tag)) {
+            return Optional.empty();
+        }
+        resetStoredStateTags(tag);
+        String entityType = EntityType.getKey(living.getType()).toString();
+        float maxHealth = Math.max(1.0f, living.getMaxHealth());
+        tag.putString("id", entityType);
+        tag.putString("CompanionRescueName", living.getDisplayName().getString());
+        tag.putString("CompanionRescueType", entityType);
+        CompanionEntitySnapshots.writePreviewBounds(living, tag);
+        tag.putFloat("CompanionRescueHealth", maxHealth);
+        tag.putFloat("CompanionRescueMaxHealth", maxHealth);
+        tag.putInt("CompanionRescueArmor", living.getArmorValue());
+        tag.putLong("CompanionRescueStoredAt", storedAt);
+        tag.putBoolean("CompanionRescueDead", true);
+        tag.putFloat("Health", maxHealth);
+        return Optional.of(tag);
+    }
+
     public static void markIntentionalStorageRemoval(MinecraftServer server, UUID uuid) {
         if (server == null) {
             return;
@@ -460,9 +520,9 @@ public final class CompanionStorageService {
         com.kuzhi.findme.common.CompanionAnimationStyle animation = storageAnimation(data, living);
         if (player != null) CompanionSummonLineService.showStorage(player, living);
         UUID ownerUuid = player == null ? null : player.getUUID();
-        if (FindMeApi.beginExternalStoragePresentation(server, ownerUuid, living, STORAGE_EFFECT_TICKS + 8)) {
+        if (FindMeApi.beginExternalStoragePresentation(server, ownerUuid, living, STORAGE_PRESENTATION_TICKS)) {
             FindMeDebugLogger.info("storage-presentation", "external provider owns storage visual entity={} owner={} duration={}",
-                    FindMeDebugLogger.entity(living), ownerUuid, STORAGE_EFFECT_TICKS + 8);
+                    FindMeDebugLogger.entity(living), ownerUuid, STORAGE_PRESENTATION_TICKS);
             return;
         }
         AABB box = CompanionEntityVisualBoundsService.effectBounds(living);
@@ -489,7 +549,7 @@ public final class CompanionStorageService {
     private static void sendStoragePacket(ServerPlayer player, LivingEntity living, Vec3 anchor, float radius,
                                           float height, StorageEffectPacket.Visual visual) {
         StorageEffectPacket packet = new StorageEffectPacket(living.getId(), anchor.x, anchor.y, anchor.z,
-                radius, height, STORAGE_EFFECT_TICKS + 8, visual);
+                radius, height, STORAGE_PRESENTATION_TICKS, visual);
         if (living.level() instanceof ServerLevel level) {
             ModNetwork.sendToPlayersNear(level, anchor, 96.0, packet);
         } else if (player != null) {

@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import com.kuzhi.findme.network.FindMeNetworkContext;
 
 public final class ModNetwork {
-    private static final String PROTOCOL = "72";
+    private static final String PROTOCOL = "79";
     public static final Object channel = new Object();
 
     private ModNetwork() {
@@ -25,6 +25,7 @@ public final class ModNetwork {
         registrar.playToServer(MountRosterIntentPacket.TYPE, MountRosterIntentPacket.STREAM_CODEC, (packet, context) -> MountRosterIntentPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(MountRosterIntentResultPacket.TYPE, MountRosterIntentResultPacket.STREAM_CODEC, (packet, context) -> MountRosterIntentResultPacket.handle(packet, legacyContext(context)));
         registrar.playToServer(CompanionTacticalCommandPacket.TYPE, CompanionTacticalCommandPacket.STREAM_CODEC, (packet, context) -> CompanionTacticalCommandPacket.handle(packet, legacyContext(context)));
+        registrar.playToServer(CompanionTeamTacticalCommandPacket.TYPE, CompanionTeamTacticalCommandPacket.STREAM_CODEC, (packet, context) -> CompanionTeamTacticalCommandPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(CompanionListPacket.TYPE, CompanionListPacket.STREAM_CODEC, (packet, context) -> CompanionListPacket.handle(packet, legacyContext(context)));
         registrar.playToServer(CobblemonCommandPacket.TYPE, CobblemonCommandPacket.STREAM_CODEC, (packet, context) -> CobblemonCommandPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(CobblemonPartyPacket.TYPE, CobblemonPartyPacket.STREAM_CODEC, (packet, context) -> CobblemonPartyPacket.handle(packet, legacyContext(context)));
@@ -39,6 +40,8 @@ public final class ModNetwork {
         registrar.playToServer(WaystoneJourneyRequestPacket.TYPE, WaystoneJourneyRequestPacket.STREAM_CODEC, (packet, context) -> WaystoneJourneyRequestPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(RescueMagicPacket.TYPE, RescueMagicPacket.STREAM_CODEC, (packet, context) -> RescueMagicPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(StorageEffectPacket.TYPE, StorageEffectPacket.STREAM_CODEC, (packet, context) -> StorageEffectPacket.handle(packet, legacyContext(context)));
+        registrar.playToClient(CompanionTacticalFormationPacket.TYPE, CompanionTacticalFormationPacket.STREAM_CODEC, (packet, context) -> CompanionTacticalFormationPacket.handle(packet, legacyContext(context)));
+        registrar.playToClient(CompanionTacticalTargetPacket.TYPE, CompanionTacticalTargetPacket.STREAM_CODEC, (packet, context) -> CompanionTacticalTargetPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(CompanionDialoguePacket.TYPE, CompanionDialoguePacket.STREAM_CODEC, (packet, context) -> CompanionDialoguePacket.handle(packet, legacyContext(context)));
         registrar.playToServer(VehicleCommandPacket.TYPE, VehicleCommandPacket.STREAM_CODEC, (packet, context) -> VehicleCommandPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(VehicleListPacket.TYPE, VehicleListPacket.STREAM_CODEC, (packet, context) -> VehicleListPacket.handle(packet, legacyContext(context)));
@@ -64,6 +67,7 @@ public final class ModNetwork {
         registrar.playToServer(WarehouseEntityCommandPacket.TYPE, WarehouseEntityCommandPacket.STREAM_CODEC, (packet, context) -> WarehouseEntityCommandPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(WarehouseOperationResultPacket.TYPE, WarehouseOperationResultPacket.STREAM_CODEC, (packet, context) -> WarehouseOperationResultPacket.handle(packet, legacyContext(context)));
         registrar.playToServer(FindMeModuleCommandPacket.TYPE, FindMeModuleCommandPacket.STREAM_CODEC, (packet, context) -> FindMeModuleCommandPacket.handle(packet, legacyContext(context)));
+        registrar.playToServer(FindMeServerSettingsCommandPacket.TYPE, FindMeServerSettingsCommandPacket.STREAM_CODEC, (packet, context) -> FindMeServerSettingsCommandPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(FindMeModuleStatePacket.TYPE, FindMeModuleStatePacket.STREAM_CODEC, (packet, context) -> FindMeModuleStatePacket.handle(packet, legacyContext(context)));
         registrar.playToClient(OpenFindMeManageScreenPacket.TYPE, OpenFindMeManageScreenPacket.STREAM_CODEC, (packet, context) -> OpenFindMeManageScreenPacket.handle(packet, legacyContext(context)));
     }
@@ -79,6 +83,7 @@ public final class ModNetwork {
     public static void sendToServer(CompanionTacticalCommandPacket packet) {
         PacketDistributor.sendToServer(packet);
     }
+    public static void sendToServer(CompanionTeamTacticalCommandPacket packet) { PacketDistributor.sendToServer(packet); }
 
     public static void sendToServer(CompanionWheelIntentPacket packet) {
         PacketDistributor.sendToServer(packet);
@@ -102,6 +107,7 @@ public final class ModNetwork {
     public static void sendToServer(PackEntityPresetUpdatePacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(PackEditorActionPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(FindMeModuleCommandPacket packet) { PacketDistributor.sendToServer(packet); }
+    public static void sendToServer(FindMeServerSettingsCommandPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(RideHomeReadyPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(WaystoneDestinationRequestPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(WaystoneJourneyRequestPacket packet) { PacketDistributor.sendToServer(packet); }
@@ -198,6 +204,10 @@ public final class ModNetwork {
         PacketDistributor.sendToPlayer(player, packet);
     }
 
+    public static void sendToPlayer(ServerPlayer player, CompanionTacticalTargetPacket packet) {
+        PacketDistributor.sendToPlayer(player, packet);
+    }
+
     public static void sendToPlayer(ServerPlayer player, VehicleSealEffectPacket packet) {
         PacketDistributor.sendToPlayer(player, packet);
     }
@@ -224,6 +234,12 @@ public final class ModNetwork {
         if (level != null && center != null) {
             PacketDistributor.sendToPlayersNear(level, null, center.x, center.y, center.z, radius, packet);
         }
+    }
+
+    public static void sendToPlayersNear(ServerLevel level, Vec3 center, double radius,
+                                         CompanionTacticalFormationPacket packet) {
+        if (level != null && center != null)
+            PacketDistributor.sendToPlayersNear(level, null, center.x, center.y, center.z, radius, packet);
     }
 
     public static void sendToPlayersNear(ServerLevel level, Vec3 center, double radius, VehicleSealEffectPacket packet) {

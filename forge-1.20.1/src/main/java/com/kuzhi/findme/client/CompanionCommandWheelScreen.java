@@ -3,6 +3,9 @@ package com.kuzhi.findme.client;
 import com.kuzhi.findme.api.client.CompanionCommandTarget;
 import com.kuzhi.findme.api.client.FindMeClientAbilityActionRegistry;
 import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.CompanionTacticalAction;
+import com.kuzhi.findme.common.CompanionTeamCommandAction;
+import com.kuzhi.findme.common.CompanionTeamTarget;
 import com.kuzhi.findme.common.FindMeModule;
 import com.kuzhi.findme.common.FindMeWheelStyle;
 import java.util.ArrayList;
@@ -39,6 +42,8 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
 
     private static final int FADE_TICKS = 6;
     private final CompanionCommandTarget target;
+    private final CompanionTeamTarget teamTarget;
+    private final int teamIndex;
     private final CompanionWheelScreen returnScreen;
     private final Mode mode;
     private final BlockPos aimedPosition;
@@ -61,14 +66,30 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                                         AimSnapshot aim) {
         super(Component.translatable(mode.titleKey));
         this.target = target;
+        this.teamTarget = null;
+        this.teamIndex = -1;
         this.returnScreen = returnScreen;
         this.mode = mode;
         this.aimedPosition = aim.position();
         this.aimedEntityId = aim.entityId();
     }
 
+    CompanionCommandWheelScreen(CompanionTeamTarget teamTarget, int teamIndex,
+                                CompanionWheelScreen returnScreen, AimSnapshot aim) {
+        super(Component.translatable("screen.find_me.command.team_title"));
+        this.target = null;
+        this.teamTarget = teamTarget;
+        this.teamIndex = teamIndex;
+        this.returnScreen = returnScreen;
+        this.mode = Mode.COMMAND;
+        this.aimedPosition = aim.position();
+        this.aimedEntityId = aim.entityId();
+    }
+
     boolean openedFromRoster(CompanionKind kind) {
-        return this.returnScreen != null && this.target.kind() == kind;
+        return this.returnScreen != null && (this.target != null && this.target.kind() == kind
+                || this.teamTarget == (kind == CompanionKind.MOUNT
+                ? CompanionTeamTarget.MOUNT : CompanionTeamTarget.COMPANION));
     }
 
     void closeFromSourceRelease() {
@@ -126,7 +147,10 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
             }
         }
 
-        FindMeWheelRenderer.drawCommandHeader(graphics, this.title, this.target.entry().name(), fade);
+        Component subject = this.target == null
+                ? Component.translatable("screen.find_me.command.team_subject", this.teamIndex + 1)
+                : Component.literal(this.target.entry().name());
+        FindMeWheelRenderer.drawCommandHeader(graphics, this.title, subject.getString(), fade);
         graphics.pose().pushPose();
         graphics.pose().translate(0.0f, 0.0f, 280.0f);
         for (int i = pageState.start(); i < pageState.end(); ++i) {
@@ -223,7 +247,72 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
     }
 
     private List<ActionView> actions() {
+        if (this.teamTarget != null) return teamCommandActions();
         return this.mode == Mode.COMMAND ? commandActions() : abilityActions();
+    }
+
+    private List<ActionView> teamCommandActions() {
+        ArrayList<ActionView> actions = new ArrayList<>();
+        boolean protecting = hasActiveTeamAction(CompanionTacticalAction.PROTECT_OWNER);
+        actions.add(teamAction(protecting ? "team_cancel_protect" : "team_protect_owner",
+                protecting ? "screen.find_me.command.cancel_protect" : "screen.find_me.command.team_protect_owner",
+                protecting ? CompanionTeamCommandAction.CANCEL_PROTECT : CompanionTeamCommandAction.PROTECT_OWNER,
+                null, -1));
+        actions.add(teamAction("team_follow", "screen.find_me.command.team_follow", CompanionTeamCommandAction.FOLLOW,
+                null, -1));
+        boolean guarding = hasActiveTeamAction(CompanionTacticalAction.GUARD_HERE);
+        actions.add(teamAction(guarding ? "team_cancel_guard" : "team_guard_here",
+                guarding ? "screen.find_me.command.cancel_guard" : "screen.find_me.command.team_guard_here",
+                guarding ? CompanionTeamCommandAction.CANCEL_GUARD : CompanionTeamCommandAction.GUARD_HERE,
+                guarding || Minecraft.getInstance().player == null ? null
+                        : Minecraft.getInstance().player.blockPosition(), -1));
+        if (this.aimedEntityId >= 0) {
+            actions.add(teamAction("team_attack_target", "screen.find_me.command.team_attack_target",
+                    CompanionTeamCommandAction.ATTACK_TARGET, null, this.aimedEntityId));
+        }
+        boolean paused = hasPausedTeamMember();
+        actions.add(teamAction(paused ? "team_resume" : "team_pause",
+                paused ? "screen.find_me.command.team_resume" : "screen.find_me.command.team_pause",
+                CompanionTeamCommandAction.PAUSE_RESUME, null, -1));
+        actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me", "team_recall_all"),
+                () -> Component.translatable("screen.find_me.command.team_recall_all"),
+                () -> true,
+                () -> ClientCompanionCommandTarget.sendTeamCommand(this.teamTarget, this.teamIndex,
+                        CompanionTeamCommandAction.RECALL_ALL, null, -1)));
+        if (hasDeployedFlyingTeamMember()) {
+            actions.add(teamAction("team_land", "screen.find_me.command.team_land", CompanionTeamCommandAction.LAND,
+                    null, -1));
+        }
+        return actions;
+    }
+
+    private ActionView teamAction(String id, String label, CompanionTeamCommandAction action,
+                                  BlockPos targetPos, int targetEntityId) {
+        return new ActionView(ResourceLocation.fromNamespaceAndPath("find_me", id),
+                () -> Component.translatable(label),
+                () -> !ClientCompanionTeamState.currentMembers(this.teamTarget).isEmpty(),
+                () -> ClientCompanionCommandTarget.sendTeamCommand(this.teamTarget, this.teamIndex,
+                        action, targetPos, targetEntityId));
+    }
+
+    private boolean hasPausedTeamMember() {
+        List<UUID> members = ClientCompanionTeamState.members(this.teamTarget, this.teamIndex);
+        return ClientCompanionState.allEntries(CompanionKind.COMPANION).stream()
+                .anyMatch(entry -> members.contains(entry.uuid()) && entry.deployed()
+                        && entry.tacticalAction() == CompanionTacticalAction.HOLD);
+    }
+
+    private boolean hasActiveTeamAction(CompanionTacticalAction action) {
+        List<UUID> members = ClientCompanionTeamState.members(this.teamTarget, this.teamIndex);
+        return ClientCompanionState.allEntries(CompanionKind.COMPANION).stream()
+                .anyMatch(entry -> members.contains(entry.uuid()) && entry.tacticalAction() == action);
+    }
+
+    private boolean hasDeployedFlyingTeamMember() {
+        List<UUID> members = ClientCompanionTeamState.members(this.teamTarget, this.teamIndex);
+        return ClientCompanionState.allEntries(CompanionKind.COMPANION).stream()
+                .anyMatch(entry -> members.contains(entry.uuid()) && entry.deployed()
+                        && entry.moveType() == com.kuzhi.findme.common.CompanionMoveType.FLY);
     }
 
     private List<ActionView> commandActions() {

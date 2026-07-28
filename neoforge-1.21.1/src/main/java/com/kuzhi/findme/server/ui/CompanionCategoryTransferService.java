@@ -45,10 +45,14 @@ public final class CompanionCategoryTransferService {
                 && CompanionHomeResidentService.isHomeResident(living);
         boolean loaded = liveEntity != null;
         boolean stored = data.storedEntity(uuid).isPresent();
-        if (!homeResident && (loaded || !stored || data.isDeployed(sourceKind, uuid))) {
+        if (!homeResident && loaded && !(liveEntity instanceof LivingEntity)) {
             logRejected(player, data, uuid, sourceKind, targetKind,
-                    loaded ? "ENTITY_LOADED" : "NOT_STORED");
-            return Result.failure("Recall this creature before changing its category.");
+                    "LOADED_ENTITY_NOT_LIVING");
+            return Result.failure("This creature cannot be recalled for category transfer.");
+        }
+        if (!loaded && (!stored || data.isDeployed(sourceKind, uuid))) {
+            logRejected(player, data, uuid, sourceKind, targetKind, "NOT_STORED");
+            return Result.failure("FindMe could not find a safe stored copy for this creature.");
         }
         if (!CompanionSafetyService.createForcedBackup(player, data, "before_category_transfer")) {
             return Result.failure("FindMe could not create a safety backup. Operation cancelled.");
@@ -61,6 +65,10 @@ public final class CompanionCategoryTransferService {
             }
             data.clearDeployed(sourceKind, uuid);
             data.setLifecycleState(uuid, com.kuzhi.findme.common.CompanionLifecycleState.HOME_STORED);
+        } else if (liveEntity instanceof LivingEntity living
+                && !CompanionStorageService.storeImmediatelyForCategoryTransfer(player, data, sourceKind, living)) {
+            logRejected(player, data, uuid, sourceKind, targetKind, "DEPLOYED_STORE_FAILED");
+            return Result.failure("FindMe could not recall this creature for category transfer.");
         }
         if (!data.transferCategory(uuid, targetKind)) {
             if (homeResident) {

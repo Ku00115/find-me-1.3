@@ -5,6 +5,7 @@ import com.kuzhi.findme.common.FindMeFontFamily;
 import com.kuzhi.findme.common.FindMeFontSize;
 import com.kuzhi.findme.common.FindMeWheelStyle;
 import com.kuzhi.findme.common.FindMeRidingCameraMode;
+import com.kuzhi.findme.common.SummonedOutlineMode;
 
 public final class ClientWheelPresentationState {
     private static FindMeWheelStyle rosterLayout = FindMeWheelStyle.CLASSIC_RADIAL;
@@ -20,6 +21,7 @@ public final class ClientWheelPresentationState {
     private static boolean showOriginalNames;
     private static boolean showHealth = true;
     private static int defaultTeamIndex;
+    private static SummonedOutlineMode summonedOutlineMode = SummonedOutlineMode.OFF;
 
     private ClientWheelPresentationState() {
     }
@@ -51,6 +53,7 @@ public final class ClientWheelPresentationState {
     public static boolean showOriginalNames() { return showOriginalNames; }
     public static boolean showHealth() { return showHealth; }
     public static int defaultTeamIndex() { return defaultTeamIndex; }
+    public static SummonedOutlineMode summonedOutlineMode() { return summonedOutlineMode; }
 
     public static String typographyClasses() {
         return fontFamily.cssClass() + " " + fontSize.cssClass();
@@ -73,5 +76,7 @@ public final class ClientWheelPresentationState {
         showOriginalNames = settings != null && settings.showOriginalNames();
         showHealth = settings == null || settings.showHealth();
         defaultTeamIndex = settings == null ? 0 : Math.max(0, settings.defaultTeamIndex());
+        summonedOutlineMode = settings == null || settings.summonedOutlineMode() == null
+                ? SummonedOutlineMode.OFF : settings.summonedOutlineMode();
     }
 }

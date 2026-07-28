@@ -1,6 +1,7 @@
 package com.kuzhi.findme.server.lifecycle;
 
 import com.kuzhi.findme.Config;
+import com.kuzhi.findme.common.CompanionMoveType;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -118,17 +119,82 @@ public final class CompanionPlacementFinder {
     }
 
     public static Optional<BlockPos> findOpenEntitySpace(ServerLevel level, LivingEntity entity, BlockPos origin) {
+        return findOpenGroundEntitySpace(level, entity, origin,
+                Math.max(2, Config.DEFAULT_SAFE_SEARCH_RADIUS), 3);
+    }
+
+    public static Optional<BlockPos> findTacticalEntitySpace(ServerLevel level, LivingEntity entity,
+                                                               BlockPos origin, CompanionMoveType moveType) {
+        int radius = Math.max(12, (int)Math.ceil(entity.getBbWidth() * 1.5) + 6);
+        if (moveType == CompanionMoveType.FLY) {
+            return findOpenAirEntitySpace(level, entity, origin, radius);
+        }
+        if (moveType == CompanionMoveType.SWIM) {
+            Optional<BlockPos> water = findOpenWaterEntitySpace(level, entity, origin, radius);
+            if (water.isPresent()) {
+                return water;
+            }
+        }
+        return findOpenGroundEntitySpace(level, entity, origin, radius, 6);
+    }
+
+    private static Optional<BlockPos> findOpenGroundEntitySpace(ServerLevel level, LivingEntity entity,
+                                                                  BlockPos origin, int radius,
+                                                                  int verticalRadius) {
         if (isSafe(level, origin) && hasOpenEntitySpace(level, entity, (double)origin.getX() + 0.5, origin.getY(), (double)origin.getZ() + 0.5)) {
             return Optional.of(origin);
         }
-        int radius = Math.max(2, Config.DEFAULT_SAFE_SEARCH_RADIUS);
-        for (int y = -3; y <= 3; ++y) {
+        for (int y = -verticalRadius; y <= verticalRadius; ++y) {
             for (int r = 1; r <= radius; ++r) {
                 for (int x = -r; x <= r; ++x) {
                     for (int z = -r; z <= r; ++z) {
                         BlockPos candidate = origin.offset(x, y, z);
                         if (Math.abs(x) != r && Math.abs(z) != r || !isSafe(level, candidate) || !hasOpenEntitySpace(level, entity, (double)candidate.getX() + 0.5, candidate.getY(), (double)candidate.getZ() + 0.5)) continue;
                         return Optional.of(candidate);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<BlockPos> findOpenAirEntitySpace(ServerLevel level, LivingEntity entity,
+                                                               BlockPos origin, int radius) {
+        int baseLift = Math.max(3, (int)Math.ceil(entity.getBbHeight() * 0.5) + 2);
+        for (int lift = baseLift; lift <= baseLift + 12; lift++) {
+            for (int ring = 0; ring <= radius; ring++) {
+                for (int x = -ring; x <= ring; x++) {
+                    for (int z = -ring; z <= ring; z++) {
+                        if (ring > 0 && Math.abs(x) != ring && Math.abs(z) != ring) continue;
+                        BlockPos candidate = origin.offset(x, lift, z);
+                        if (!level.hasChunkAt(candidate) || !level.getFluidState(candidate).isEmpty()) continue;
+                        AABB box = entity.getBoundingBox().move(candidate.getX() + 0.5 - entity.getX(),
+                                candidate.getY() - entity.getY(), candidate.getZ() + 0.5 - entity.getZ());
+                        if (hasOpenBox(level, box) && level.noCollision(entity, box)) {
+                            return Optional.of(candidate);
+                        }
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<BlockPos> findOpenWaterEntitySpace(ServerLevel level, LivingEntity entity,
+                                                                 BlockPos origin, int radius) {
+        for (int y = -8; y <= 8; y++) {
+            for (int ring = 0; ring <= radius; ring++) {
+                for (int x = -ring; x <= ring; x++) {
+                    for (int z = -ring; z <= ring; z++) {
+                        if (ring > 0 && Math.abs(x) != ring && Math.abs(z) != ring) continue;
+                        BlockPos candidate = origin.offset(x, y, z);
+                        if (!level.hasChunkAt(candidate)
+                                || !level.getFluidState(candidate).is(FluidTags.WATER)) continue;
+                        AABB box = entity.getBoundingBox().move(candidate.getX() + 0.5 - entity.getX(),
+                                candidate.getY() + 0.1 - entity.getY(), candidate.getZ() + 0.5 - entity.getZ());
+                        if (hasOpenBox(level, box) && level.noCollision(entity, box)) {
+                            return Optional.of(candidate);
+                        }
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package com.kuzhi.findme.server.home;
 
+import com.kuzhi.findme.Config;
 import com.kuzhi.findme.FindMeMod;
 import java.util.Arrays;
 import java.util.Locale;
@@ -43,6 +44,7 @@ final class CompanionHomePerformanceTrace {
     }
 
     void record(int stage, long stageStartedAt) {
+        if (!Config.enableDiagnosticLogging) return;
         long elapsed = System.nanoTime() - stageStartedAt;
         stages[stage] += elapsed;
         TOTALS[stage] += elapsed;
@@ -51,6 +53,7 @@ final class CompanionHomePerformanceTrace {
     }
 
     void finish() {
+        if (!Config.enableDiagnosticLogging) return;
         long elapsed = System.nanoTime() - startedAt;
         long gameTime = player.serverLevel().getGameTime();
         if (elapsed >= SLOW_NANOS

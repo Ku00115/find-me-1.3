@@ -119,7 +119,19 @@ public final class FindMeModuleService {
             return;
         }
         ModNetwork.sendToPlayer(player, new FindMeModuleStatePacket(
-                configuredMask(), effectiveMask(), availableMask(), player.hasPermissions(2)));
+                configuredMask(), effectiveMask(), availableMask(), player.hasPermissions(2),
+                Config.companionDeploymentLimit));
+    }
+
+    public static void setCompanionDeploymentLimit(ServerPlayer player, int limit) {
+        if (player == null || !player.hasPermissions(2)) {
+            if (player != null) sync(player);
+            return;
+        }
+        Config.setCompanionDeploymentLimit(limit);
+        for (ServerPlayer online : player.getServer().getPlayerList().getPlayers()) {
+            sync(online);
+        }
     }
 
     private static void reconcile(MinecraftServer server, boolean forceSync) {

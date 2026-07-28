@@ -75,6 +75,28 @@ final class CompanionEscortMovementService {
         return ground;
     }
 
+    static Vec3 followPosition(ServerPlayer player, Entity anchor, LivingEntity escort, CompanionMoveType moveType,
+                               CompanionFormationPlanner.Offset offset) {
+        Vec3 look = horizontal(anchor.getLookAngle()).normalize();
+        if (look.lengthSqr() < 0.001) look = horizontal(player.getLookAngle()).normalize();
+        if (look.lengthSqr() < 0.001) {
+            look = horizontal(Vec3.directionFromRotation(0.0f, player.getYRot())).normalize();
+        }
+        Vec3 side = new Vec3(-look.z, 0.0, look.x);
+        Vec3 base = anchor.position().subtract(look.scale(offset.rear())).add(side.scale(offset.lateral()));
+        if (moveType == CompanionMoveType.FLY) {
+            double y = anchor.getY() + Mth.clamp(anchor.getBbHeight() * 0.35
+                    + escort.getBbHeight() * 0.18, 0.8, 5.0) + offset.vertical();
+            return new Vec3(base.x, y, base.z);
+        }
+        Vec3 ground = findGroundFollowPosition(player, base, anchor.getY(), escort);
+        if (moveType == CompanionMoveType.SWIM) {
+            Vec3 water = findWaterFollowPosition(player, ground, escort);
+            if (water != null) return water;
+        }
+        return ground;
+    }
+
     static void control(LivingEntity living, Vec3 target, CompanionMoveType moveType) {
         Vec3 delta = target.subtract(living.position());
         double distance = delta.length();

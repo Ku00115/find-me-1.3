@@ -30,10 +30,12 @@ public final class WarehouseEntityService {
             return;
         }
         String busyReason = CompanionLifecycleFacade.busyReason(player, data, uuid);
-        if (action != WarehouseEntityAction.RENAME && busyReason != null) {
+        boolean categoryTransfer = action == WarehouseEntityAction.MOVE_TO_COMPANION
+                || action == WarehouseEntityAction.MOVE_TO_MOUNT;
+        if (action != WarehouseEntityAction.RENAME && !categoryTransfer && busyReason != null) {
             FindMeDebugLogger.lifecycle("WAREHOUSE_REJECTED_LOCKED", player, uuid, null,
                     busyReason, "WAREHOUSE", "warehouse:" + action.name().toLowerCase(), data.storedEntity(uuid).isPresent(), false);
-            result(player, false, "This target is busy. Try again later.");
+            result(player, false, "This target is busy. Try again later.", uuid);
             return;
         }
         switch (action) {
@@ -55,10 +57,10 @@ public final class WarehouseEntityService {
 
     private static void rename(ServerPlayer player, PlayerCompanionData data, UUID uuid, String value) {
         if (!renameEntity(player, data, uuid, value)) {
-            result(player, false, "Target no longer exists.");
+            result(player, false, "Target no longer exists.", uuid);
             return;
         }
-        result(player, true, "Name saved.");
+        result(player, true, "Name saved.", uuid);
     }
 
     public static boolean renameEntity(ServerPlayer player, PlayerCompanionData data, UUID uuid, String value) {
@@ -88,61 +90,61 @@ public final class WarehouseEntityService {
     private static void move(ServerPlayer player, PlayerCompanionData data, UUID uuid, CompanionKind target) {
         CompanionCategoryTransferService.Result transfer =
                 CompanionCategoryTransferService.transfer(player, data, uuid, target);
-        result(player, transfer.success(), transfer.message());
+        result(player, transfer.success(), transfer.message(), uuid);
     }
 
     private static void removeFromTeam(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
         if (!data.removeTeamMember(uuid)) {
-            result(player, false, "Target is not in a team.");
+            result(player, false, "Target is not in a team.", uuid);
             return;
         }
         CompanionDataService.save(player, data);
         CompanionTeamService.syncToClient(player);
-        result(player, true, "Removed from team.");
+        result(player, true, "Removed from team.", uuid);
     }
 
     private static void release(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
         if (data.containsVehicle(uuid)) {
             if (!VehicleManager.releaseVehicle(player, data, uuid, VehicleManager.locateEntity(player.getServer(), data, uuid).orElse(null))) {
-                result(player, false, "Vehicle no longer exists.");
+                result(player, false, "Vehicle no longer exists.", uuid);
                 return;
             }
             data.removeTeamMember(uuid);
             saveAndSync(player, data);
-            result(player, true, "Vehicle binding removed.");
+            result(player, true, "Vehicle binding removed.", uuid);
             return;
         }
         CompanionKind kind = data.kindOf(uuid).orElse(null);
         if (kind == null) {
-            result(player, false, "Target no longer exists.");
+            result(player, false, "Target no longer exists.", uuid);
             return;
         }
         int index = data.list(kind).indexOf(uuid);
         if (!CompanionListService.releaseAndRemove(player, data, kind, index, uuid)) {
-            result(player, false, BACKUP_REQUIRED_FAILED);
+            result(player, false, BACKUP_REQUIRED_FAILED, uuid);
             return;
         }
         CompanionTeamService.syncToClient(player);
-        result(player, true, "Binding removed.");
+        result(player, true, "Binding removed.", uuid);
     }
 
     private static void deleteDead(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
         int index = data.deadList().indexOf(uuid);
         if (index < 0) {
-            result(player, false, "Death record no longer exists.");
+            result(player, false, "Death record no longer exists.", uuid);
             return;
         }
         if (!CompanionSafetyService.createForcedBackup(player, data, "before_delete_dead_record")) {
-            result(player, false, BACKUP_REQUIRED_FAILED);
+            result(player, false, BACKUP_REQUIRED_FAILED, uuid);
             return;
         }
         if (!data.removeDeadAt(index)) {
-            result(player, false, "Death record no longer exists.");
+            result(player, false, "Death record no longer exists.", uuid);
             return;
         }
         CompanionDataService.save(player, data);
         CompanionSyncService.syncDeadToClient(player);
-        result(player, true, "Death record deleted. It will not revive.");
+        result(player, true, "Death record deleted. It will not revive.", uuid);
     }
 
     private static void saveAndSync(ServerPlayer player, PlayerCompanionData data) {
@@ -156,6 +158,10 @@ public final class WarehouseEntityService {
 
     private static void result(ServerPlayer player, boolean success, String message) {
         ModNetwork.sendToPlayer(player, new WarehouseOperationResultPacket(success, message));
+    }
+
+    private static void result(ServerPlayer player, boolean success, String message, UUID targetUuid) {
+        ModNetwork.sendToPlayer(player, new WarehouseOperationResultPacket(success, message, targetUuid));
     }
 }
 

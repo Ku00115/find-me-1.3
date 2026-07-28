@@ -136,4 +136,36 @@ class PlayerCompanionDataTest {
         restored.resetBindingCinematicHistory();
         assertFalse(restored.hasSeenBindingCinematic("minecraft:wolf"));
     }
+
+    @Test
+    void categoryTransferPreservesTeamAndMovesTheAppliedWheel() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        assertTrue(data.applyTeamToWheel(CompanionTeamTarget.COMPANION, 0));
+        assertTrue(data.applyTeamToWheel(CompanionTeamTarget.MOUNT, 0));
+
+        assertTrue(data.transferCategory(companion, CompanionKind.MOUNT));
+
+        assertFalse(data.contains(CompanionKind.COMPANION, companion));
+        assertTrue(data.contains(CompanionKind.MOUNT, companion));
+        assertEquals(List.of(companion), data.team(CompanionTeamTarget.MOUNT, 0));
+        assertEquals(List.of(companion), data.wheelOrder(CompanionKind.MOUNT));
+        assertTrue(data.wheelOrder(CompanionKind.COMPANION).isEmpty());
+    }
+
+    @Test
+    void categoryTransferCreatesAFallbackTeamWhenMatchingTeamIsFull() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        for (int index = 0; index < PlayerCompanionData.TEAM_SIZE; index++) {
+            data.add(CompanionKind.MOUNT, UUID.randomUUID());
+        }
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+
+        assertTrue(data.transferCategory(companion, CompanionKind.MOUNT));
+
+        assertEquals(2, data.teamCount(CompanionTeamTarget.MOUNT));
+        assertEquals(List.of(companion), data.team(CompanionTeamTarget.MOUNT, 1));
+    }
 }

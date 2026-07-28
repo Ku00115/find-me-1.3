@@ -21,6 +21,26 @@ public final class CompanionEntityLookup {
         return Optional.empty();
     }
 
+    /**
+     * Restore paths need a stronger lookup than the UUID index alone. During
+     * section transitions an entity can already be registered for duplicate
+     * protection before {@link ServerLevel#getEntity(UUID)} exposes it.
+     */
+    public static Optional<Entity> findEntityForRestore(MinecraftServer server, UUID uuid) {
+        Optional<Entity> indexed = findEntity(server, uuid);
+        if (indexed.isPresent()) {
+            return indexed;
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            for (Entity entity : level.getAllEntities()) {
+                if (uuid.equals(entity.getUUID()) && !entity.isRemoved()) {
+                    return Optional.of(entity);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     public static Optional<Entity> findLoadedEntity(MinecraftServer server, PlayerCompanionData data, UUID uuid) {
         Optional<Entity> loaded = findEntity(server, uuid);
         if (loaded.isPresent()) {

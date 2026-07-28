@@ -115,7 +115,7 @@ public final class CompanionHomeResidentService {
                 if (resident || entry.lifecycleState() == CompanionLifecycleState.HOME_ACTIVE) {
                     liveEntity = residentEntity(uuid);
                     if (liveEntity == null) {
-                        liveEntity = CompanionEntityLookup.findEntity(player.getServer(), uuid).orElse(null);
+                        liveEntity = CompanionEntityLookup.findEntityForRestore(player.getServer(), uuid).orElse(null);
                     }
                 }
                 trace.record(CompanionHomePerformanceTrace.RESOLVE, stageStartedAt);

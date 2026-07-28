@@ -281,7 +281,7 @@ public final class CompanionArrivalMagicService {
     }
 
     private static int burrowDurationTicks(int durationTicks, RescueMagicPacket.Purpose purpose) {
-        return purpose == RescueMagicPacket.Purpose.RESCUE ? Math.max(durationTicks, 32) : 26;
+        return purpose == RescueMagicPacket.Purpose.RESCUE ? Math.max(durationTicks, 32) : 17;
     }
 
     private static ServerLevel effectLevel(ServerPlayer player, LivingEntity living) {

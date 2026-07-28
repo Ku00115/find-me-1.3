@@ -548,6 +548,8 @@ public final class ClientEvents {
             ClientRideHomeTransitionState.tick();
             ClientContractRenderState.tick();
             ClientRescueMagicRenderState.tick();
+            ClientTacticalFormationState.tick();
+            ClientTacticalTargetOutlineState.tick();
             ClientStorageEffectState.tick();
             ClientBurrowEffectState.tick();
             ClientVehicleSealEffectState.tick();
@@ -587,6 +589,7 @@ public final class ClientEvents {
             ClientContractCeremonyRenderer.renderWorld(event);
             ClientBurrowEffectRenderer.renderWorld(event);
             ClientRescueMagicRenderer.renderWorld(event);
+            ClientTacticalFormationRenderer.renderWorld(event);
             ClientStorageEffectRenderer.renderWorld(event);
             ClientVehicleSealEffectRenderer.renderWorld(event);
             SableVehicleScreenshotPreviewCache.onRenderLevelStage(event);

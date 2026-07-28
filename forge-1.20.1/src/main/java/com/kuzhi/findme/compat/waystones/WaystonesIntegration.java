@@ -7,14 +7,19 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.fml.ModList;
+import org.apache.maven.artifact.versioning.DefaultArtifactVersion;
+import org.apache.maven.artifact.versioning.ArtifactVersion;
 
 /** Class-loading barrier around the optional Waystones API. */
 public final class WaystonesIntegration {
+    private static final ArtifactVersion MINIMUM_API_VERSION = new DefaultArtifactVersion("14.1");
     private WaystonesIntegration() {
     }
 
     public static boolean available() {
-        return ModList.get().isLoaded("waystones");
+        return ModList.get().getModContainerById("waystones")
+                .map(container -> container.getModInfo().getVersion().compareTo(MINIMUM_API_VERSION) >= 0)
+                .orElse(false);
     }
 
     public static List<WaystoneDestination> destinations(ServerPlayer player) {

@@ -98,7 +98,8 @@ public final class CompanionWaystoneJourneyService {
 
     public static boolean ownsMountedMovement(ServerPlayer player) {
         Journey journey = player == null ? null : JOURNEYS.get(player.getUUID());
-        if (journey == null || journey.stage != Stage.DEPARTING && journey.stage != Stage.ARRIVING) return false;
+        if (journey == null || journey.stage != Stage.DEPARTING
+                && journey.stage != Stage.BLACKOUT && journey.stage != Stage.ARRIVING) return false;
         return player.getVehicle() != null && journey.mountUuid.equals(player.getVehicle().getUUID());
     }
 

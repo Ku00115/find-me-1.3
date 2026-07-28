@@ -48,6 +48,7 @@ public class CompanionEvents {
         CompanionWheelTransactionService.resetServerState();
         MountRosterTransactionService.resetServerState();
         CompanionOperationLockService.resetServerState();
+        com.kuzhi.findme.server.lifecycle.CompanionTeamOrderService.resetServerState();
         CompanionTacticalOrderService.resetServerState();
         CompanionSafetyService.resetRuntimeState();
     }

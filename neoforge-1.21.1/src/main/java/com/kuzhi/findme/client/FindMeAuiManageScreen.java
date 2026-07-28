@@ -28,6 +28,7 @@ import com.kuzhi.findme.common.FindMeFontFamily;
 import com.kuzhi.findme.common.FindMeFontSize;
 import com.kuzhi.findme.common.FindMeRidingCameraMode;
 import com.kuzhi.findme.common.BindingAnimationPolicy;
+import com.kuzhi.findme.common.SummonedOutlineMode;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.kuzhi.findme.network.CompanionCommandPacket;
 import com.kuzhi.findme.network.CobblemonCommandPacket;
@@ -153,6 +154,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private String renderedLayoutStyle = "";
     private long cardExitStartedAtNanos;
     private Runnable cardExitAction;
+    private UUID cardExitUuid;
     private CardTogglePhase cardTogglePhase = CardTogglePhase.IDLE;
     private long cardToggleStartedAtNanos;
     private UUID cardToggleUuid;
@@ -259,12 +261,20 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         settingsScrollDragOffset = 0.0;
         pendingSignature = Long.MIN_VALUE;
         cardExitAction = null;
+        cardExitUuid = null;
         cardTogglePhase = CardTogglePhase.IDLE;
         cardToggleUuid = null;
     }
 
     public static void showResult(boolean success, String message) {
+        showResult(success, message, null);
+    }
+
+    public static void showResult(boolean success, String message, UUID targetUuid) {
         if (current != null) {
+            if (targetUuid != null && targetUuid.equals(current.cardExitUuid)) {
+                current.finishCardExitResult(success, targetUuid);
+            }
             current.setStatus(tr(success ? "screen.find_me.aui.status.ok" : "screen.find_me.aui.status.error", message == null ? "" : message), success ? 40 : 100);
             current.scheduleRefresh(0);
         }
@@ -696,7 +706,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         });
         root.addEventListener("wheel", event -> {
             if (!(event instanceof MouseEvent mouse) || !(event.target instanceof Element targetElement)) return;
-            Element list = targetElement.closest(".warehouse-style-menu");
+            Element list = targetElement.closest(".warehouse-team-menu");
+            if (list == null) list = targetElement.closest(".warehouse-style-menu");
             if (list == null) list = targetElement.closest(".context-menu");
             if (list != null) {
                 double delta = mouse.scrollDelta != 0.0 ? mouse.scrollDelta : mouse.deltaY;
@@ -1136,8 +1147,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     private void startCardExit(UUID uuid, Runnable action) {
-        if (uuid == null || action == null || cardExitAction != null
+        if (uuid == null || action == null || cardExitAction != null || cardExitUuid != null
                 || cardTogglePhase != CardTogglePhase.IDLE || isTransitionRunning()) return;
+        cardExitUuid = uuid;
         if (!settings.uiAnimations()) {
             action.run();
             return;
@@ -1154,6 +1166,16 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         addClass(card, "fm-card-exit");
         cardExitAction = action;
         cardExitStartedAtNanos = System.nanoTime();
+    }
+
+    private void finishCardExitResult(boolean success, UUID uuid) {
+        if (!uuid.equals(cardExitUuid)) return;
+        if (!success) {
+            Element card = findRenderedCard(uuid);
+            if (card != null) removeClass(card, "fm-card-exit");
+        }
+        cardExitAction = null;
+        cardExitUuid = null;
     }
 
     private Element findRenderedCard(UUID uuid) {
@@ -1373,6 +1395,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         if (action.equals("settings-choice")) {
             try {
+                if (settingsChoiceMenu == SettingsChoiceMenu.COMPANION_LIMIT) {
+                    ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeServerSettingsCommandPacket(
+                            Integer.parseInt(value)));
+                    contextOpen = false;
+                    settingsChoiceMenu = SettingsChoiceMenu.NONE;
+                    clearOverlayMarkup();
+                    return;
+                }
                 settings = switch (settingsChoiceMenu) {
                     case WHEEL_STYLE -> settings.withWheelStyle(FindMeWheelStyle.valueOf(value));
                     case DRAG_HOLD -> settings.withDragHoldMillis(Integer.parseInt(value));
@@ -1383,7 +1413,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     case DEFAULT_TEAM -> settings.withDefaultTeamIndex(Integer.parseInt(value));
                     case RIDING_CAMERA -> settings.withRidingCameraMode(FindMeRidingCameraMode.valueOf(value));
                     case BINDING_ANIMATION -> settings.withBindingAnimationPolicy(BindingAnimationPolicy.valueOf(value));
-                    case NONE -> settings;
+                    case SUMMONED_OUTLINE -> settings.withSummonedOutlineMode(SummonedOutlineMode.valueOf(value));
+                    case COMPANION_LIMIT, NONE -> settings;
                 };
                 ClientWheelPresentationState.update(settings);
                 ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SAVE, settings, true, ""));
@@ -1897,7 +1928,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (oldWarehouseGrid != null) warehouseScrollTop = oldWarehouseGrid.getScrollTop();
         Element oldSettingsGrid = document.getElementById("findme-settings-grid");
         if (oldSettingsGrid != null && !resetSettingsScrollOnRefresh) {
-            settingsScrollTop = oldSettingsGrid.getScrollTop();
+            settingsScrollTop = oldSettingsGrid.getTargetScrollTop();
         }
         if (resetSettingsScrollOnRefresh) settingsScrollTop = 0.0;
         Element oldBackupList = document.querySelector(".backup-list");
@@ -2805,6 +2836,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 else html.append("<div class='setting-card-spacer'></div>");
                 html.append("</div>");
             }
+            html.append("<div class='settings-pair'>")
+                    .append(companionLimitSettingCardMarkup(index))
+                    .append("<div class='setting-card-spacer'></div></div>");
             return finishSettingsMarkup(html);
         }
         List<String[]> visibleRows = switch (settingsSection) {
@@ -2814,7 +2848,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     new String[]{"0", "1", "screen.find_me.aui.setting.reduce_background", bool(settings.reduceBackgroundAnimation())},
                     new String[]{"0", "2", "screen.find_me.aui.setting.operation_sounds", bool(settings.operationSounds())},
                     new String[]{"0", "3", "screen.find_me.aui.setting.control_hints", bool(settings.controlHints())},
-                    new String[]{"0", "4", "screen.find_me.aui.setting.prefer_native_mount_interaction", bool(settings.preferNativeMountInteraction())});
+                    new String[]{"0", "4", "screen.find_me.aui.setting.prefer_native_mount_interaction", bool(settings.preferNativeMountInteraction())},
+                    new String[]{"0", "5", "screen.find_me.aui.setting.auto_promote_ridden_companions", bool(settings.autoPromoteRiddenCompanions())},
+                    new String[]{"0", "6", "screen.find_me.aui.setting.mount_summon_animations", bool(settings.mountSummonAnimations()), "screen.find_me.aui.setting.note.mount_summon_animations"},
+                    new String[]{"0", "7", "screen.find_me.aui.setting.companion_summon_animations", bool(settings.companionSummonAnimations()), "screen.find_me.aui.setting.note.companion_summon_animations"});
             case 1 -> List.of(
                     new String[]{"1", "0", "screen.find_me.aui.setting.auto_join", bool(settings.autoJoinTeams())},
                     new String[]{"1", "1", "screen.find_me.aui.setting.auto_create", bool(settings.autoCreateTeams())},
@@ -2840,9 +2877,15 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             html.append("<div class='settings-pair'>")
                     .append(bindingAnimationSelectorMarkup(4))
                     .append(bindingHistoryResetMarkup(5)).append("</div>");
+            html.append("<div class='settings-pair'>").append(summonedOutlineSelectorMarkup(6))
+                    .append(settingCardMarkup(visibleRows.get(7), 7)).append("</div>");
+            html.append("<div class='settings-pair'>")
+                    .append(settingCardMarkup(visibleRows.get(8), 8))
+                    .append("<div class='setting-card-spacer'></div></div>");
             for (int i = 1; i < visibleRows.size(); i += 2) {
-                html.append("<div class='settings-pair'>").append(settingCardMarkup(visibleRows.get(i), i + 5));
-                if (i + 1 < visibleRows.size()) html.append(settingCardMarkup(visibleRows.get(i + 1), i + 6));
+                if (i >= 7) continue;
+                html.append("<div class='settings-pair'>").append(settingCardMarkup(visibleRows.get(i), i + 8));
+                if (i + 1 < visibleRows.size()) html.append(settingCardMarkup(visibleRows.get(i + 1), i + 9));
                 else html.append("<div class='setting-card-spacer'></div>");
                 html.append("</div>");
             }
@@ -2882,6 +2925,16 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "</small></div><div class='setting-card-control'><em>"
                 + escape(bool(configured))
                 + "</em><i class='setting-toggle " + (configured ? "on" : "") + "'><u></u></i></div></div>";
+    }
+
+    private String companionLimitSettingCardMarkup(int visibleIndex) {
+        return "<div class='setting-card' data-action='open-settings-choice' data-value='COMPANION_LIMIT'>"
+                + "<div class='setting-card-index'>" + twoDigits(visibleIndex + 1)
+                + "</div><div class='setting-card-copy'><b>"
+                + escape(tr("screen.find_me.aui.setting.companion_deployment_limit"))
+                + "</b><small>" + escape(tr("screen.find_me.aui.setting.note.companion_deployment_limit"))
+                + "</small></div><div class='setting-card-control choice'><em>"
+                + ClientFindMeModuleState.companionDeploymentLimit() + "</em><i>></i></div></div>";
     }
 
     private String animationSettingCardMarkup(int visibleIndex) {
@@ -2939,6 +2992,16 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "</small></div><div class='setting-card-control choice'><em>"
                 + escape(tr("screen.find_me.config_reset")) + "</em><i>></i></div></div>";
     }
+    private String summonedOutlineSelectorMarkup(int visibleIndex) {
+        SummonedOutlineMode mode = settings.summonedOutlineMode();
+        return "<div class='setting-card' data-action='open-settings-choice' data-value='SUMMONED_OUTLINE'><div class='setting-card-index'>"
+                + twoDigits(visibleIndex + 1) + "</div><div class='setting-card-copy'><b>"
+                + escape(tr("screen.find_me.aui.setting.summoned_outline")) + "</b><small>"
+                + escape(tr("screen.find_me.aui.setting.note.summoned_outline"))
+                + "</small></div><div class='setting-card-control choice'><em>"
+                + escape(tr("screen.find_me.aui.summoned_outline." + mode.name().toLowerCase(Locale.ROOT)))
+                + "</em><i>></i></div></div>";
+    }
 
     private String settingCardMarkup(String[] row, int visibleIndex) {
         boolean binary = row[3].equals(bool(true)) || row[3].equals(bool(false));
@@ -2949,7 +3012,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 .append("' data-value='").append(value).append("'><div class='setting-card-index'>")
                 .append(twoDigits(visibleIndex + 1)).append("</div><div class='setting-card-copy'><b>")
                 .append(escape(tr(row[2]))).append("</b><small>")
-                .append(escape(tr("screen.find_me.aui.setting.note.option"))).append("</small></div>");
+                .append(escape(tr(row.length > 4 ? row[4] : "screen.find_me.aui.setting.note.option")))
+                .append("</small></div>");
             if (binary) {
             html.append("<div class='setting-card-control'><em>").append(escape(row[3])).append("</em><i class='setting-toggle ")
                     .append(row[3].equals(bool(true)) ? "on" : "").append("'><u></u></i></div>");
@@ -3473,7 +3537,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             case FONT_SIZE -> "screen.find_me.aui.setting.font_size";
             case RIDING_CAMERA -> "screen.find_me.aui.setting.riding_camera";
             case BINDING_ANIMATION -> "screen.find_me.aui.setting.binding_animation";
+            case SUMMONED_OUTLINE -> "screen.find_me.aui.setting.summoned_outline";
             case DEFAULT_TEAM -> "screen.find_me.aui.setting.default_team";
+            case COMPANION_LIMIT -> "screen.find_me.aui.setting.companion_deployment_limit";
             case NONE -> "";
         };
         html.append("<span class='menu-title'>").append(escape(tr(titleKey))).append("</span>");
@@ -3533,11 +3599,23 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                             policy.name(), settings.bindingAnimationPolicy() == policy);
                 }
             }
+            case SUMMONED_OUTLINE -> {
+                for (SummonedOutlineMode mode : SummonedOutlineMode.values())
+                    appendSettingsChoiceOption(html,
+                            tr("screen.find_me.aui.summoned_outline." + mode.name().toLowerCase(Locale.ROOT)),
+                            mode.name(), settings.summonedOutlineMode() == mode);
+            }
             case DEFAULT_TEAM -> {
                 for (var team : ClientCompanionTeamState.entries(com.kuzhi.findme.common.CompanionTeamTarget.MOUNT)) {
                     String label = team.name().isBlank() ? tr("screen.find_me.team_number", team.number()) : team.name();
                     appendSettingsChoiceOption(html, label, Integer.toString(team.index()),
                             settings.defaultTeamIndex() == team.index());
+                }
+            }
+            case COMPANION_LIMIT -> {
+                for (int limit = 1; limit <= 32; limit++) {
+                    appendSettingsChoiceOption(html, Integer.toString(limit), Integer.toString(limit),
+                            ClientFindMeModuleState.companionDeploymentLimit() == limit);
                 }
             }
             case NONE -> { }
@@ -3891,7 +3969,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
     }
     private record PendingDrop(DragKind kind, int from, int to, List<UUID> members, UUID moved) {}
-    private enum SettingsChoiceMenu { NONE, WHEEL_STYLE, DRAG_HOLD, NAME_LENGTH, TEXT_MODE, FONT_FAMILY, FONT_SIZE, RIDING_CAMERA, BINDING_ANIMATION, DEFAULT_TEAM }
+    private enum SettingsChoiceMenu { NONE, WHEEL_STYLE, DRAG_HOLD, NAME_LENGTH, TEXT_MODE, FONT_FAMILY, FONT_SIZE, RIDING_CAMERA, BINDING_ANIMATION, SUMMONED_OUTLINE, DEFAULT_TEAM, COMPANION_LIMIT }
     private enum DragKind { NONE, TEAM, MEMBER }
     private enum CardTogglePhase { IDLE, IN }
     private enum DoctorView { OVERVIEW, REPORT, BACKUPS, BACKUP_DETAIL }

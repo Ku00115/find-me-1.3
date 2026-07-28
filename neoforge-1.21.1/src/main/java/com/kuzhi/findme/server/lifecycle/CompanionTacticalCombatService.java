@@ -1,6 +1,7 @@
 package com.kuzhi.findme.server.lifecycle;
 
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
+import com.kuzhi.findme.server.compat.CompanionNativeCombatIntentService;
 import java.util.UUID;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -8,6 +9,7 @@ import net.minecraft.world.entity.Mob;
 /** Owns one precise command target while native combat goals own movement and attacks. */
 final class CompanionTacticalCombatService {
     private static final int REASSERT_INTERVAL_TICKS = 20;
+    private static final int MAX_FAST_REPAIRS = 3;
 
     private CompanionTacticalCombatService() {
     }
@@ -21,11 +23,14 @@ final class CompanionTacticalCombatService {
 
         LivingEntity nativeTarget = mob.getTarget();
         boolean retained = nativeTarget == threat && nativeTarget.isAlive();
-        if (!retained && (acquired || tick - state.lastAssignmentTick >= REASSERT_INTERVAL_TICKS)) {
+        boolean fastRepair = !acquired && state.fastRepairs < MAX_FAST_REPAIRS && tick - state.targetAcquiredTick <= 5;
+        if (!retained && (acquired || fastRepair || tick - state.lastAssignmentTick >= REASSERT_INTERVAL_TICKS)) {
             UUID displaced = nativeTarget == null ? null : nativeTarget.getUUID();
+            CompanionNativeCombatIntentService.assign(mob, threat);
             mob.setTarget(threat);
             state.lastAssignmentTick = tick;
             state.assignments++;
+            if (fastRepair) state.fastRepairs++;
             FindMeDebugLogger.info("command-target",
                     "assign companion={} type={} target={} targetType={} source={} phase={} assignment={} displaced={} retainedNow={} canAttack={} distance={}",
                     living.getUUID(), living.getType(), threat.getUUID(), threat.getType(), state.source,
@@ -55,6 +60,7 @@ final class CompanionTacticalCombatService {
         private int targetAcquiredTick;
         private int lastAssignmentTick;
         private int assignments;
+        private int fastRepairs;
         private String source = "unknown";
 
         private void acquire(LivingEntity target, int tick, String source) {
@@ -62,6 +68,7 @@ final class CompanionTacticalCombatService {
             targetAcquiredTick = tick;
             lastAssignmentTick = Integer.MIN_VALUE / 2;
             assignments = 0;
+            fastRepairs = 0;
             this.source = source == null ? "unknown" : source;
         }
 
@@ -83,6 +90,7 @@ final class CompanionTacticalCombatService {
             targetAcquiredTick = 0;
             lastAssignmentTick = 0;
             assignments = 0;
+            fastRepairs = 0;
             source = "unknown";
         }
 

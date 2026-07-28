@@ -17,8 +17,8 @@ FindMe 是一套 Minecraft 坐骑、载具与伙伴管理模组，可对受支�
 
 Use the JAR matching both your Minecraft version and loader:
 
-- `find_me-1.3.0-test.1-1.21.1-neoforge.jar`
-- `find_me-1.3.0-test.1-1.20.1-forge.jar`
+- `find_me-1.3.0-test.3-1.21.1-neoforge.jar`
+- `find_me-1.3.0-test.3-1.20.1-forge.jar`
 
 ApricityUI is a required client dependency. Use the ApricityUI build intended for
 your Minecraft version and loader.

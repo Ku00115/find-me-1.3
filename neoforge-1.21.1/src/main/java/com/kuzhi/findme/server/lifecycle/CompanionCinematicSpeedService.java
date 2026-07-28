@@ -121,12 +121,12 @@ public final class CompanionCinematicSpeedService {
         return normalSummonSpeed(moveType, Math.max(0.0, distance));
     }
 
-    private static double normalSummonSpeed(CompanionMoveType moveType, double distance) {
+    static double normalSummonSpeed(CompanionMoveType moveType, double distance) {
         if (moveType == CompanionMoveType.FLY) {
-            if (distance > 18.0) return 0.65;
-            if (distance > 9.0) return 1.15;
-            if (distance > 4.0) return 0.78;
-            return 0.42;
+            // Randomized summon origins must not select visibly different speed bands.
+            // Hold one cruise speed and ease only through the final approach.
+            if (distance > 4.0) return 0.86;
+            return Mth.clamp(0.28 + distance * 0.145, 0.28, 0.86);
         }
         if (distance > 12.0) return 0.50;
         if (distance > 5.0) return 0.65;

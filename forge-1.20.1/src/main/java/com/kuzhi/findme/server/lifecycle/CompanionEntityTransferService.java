@@ -208,7 +208,7 @@ public final class CompanionEntityTransferService {
             CompanionTransientStateService.cancelTargetForDeploy(player, data, uuid,
                     CompanionTransientStateService.Reason.DEPLOY);
             if (reuseLoadedEntity) {
-                Optional<Entity> alreadyLoaded = CompanionEntityLookup.findEntity(player.getServer(), uuid);
+                Optional<Entity> alreadyLoaded = CompanionEntityLookup.findEntityForRestore(player.getServer(), uuid);
                 if (alreadyLoaded.isPresent()) {
                     Entity existing = alreadyLoaded.get();
                     Entity moved = moveLoadedDuplicateInsteadOfRestoring(player, existing, level, pos, yRot, xRot,
@@ -251,6 +251,23 @@ public final class CompanionEntityTransferService {
                     restored.isInvisible());
             boolean added = level.addFreshEntity(restored);
             if (!added) {
+                Optional<Entity> conflict = CompanionEntityLookup.findEntityForRestore(player.getServer(), uuid)
+                        .filter(existing -> existing != restored);
+                if (reuseLoadedEntity && conflict.isPresent()) {
+                    Entity existing = conflict.get();
+                    Entity moved = moveLoadedDuplicateInsteadOfRestoring(player, existing, level, pos, yRot, xRot,
+                            prepareArrival, focus, durationTicks, style, purpose, spawnBlinkEffect, animationPurpose);
+                    data.removeStoredEntity(uuid);
+                    data.setLastKnownPosition(uuid, SavedPosition.of(moved.level(), moved.getX(), moved.getY(),
+                            moved.getZ(), moved.getYRot(), moved.getXRot()));
+                    if (persistData) {
+                        CompanionDataService.save(player, data);
+                    }
+                    FindMeMod.LOGGER.warn("FindMe recovered companion {} after Minecraft rejected a duplicate UUID restore; the existing world entity remains authoritative.", uuid);
+                    FindMeDebugLogger.lifecycle("ENTITY_REUSED", player, uuid, moved, "STORED_AND_ACTIVE",
+                            "ACTIVE", "restore_recovered_uuid_conflict", false, true);
+                    return Optional.of(moved);
+                }
                 FindMeMod.LOGGER.error("FindMe failed to restore stored companion {} because Minecraft rejected the entity add. Stored data was kept for recovery.", uuid);
                 FindMeDebugLogger.lifecycle("DEPLOY_REJECTED", player, uuid, restored, "STORED", "STORED", "add_fresh_entity_failed", true, false);
                 return Optional.empty();

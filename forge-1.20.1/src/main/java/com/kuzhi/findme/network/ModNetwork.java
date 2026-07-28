@@ -15,7 +15,7 @@ import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 public final class ModNetwork {
-    private static final String PROTOCOL = "72";
+    private static final String PROTOCOL = "79";
     public static SimpleChannel channel;
     private static int nextId;
 
@@ -32,6 +32,7 @@ public final class ModNetwork {
         toServer(MountRosterIntentPacket.class, MountRosterIntentPacket::encode, MountRosterIntentPacket::decode, MountRosterIntentPacket::handle);
         toClient(MountRosterIntentResultPacket.class, MountRosterIntentResultPacket::encode, MountRosterIntentResultPacket::decode, MountRosterIntentResultPacket::handle);
         toServer(CompanionTacticalCommandPacket.class, CompanionTacticalCommandPacket::encode, CompanionTacticalCommandPacket::decode, CompanionTacticalCommandPacket::handle);
+        toServer(CompanionTeamTacticalCommandPacket.class, CompanionTeamTacticalCommandPacket::encode, CompanionTeamTacticalCommandPacket::decode, CompanionTeamTacticalCommandPacket::handle);
         toClient(CompanionListPacket.class, CompanionListPacket::encode, CompanionListPacket::decode, CompanionListPacket::handle);
         toClient(ExternalRideHandoffPacket.class, ExternalRideHandoffPacket::encode, ExternalRideHandoffPacket::decode, ExternalRideHandoffPacket::handle);
         toClient(DeadCompanionListPacket.class, DeadCompanionListPacket::encode, DeadCompanionListPacket::decode, DeadCompanionListPacket::handle);
@@ -44,6 +45,8 @@ public final class ModNetwork {
         toServer(WaystoneJourneyRequestPacket.class, WaystoneJourneyRequestPacket::encode, WaystoneJourneyRequestPacket::decode, WaystoneJourneyRequestPacket::handle);
         toClient(RescueMagicPacket.class, RescueMagicPacket::encode, RescueMagicPacket::decode, RescueMagicPacket::handle);
         toClient(StorageEffectPacket.class, StorageEffectPacket::encode, StorageEffectPacket::decode, StorageEffectPacket::handle);
+        toClient(CompanionTacticalFormationPacket.class, CompanionTacticalFormationPacket::encode, CompanionTacticalFormationPacket::decode, CompanionTacticalFormationPacket::handle);
+        toClient(CompanionTacticalTargetPacket.class, CompanionTacticalTargetPacket::encode, CompanionTacticalTargetPacket::decode, CompanionTacticalTargetPacket::handle);
         toClient(CompanionDialoguePacket.class, CompanionDialoguePacket::encode, CompanionDialoguePacket::decode, CompanionDialoguePacket::handle);
         toServer(VehicleCommandPacket.class, VehicleCommandPacket::encode, VehicleCommandPacket::decode, VehicleCommandPacket::handle);
         toClient(VehicleListPacket.class, VehicleListPacket::encode, VehicleListPacket::decode, VehicleListPacket::handle);
@@ -66,6 +69,7 @@ public final class ModNetwork {
         toServer(WarehouseEntityCommandPacket.class, WarehouseEntityCommandPacket::encode, WarehouseEntityCommandPacket::decode, WarehouseEntityCommandPacket::handle);
         toClient(WarehouseOperationResultPacket.class, WarehouseOperationResultPacket::encode, WarehouseOperationResultPacket::decode, WarehouseOperationResultPacket::handle);
         toServer(FindMeModuleCommandPacket.class, FindMeModuleCommandPacket::encode, FindMeModuleCommandPacket::decode, FindMeModuleCommandPacket::handle);
+        toServer(FindMeServerSettingsCommandPacket.class, FindMeServerSettingsCommandPacket::encode, FindMeServerSettingsCommandPacket::decode, FindMeServerSettingsCommandPacket::handle);
         toClient(FindMeModuleStatePacket.class, FindMeModuleStatePacket::encode, FindMeModuleStatePacket::decode, FindMeModuleStatePacket::handle);
         toClient(OpenFindMeManageScreenPacket.class, OpenFindMeManageScreenPacket::encode, OpenFindMeManageScreenPacket::decode, OpenFindMeManageScreenPacket::handle);
     }
