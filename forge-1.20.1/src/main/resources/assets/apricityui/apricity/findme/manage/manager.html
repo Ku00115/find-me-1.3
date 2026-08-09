@@ -110,7 +110,7 @@
   .selected-action.primary, .primary { color: #112027; border-color: #16bde7; background-color: #16bde7; font-weight: bold; }
   .selected-action.primary:hover { background-color: #45c8e9; }
   .compact { width: var(--fm-compact); min-width: var(--fm-compact); flex: 0 0 var(--fm-compact); background-repeat: no-repeat; background-size: 100% 100%; background-position: center center; }
-  .compact:hover { transform: translateY(-1px); box-shadow: none; }
+  .compact:hover { z-index: 12; transform: translateY(-1px); box-shadow: 0 0 0 1px #16b5df; }
   .selected-card:hover { box-shadow: inset 0 -2px #16b5df; }
   .compact:after { content: ""; position: absolute; inset: 0; background-image: linear-gradient(180deg, rgba(7,14,17,0) 0%, rgba(7,14,17,0.08) 52%, rgba(7,14,17,0.48) 100%); pointer-events: none; }
   .accent-0 { background-color: #59413f; }
@@ -239,7 +239,7 @@
   .profile-model { position: absolute; z-index: 3; left: var(--fm-profile-model-left); top: var(--fm-profile-model-top); width: var(--fm-profile-model-width); height: var(--fm-profile-model-height); overflow: hidden; color: #ffffff; background-color: #30383c; background-image: none; box-shadow: none; }
   .profile-model findme-preview { position: absolute; inset: 0; width: var(--fm-profile-model-width); height: var(--fm-profile-model-height); display: block; pointer-events: none; }
   .profile-model:after { display: none; }
-  .profile-preview-copy { position: absolute; z-index: 180; left: 10px; right: 10px; bottom: 10px; height: 55px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; padding: 5px 0; color: #ffffff; background-color: #30383c; pointer-events: none; }
+  .profile-preview-copy { position: absolute; z-index: 180; left: 0; top: 0; width: var(--fm-profile-model-width); height: var(--fm-profile-model-height); display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; padding: 10px; color: #ffffff; background-color: #30383c; pointer-events: none; }
   .profile-preview-copy small,.profile-preview-copy strong,.profile-preview-copy span { display: block; overflow: hidden; white-space: nowrap; }
   .profile-preview-copy small { color: #9eaaaf; font-size: 7px; line-height: 8px; }
   .profile-preview-copy strong { margin-top: 2px; font-size: 14px; line-height: 15px; }
@@ -383,8 +383,9 @@
   .profile-side-heading small { display: block; color: #68757b; font-size: 6px; line-height: 7px; }
   .profile-side-heading strong { display: block; margin-top: 1px; overflow: hidden; font-size: 15px; line-height: 17px; white-space: nowrap; }
   .profile-tabs { position: relative; z-index: 1; left: 0; top: 0; width: 100%; display: block; }
-  .profile-tabs > div { position: relative; width: 100%; height: 36px; display: flex; align-items: center; padding: 3px 3px 3px 7px; color: #879399; border-bottom: 1px solid #39434a; cursor: pointer; }
-  .profile-tabs > div > i { position: absolute; left: 1px; top: 5px; width: 2px; height: 26px; display: block; visibility: hidden; background-color: #16b5df; }
+  .profile-tabs > div { position: relative; width: 100%; height: 36px; display: flex; align-items: center; padding: 3px 3px 3px 7px; color: #879399; border-bottom: 1px solid #39434a; cursor: pointer; transition: transform 80ms ease-out,background-color 80ms ease-out,color 80ms ease-out; }
+  .profile-tabs > div:hover { color: #edf1f2; transform: translateX(2px); }
+  .profile-tabs > div > i { position: absolute; left: 0; top: 0; width: 3px; height: 36px; display: block; visibility: hidden; background-color: #16b5df; }
   .profile-tabs > div > b { width: 23px; flex: 0 0 23px; color: #5f6b72; font-family: "Arial",sans-serif; font-size: 18px; line-height: 20px; font-weight: normal; }
   .profile-tabs > div > span { min-width: 0; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
   .profile-tabs strong { display: block; overflow: hidden; font-size: 10px; line-height: 11px; white-space: nowrap; }

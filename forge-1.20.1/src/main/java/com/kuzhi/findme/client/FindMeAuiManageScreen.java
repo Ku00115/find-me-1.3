@@ -535,7 +535,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (hasClass(element, "side-row") || hasClass(element, "system-row") || hasClass(element, "category-button")
                 || hasClass(element, "top-link") || action.startsWith("view:")
                 || action.startsWith("category:") || action.startsWith("team:")
-                || action.startsWith("settings-page:")) {
+                || action.startsWith("settings-page:") || action.startsWith("detail-page:")) {
             return ClickPulseStyle.NAVIGATION;
         }
         if (hasClass(element, "member-card") || hasClass(element, "warehouse-card")
