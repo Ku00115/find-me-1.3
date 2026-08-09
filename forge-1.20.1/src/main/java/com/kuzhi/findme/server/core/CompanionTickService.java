@@ -1,6 +1,8 @@
 package com.kuzhi.findme.server.core;
 
 import com.kuzhi.findme.server.safety.CompanionSafetyService;
+import com.kuzhi.findme.server.safety.CompanionRecoveryService;
+import com.kuzhi.findme.server.safety.CompanionCriticalStateService;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.server.home.CompanionHomeResidentService;
@@ -10,6 +12,7 @@ import com.kuzhi.findme.server.lifecycle.CompanionContractService;
 import com.kuzhi.findme.server.lifecycle.CompanionCollectionService;
 import com.kuzhi.findme.server.lifecycle.CompanionEscortService;
 import com.kuzhi.findme.server.lifecycle.CompanionMountCinematicFlowService;
+import com.kuzhi.findme.server.lifecycle.CompanionTemporaryForcedRideService;
 import com.kuzhi.findme.server.lifecycle.CompanionMountSettleProtectionService;
 import com.kuzhi.findme.server.lifecycle.CompanionRegistrationService;
 import com.kuzhi.findme.server.lifecycle.CompanionRetreatService;
@@ -22,12 +25,12 @@ import com.kuzhi.findme.server.lifecycle.CompanionTeamOrderService;
 import com.kuzhi.findme.server.command.CompanionWheelTransactionService;
 import com.kuzhi.findme.server.command.MountRosterTransactionService;
 import com.kuzhi.findme.api.FindMeApi;
+import com.kuzhi.findme.server.api.ExternalActionLeaseService;
+import com.kuzhi.findme.server.api.CompanionActionRequestService;
 import com.kuzhi.findme.server.module.FindMeModuleService;
-import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.common.FindMeModule;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 
 public final class CompanionTickService {
@@ -36,6 +39,9 @@ public final class CompanionTickService {
 
     public static void serverPost(MinecraftServer server) {
         long tickStartedAt = FindMePerformanceMonitor.start();
+        CompanionRecoveryService.tick(server);
+        CompanionCriticalStateService.tick(server);
+        CompanionTemporaryForcedRideService.tick(server);
         long stageStartedAt = FindMePerformanceMonitor.start();
         FindMeModuleService.tick(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.MODULES, stageStartedAt);
@@ -44,6 +50,8 @@ public final class CompanionTickService {
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.UNLOAD_SNAPSHOTS, stageStartedAt);
         stageStartedAt = FindMePerformanceMonitor.start();
         CompanionOperationLockService.tick(server);
+        ExternalActionLeaseService.tick(server);
+        CompanionActionRequestService.tick(server);
         CompanionWheelTransactionService.tick(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.OPERATION_LOCKS, stageStartedAt);
         stageStartedAt = FindMePerformanceMonitor.start();
@@ -88,7 +96,11 @@ public final class CompanionTickService {
         stageStartedAt = FindMePerformanceMonitor.start();
         VehicleSeatService.tick(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.VEHICLE_SEATS, stageStartedAt);
+        stageStartedAt = FindMePerformanceMonitor.start();
         MountRosterTransactionService.tick(server);
+        FindMePerformanceMonitor.record(FindMePerformanceMonitor.ROSTER_TRANSACTIONS, stageStartedAt);
+        CompanionEntityLookup.finishServerTick(server);
+        com.kuzhi.findme.server.safety.CompanionThreatResolver.finishServerTick(server);
         FindMePerformanceMonitor.finishServerTick(server, tickStartedAt);
     }
 
@@ -98,9 +110,7 @@ public final class CompanionTickService {
         }
         long tickStartedAt = FindMePerformanceMonitor.start();
         long stageStartedAt = FindMePerformanceMonitor.start();
-        if (FindMeModuleService.enabled(FindMeModule.RIDING)
-                && serverPlayer.getVehicle() instanceof LivingEntity
-                && CompanionDataService.data(serverPlayer).uiSettings().autoPromoteRiddenCompanions()) {
+        if (FindMeModuleService.enabled(FindMeModule.RIDING)) {
             CompanionRegistrationService.promoteRiddenRegisteredCompanionToMount(serverPlayer);
         }
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.PLAYER_REGISTRATION, stageStartedAt);

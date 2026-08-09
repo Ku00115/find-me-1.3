@@ -145,7 +145,7 @@ extends FindMeScreen {
             if (entry.deployed() || entry.ridden()) deployedMask |= bit;
             if (entry.ridden()) riddenMask |= bit;
             CompanionWheelVisualState state = ClientCompanionWheelController.state(this.kind, entry.uuid(),
-                    entry.alive(), entry.deployed(), entry.ridden(), activeUuid);
+                    entry.alive(), entry.critical(), entry.deployed(), entry.ridden(), activeUuid);
             stateCode |= state.ordinal() << ((i - pageState.start()) * 3);
         }
         FindMeWheelRenderer.drawFieldScrim(graphics, this.width, this.height, openFade);
@@ -160,6 +160,7 @@ extends FindMeScreen {
             }
         }
         FindMeWheelRenderer.drawRosterHeader(graphics, this.title, pageState.index(), pageState.count(), layout, fade);
+        drawSharedMana(graphics, fade);
         if (entries.isEmpty()) {
             graphics.drawCenteredString(this.font, (Component)Component.translatable((String)(this.kind == CompanionKind.MOUNT ? "screen.find_me.no_mounts" : "screen.find_me.no_companions")), centerX, centerY + 56, FindMeWheelRenderer.guiColor(0xFFFFD166, fade));
             graphics.pose().popPose();
@@ -175,7 +176,7 @@ extends FindMeScreen {
             boolean selected = i == active;
             boolean deployed = entry.ridden() || entry.deployed();
             CompanionWheelVisualState visualState = ClientCompanionWheelController.state(this.kind, entry.uuid(),
-                    entry.alive(), entry.deployed(), entry.ridden(), activeUuid);
+                    entry.alive(), entry.critical(), entry.deployed(), entry.ridden(), activeUuid);
             if (!auiBackdrop) {
                 if (layout == FindMeWheelStyle.CLASSIC_RADIAL) {
                     FindMeWheelRenderer.drawSlotSegment(graphics, centerX, centerY, local,
@@ -232,7 +233,7 @@ extends FindMeScreen {
             if (focused >= 0 && focused < entries.size()) {
                 CompanionListPacket.Entry focus = entries.get(focused);
                 CompanionWheelVisualState visualState = ClientCompanionWheelController.state(this.kind,
-                        focus.uuid(), focus.alive(), focus.deployed(), focus.ridden(), activeUuid);
+                        focus.uuid(), focus.alive(), focus.critical(), focus.deployed(), focus.ridden(), activeUuid);
                 Component state = wheelStateLabel(visualState, focus.ridden());
                 FindMeWheelRenderer.drawFocusedDossier(graphics, layout, this.width, this.height, centerX, centerY,
                         displayName(focus), focused + 1, entries.size(), state, fade);
@@ -317,6 +318,7 @@ extends FindMeScreen {
             }
         }
         FindMeWheelRenderer.drawRosterHeader(graphics, this.title, pageState.index(), pageState.count(), layout, fade);
+        drawSharedMana(graphics, fade);
         if (entries.isEmpty() || (pageState.visibleSize() == 0)) {
             graphics.drawCenteredString(this.font, Component.translatable("screen.find_me.no_mounts"), centerX, centerY + 56,
                     FindMeWheelRenderer.guiColor(0xFFFFD166, fade));
@@ -426,6 +428,20 @@ extends FindMeScreen {
                 : Component.translatable("screen.find_me.wheel_pending", trim(entry.name(), 16));
         graphics.drawCenteredString(this.font, label, centerX, centerY + CompanionWheelLayout.BACKDROP_RADIUS + 12,
                 FindMeWheelRenderer.guiColor(0xFFFFFFFF, fade));
+    }
+
+    private static void drawSharedMana(GuiGraphics graphics, float fade) {
+        com.kuzhi.findme.api.CompanionMagicState state = ClientCompanionState.allEntries(CompanionKind.COMPANION)
+                .stream().map(CompanionListPacket.Entry::magicState)
+                .filter(com.kuzhi.findme.api.CompanionMagicState::available).findFirst()
+                .orElseGet(() -> ClientCompanionState.allEntries(CompanionKind.MOUNT).stream()
+                        .map(CompanionListPacket.Entry::magicState)
+                        .filter(com.kuzhi.findme.api.CompanionMagicState::available).findFirst()
+                        .orElse(com.kuzhi.findme.api.CompanionMagicState.EMPTY));
+        if (!state.available()) return;
+        String label = Component.translatable("screen.find_me.spell_slot.mana").getString() + "  "
+                + Math.round(state.mana()) + " / " + Math.round(state.maxMana());
+        FindMeWheelRenderer.drawManaBar(graphics, label, state.mana() / state.maxMana(), fade);
     }
 
     private List<WheelEntry> mergedMountEntries() {
@@ -802,7 +818,7 @@ extends FindMeScreen {
     }
 
     private CompanionWheelVisualState visualState(CompanionListPacket.Entry entry) {
-        return ClientCompanionWheelController.state(this.kind, entry.uuid(), entry.alive(), entry.deployed(),
+        return ClientCompanionWheelController.state(this.kind, entry.uuid(), entry.alive(), entry.critical(), entry.deployed(),
                 entry.ridden(), ClientCompanionState.activeUuid(this.kind));
     }
 
@@ -813,7 +829,7 @@ extends FindMeScreen {
         if (ClientMountRosterTransactionState.switching(entry.source(), entry.uuid())) {
             return CompanionWheelVisualState.SWITCHING;
         }
-        return ClientCompanionWheelController.state(CompanionKind.MOUNT, entry.uuid(), entry.alive(),
+        return ClientCompanionWheelController.state(CompanionKind.MOUNT, entry.uuid(), entry.alive(), entry.critical(),
                 entry.deployed(), entry.ridden(), activeUuid);
     }
 
@@ -825,6 +841,7 @@ extends FindMeScreen {
             case PENDING -> Component.translatable("screen.find_me.wheel_state_pending");
             case DEPLOYED -> Component.translatable("screen.find_me.wheel_state_deployed");
             case SWITCHING -> Component.translatable("screen.find_me.wheel_state_switching");
+            case CRITICAL -> Component.translatable("screen.find_me.wheel_state_critical");
             case DEAD -> Component.translatable("screen.find_me.wheel_state_dead");
             case AVAILABLE -> Component.translatable("screen.find_me.wheel_state_ready");
         };
@@ -925,8 +942,7 @@ extends FindMeScreen {
     }
 
     private void playHoverSound() {
-        if (!ClientWheelPresentationState.operationSounds()) return;
-        Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.45f, 0.22f));
+        FindMeAuiSound.wheelHover();
     }
 
     private void playConfirmSound() {
@@ -959,6 +975,10 @@ extends FindMeScreen {
         boolean alive() {
             return this.vehicle != null ? this.vehicle.alive()
                     : this.findMe != null && this.findMe.alive();
+        }
+
+        boolean critical() {
+            return this.findMe != null && this.findMe.critical();
         }
 
         String name() {

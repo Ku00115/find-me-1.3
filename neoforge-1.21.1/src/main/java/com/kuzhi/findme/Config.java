@@ -33,6 +33,7 @@ public class Config {
 
     private static final ModConfigSpec.IntValue SUMMON_COOLDOWN_TICKS = SERVER_BUILDER.comment("[Summon] Shared cooldown in ticks for summon, combat summon, companion summon, and return actions.").translation("config.find_me.summonCooldownTicks").defineInRange("summonCooldownTicks", 60, 0, 1200);
     private static final ModConfigSpec.IntValue COMPANION_DEPLOYMENT_LIMIT = SERVER_BUILDER.comment("[Companion] Maximum simultaneously deployed companions, including the escort slot. Default: 2.").translation("config.find_me.companionDeploymentLimit").defineInRange("companionDeploymentLimit", 2, 1, 32);
+    private static final ModConfigSpec.IntValue COMPANION_MAGIC_CONTRIBUTION_LIMIT = SERVER_BUILDER.comment("[Companion Magic] Maximum number of bound creatures that contribute 100 mana each to the player's shared companion mana pool. 0 means unlimited.").translation("config.find_me.companionMagicContributionLimit").defineInRange("companionMagicContributionLimit", 0, 0, 10000);
     private static final ModConfigSpec.IntValue RESCUE_MIN_FALL_DISTANCE = SERVER_BUILDER.comment("[Summon] If the player is falling at least this many blocks, rescue summon can trigger.").translation("config.find_me.rescueMinFallDistance").defineInRange("rescueMinFallDistance", 5, 0, 128);
     private static final ModConfigSpec.DoubleValue RESCUE_HOVER_BASE_HEIGHT = SERVER_BUILDER.comment("[Rescue] Base height above the predicted landing point where a flying mount waits during a hover rescue.").translation("config.find_me.rescueHoverBaseHeight").defineInRange("rescueHoverBaseHeight", 12.0, 2.0, 64.0);
     private static final ModConfigSpec.DoubleValue RESCUE_HOVER_HEIGHT_RATIO = SERVER_BUILDER.comment("[Rescue] Additional waiting height per block of fall distance above the ten-block landing-summon window.").translation("config.find_me.rescueHoverHeightRatio").defineInRange("rescueHoverHeightRatio", 0.25, 0.0, 1.0);
@@ -186,6 +187,7 @@ public class Config {
     public static double rescueHoverHeightRatio = 0.25;
     public static double rescueHoverMaxHeight = 48.0;
     public static int companionDeploymentLimit = 2;
+    public static int companionMagicContributionLimit;
     public static boolean enableRidingModule = true;
     public static boolean enableCompanionModule = true;
     public static boolean enableManagementModule = true;
@@ -331,6 +333,7 @@ public class Config {
     private static void syncServerFromSpec() {
         summonCooldownTicks = (Integer)SUMMON_COOLDOWN_TICKS.get();
         companionDeploymentLimit = (Integer)COMPANION_DEPLOYMENT_LIMIT.get();
+        companionMagicContributionLimit = (Integer)COMPANION_MAGIC_CONTRIBUTION_LIMIT.get();
         rescueMinFallDistance = (Integer)RESCUE_MIN_FALL_DISTANCE.get();
         rescueHoverBaseHeight = (Double)RESCUE_HOVER_BASE_HEIGHT.get();
         rescueHoverHeightRatio = (Double)RESCUE_HOVER_HEIGHT_RATIO.get();

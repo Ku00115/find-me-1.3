@@ -1,6 +1,5 @@
 package com.kuzhi.findme.server.vehicle;
 
-import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.server.lifecycle.CompanionDeploymentService;
 import com.kuzhi.findme.server.lifecycle.ExactEntityTeleporter;
 
@@ -40,10 +39,8 @@ import com.kuzhi.findme.network.RescueMagicPacket;
 import com.kuzhi.findme.network.VehicleListPacket;
 import com.kuzhi.findme.network.VehicleSealEffectPacket;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.lang.reflect.Method;
@@ -81,17 +78,10 @@ public final class VehicleManager {
     private static final int VEHICLE_SEAL_TICKS = 34;
     private static final double VEHICLE_EFFECT_PACKET_RADIUS = 96.0;
     private static final int SWITCH_DAMAGE_PROTECTION_TICKS = 80;
-    private static final int SABLE_ACTION_COOLDOWN_TICKS = 8;
     private static final List<PendingVehicleSummon> PENDING_SUMMONS = new ArrayList<>();
     private static final List<VehicleSwitchDamageProtection> SWITCH_DAMAGE_PROTECTIONS = new ArrayList<>();
-    private static final Map<UUID, Long> SABLE_ACTION_COOLDOWNS = new HashMap<>();
 
     private VehicleManager() {
-    }
-
-    public static void bootstrap() {
-        SableVehicleCompatibility.bootstrap();
-        MachineMaxVehicleCompatibility.bootstrap();
     }
 
     public static boolean isBinder(ItemStack stack) {
@@ -202,14 +192,6 @@ public final class VehicleManager {
             tell(player, "message.find_me.vehicle_not_supported", ChatFormatting.YELLOW);
             return false;
         }
-        Optional<MachineMaxVehicleCompatibility.Handle> maybeMachineMax = MachineMaxVehicleCompatibility.findForEntity(target);
-        if (maybeMachineMax.isPresent()) {
-            return bindMachineMaxVehicle(player, maybeMachineMax.get(), hand);
-        }
-        if (MachineMaxVehicleCompatibility.isPartEntity(target)) {
-            tell(player, "message.find_me.vehicle_not_supported", ChatFormatting.YELLOW);
-            return false;
-        }
         Entity vehicle = unwrapPart(target);
         if (!isBindableVehicle(vehicle)) {
             tell(player, "message.find_me.vehicle_not_supported", ChatFormatting.YELLOW);
@@ -270,8 +252,7 @@ public final class VehicleManager {
         if (player == null || data == null || targetUuid == null) return false;
         RideHandoffService.Source source = RideHandoffService.resolveSource(player, data);
         return source.present() && targetUuid.equals(source.uuid())
-                && (source.type() == RideHandoffService.SourceType.ENTITY_VEHICLE
-                || source.type() == RideHandoffService.SourceType.MACHINE_MAX);
+                && source.type() == RideHandoffService.SourceType.ENTITY_VEHICLE;
     }
 
     public static void cancelRosterActivation(ServerPlayer player, UUID targetUuid, String reason) {
@@ -287,36 +268,6 @@ public final class VehicleManager {
             recallUuid(player, data, targetUuid);
             syncToClient(player);
         }
-    }
-
-    private static boolean bindMachineMaxVehicle(ServerPlayer player, MachineMaxVehicleCompatibility.Handle handle,
-                                                 InteractionHand hand) {
-        PlayerCompanionData data = CompanionDataService.data(player);
-        UUID uuid = handle.uuid();
-        if (data.containsVehicle(uuid)) {
-            data.setActiveVehicleUuid(uuid);
-            CompanionDataService.save(player, data);
-            syncToClient(player);
-            tell(player, "message.find_me.vehicle_already_bound", ChatFormatting.YELLOW,
-                    Component.literal(storedName(data, uuid)));
-            return true;
-        }
-        AABB sealBox = handle.box();
-        if (!MachineMaxVehicleCompatibility.store(player, data, handle)) {
-            tell(player, "message.find_me.vehicle_store_failed", ChatFormatting.RED);
-            return false;
-        }
-        sendMachineMaxVehicleSealEffect(player, uuid, sealBox);
-        data.addVehicle(uuid);
-        WarehouseEntityService.notifyAutoTeam(player, data, uuid, storedName(data, uuid));
-        data.clearDeployedVehicle(uuid);
-        NamePaperItem.consumeOne(player.getItemInHand(hand), player);
-        CompanionDataService.save(player, data);
-        syncToClient(player);
-        CompanionTeamService.syncToClient(player);
-        tell(player, "message.find_me.vehicle_bound", ChatFormatting.GREEN,
-                Component.literal(storedName(data, uuid)));
-        return true;
     }
 
     public static boolean summonOrStoreActive(ServerPlayer player, PlayerCompanionData data) {
@@ -336,9 +287,6 @@ public final class VehicleManager {
             tell(player, "message.find_me.busy", ChatFormatting.YELLOW,
                     data.displayName(uuid).orElse(uuid.toString().substring(0, 8)));
             return false;
-        }
-        if (isMachineMaxVehicle(player, data, uuid)) {
-            return summonOrStoreMachineMax(player, data, uuid);
         }
         Entity live = CompanionEntityLookup.findEntity(player.getServer(), uuid).orElse(null);
         Entity currentRide = VehicleSeatService.resolveCurrentRide(player);
@@ -382,184 +330,6 @@ public final class VehicleManager {
         data.setLastKnownPosition(uuid, SavedPosition.of(entity.level(), entity.getX(), entity.getY(), entity.getZ(), entity.getYRot(), entity.getXRot()));
         CompanionDataService.save(player, data);
         tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA, entity.getDisplayName());
-        return true;
-    }
-
-    private static boolean summonOrStoreMachineMax(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
-        if (MachineMaxVehicleCompatibility.isStored(data, uuid)) {
-            if (!MachineMaxVehicleCompatibility.canRestore(data, uuid)) {
-                tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-                return false;
-            }
-            if (RideHandoffService.resolveSource(player, data).present()) {
-                return switchToMachineMax(player, data, uuid, null);
-            }
-            if (!scheduleStoredVehicleSummon(player, data, uuid)) {
-                tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-                return false;
-            }
-            return true;
-        }
-
-        Optional<MachineMaxVehicleCompatibility.Handle> live = MachineMaxVehicleCompatibility.find(player, uuid);
-        if (live.isEmpty()) {
-            tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-            return false;
-        }
-        if (MachineMaxVehicleCompatibility.currentRide(player)
-                .filter(handle -> uuid.equals(handle.uuid())).isPresent()) {
-            tell(player, "message.find_me.vehicle_already_summoned", ChatFormatting.YELLOW,
-                    Component.literal(storedName(data, uuid)));
-            return false;
-        }
-
-        RideHandoffService.Source source = RideHandoffService.resolveSource(player, data);
-        if (source.present()) {
-            return switchToMachineMax(player, data, uuid, live.get());
-        }
-        if (data.isVehicleDeployed(uuid)) {
-            tell(player, "message.find_me.vehicle_already_summoned", ChatFormatting.YELLOW,
-                    Component.literal(storedName(data, uuid)));
-            return false;
-        }
-
-        MachineMaxVehicleCompatibility.Handle handle = live.get();
-        BlockPos pos = findMachineMaxVehicleSpot(player, data, uuid, handle, vehiclePlacementOrigin(player));
-        if (!MachineMaxVehicleCompatibility.move(handle, player.serverLevel(), pos)) {
-            tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-            return false;
-        }
-        AABB box = handle.box();
-        if (box != null) {
-            sendVehicleSummonMagic(player, box.getCenter(), vehicleRadius(box.getXsize(), box.getZsize()),
-                    (float)Math.max(0.25, box.getYsize()));
-        }
-        enforceSingleRideSlotForVehicle(player, data, uuid, null);
-        data.setDeployedVehicle(uuid);
-        Vec3 center = box == null ? Vec3.atBottomCenterOf(pos) : box.getCenter();
-        data.setLastKnownPosition(uuid, SavedPosition.of(player.serverLevel(), center.x, center.y, center.z,
-                player.getYRot(), player.getXRot()));
-        CompanionDataService.save(player, data);
-        tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA, Component.literal(handle.name()));
-        return true;
-    }
-
-    private static boolean switchToMachineMax(ServerPlayer player, PlayerCompanionData data, UUID targetUuid,
-                                               MachineMaxVehicleCompatibility.Handle liveTarget) {
-        cancelPendingSummons(player.getUUID());
-        RideHandoffService.Source source = RideHandoffService.resolveSource(player, data);
-        BlockPos switchPos = vehiclePlacementOrigin(player);
-        MachineMaxVehicleCompatibility.Handle target = liveTarget;
-        boolean restored = false;
-        if (target == null || !target.valid()) {
-            target = MachineMaxVehicleCompatibility.restore(player, data, targetUuid,
-                    findMachineMaxVehicleSpot(player, data, targetUuid, null, switchPos)).orElse(null);
-            restored = target != null;
-        } else {
-            BlockPos targetPos = findMachineMaxVehicleSpot(player, data, targetUuid, target, switchPos);
-            if (!MachineMaxVehicleCompatibility.move(target, player.serverLevel(), targetPos)) {
-                target = null;
-            }
-        }
-        if (target == null || !target.valid()) {
-            tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-            return false;
-        }
-        if (!MachineMaxVehicleCompatibility.tryBoard(player, target)) {
-            if (restored) {
-                MachineMaxVehicleCompatibility.store(player, data, target);
-            }
-            tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-            return false;
-        }
-
-        if (!RideHandoffService.retireSourceForSwitch(
-                player, data, source, targetUuid, "vehicle:switch_to_machine_max")) {
-            MachineMaxVehicleCompatibility.store(player, data, target);
-            data.clearDeployedVehicle(targetUuid);
-            restoreSourceRideAfterFailedRetirement(player, data, source);
-            CompanionDataService.save(player, data);
-            tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-            return false;
-        }
-        enforceSingleRideSlotForVehicle(player, data, targetUuid, null);
-        data.setDeployedVehicle(targetUuid);
-        AABB box = target.box();
-        Vec3 center = box == null ? player.position() : box.getCenter();
-        data.setLastKnownPosition(targetUuid, SavedPosition.of(player.serverLevel(), center.x, center.y, center.z,
-                player.getYRot(), player.getXRot()));
-        CompanionDataService.save(player, data);
-        target.anchorEntity().ifPresent(VehicleManager::spawnBlinkParticles);
-        tell(player, "message.find_me.vehicle_switched", ChatFormatting.AQUA, Component.literal(target.name()));
-        return true;
-    }
-
-    private static boolean summonOrStoreSable(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
-        if (isSableActionCoolingDown(player)) {
-            return false;
-        }
-        if (SableVehicleCompatibility.isStored(data, uuid)) {
-            if (!SableVehicleCompatibility.canRestore(data, uuid)) {
-                tell(player, "message.find_me.sable_blueprint_not_loaded", ChatFormatting.YELLOW);
-                return false;
-            }
-            if (!scheduleStoredVehicleSummon(player, data, uuid)) {
-                tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-                return false;
-            }
-            markSableActionCooldown(player, CompanionArrivalMagicService.revealDelayTicks(VEHICLE_SUMMON_MAGIC_TICKS, RescueMagicPacket.Style.GROUND_CIRCLE, RescueMagicPacket.Purpose.SUMMON) + SABLE_ACTION_COOLDOWN_TICKS);
-            return true;
-        }
-        Optional<SableVehicleCompatibility.Handle> live = SableVehicleCompatibility.find(player, uuid);
-        if (live.isPresent()) {
-            SableVehicleCompatibility.Handle handle = live.get();
-            RideHandoffService.Source rideSource = RideHandoffService.resolveSource(player, data);
-            Entity previousRide = VehicleSeatService.resolveCurrentRide(player);
-            if (data.isVehicleDeployed(uuid) && previousRide == null) {
-                tell(player, "message.find_me.vehicle_already_summoned", ChatFormatting.YELLOW, Component.literal(storedName(data, uuid)));
-                return false;
-            }
-            BlockPos pos = findSableVehicleSpot(player, data, uuid, handle);
-            if (!SableVehicleCompatibility.move(handle, player.serverLevel(), pos)) {
-                tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                return false;
-            }
-            Vec3 anchor = Vec3.atBottomCenterOf(pos);
-            sendVehicleSummonMagic(player, anchor, handle.radius(), handle.height());
-            boolean hasSeat = VehicleSeatService.hasSeat(data, uuid);
-            if (rideSource.present() && !rideSource.uuid().equals(uuid) && !hasSeat) {
-                tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                return false;
-            }
-            if (hasSeat && !VehicleSeatService.teleportToSableSeat(player, handle, data)) {
-                tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                return false;
-            }
-            if (rideSource.present() && !rideSource.uuid().equals(uuid)) {
-                if (!RideHandoffService.retireSourceForSwitch(
-                        player, data, rideSource, uuid, "vehicle:activate_sable")) {
-                    SableVehicleCompatibility.store(player, data, handle);
-                    restoreSourceRideAfterFailedRetirement(player, data, rideSource);
-                    tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                    return false;
-                }
-            }
-            if (!hasSeat) {
-                SableVehicleCompatibility.pushPlayerOut(player, handle);
-            }
-            enforceSingleRideSlotForVehicle(player, data, uuid, null);
-            data.setDeployedVehicle(uuid);
-            data.setLastKnownPosition(uuid, SavedPosition.of(player.serverLevel(), anchor.x, anchor.y, anchor.z, player.getYRot(), player.getXRot()));
-            markSableActionCooldown(player);
-            CompanionDataService.save(player, data);
-            tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA, Component.literal(handle.name()));
-            return true;
-        }
-        if (!scheduleStoredVehicleSummon(player, data, uuid)) {
-            tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-            return false;
-        }
-        markSableActionCooldown(player, CompanionArrivalMagicService.revealDelayTicks(VEHICLE_SUMMON_MAGIC_TICKS, RescueMagicPacket.Style.GROUND_CIRCLE, RescueMagicPacket.Purpose.SUMMON) + SABLE_ACTION_COOLDOWN_TICKS);
         return true;
     }
 
@@ -643,115 +413,12 @@ public final class VehicleManager {
         return true;
     }
 
-    private static boolean switchFromSableToVehicle(ServerPlayer player, PlayerCompanionData data, UUID targetUuid,
-                                                    SableVehicleCompatibility.Handle currentSable, Entity liveTarget) {
-        if (currentSable == null || currentSable.uuid() == null) {
-            return summonOrStoreActive(player, data);
-        }
-        UUID oldSableUuid = currentSable.uuid();
-        if (oldSableUuid.equals(targetUuid)) {
-            tell(player, "message.find_me.vehicle_already_summoned", ChatFormatting.YELLOW, Component.literal(storedName(data, targetUuid)));
-            return false;
-        }
-        if (isSableActionCoolingDown(player)) {
-            return false;
-        }
-        if (liveTarget != null && liveTarget.getFirstPassenger() != null && liveTarget.getFirstPassenger() != player) {
-            tell(player, "message.find_me.occupied", ChatFormatting.RED, Component.literal(storedName(data, targetUuid)));
-            return false;
-        }
-
-        cancelPendingSummons(player.getUUID());
-        RideHandoffService.Source rideSource = RideHandoffService.resolveSource(player, data);
-        if (rideSource.type() != RideHandoffService.SourceType.SABLE
-                || !oldSableUuid.equals(rideSource.uuid())) {
-            rideSource = RideHandoffService.sableSource(player, oldSableUuid);
-        }
-        AABB oldBox = currentSable.box();
-        BlockPos switchPos = oldBox == null
-                ? player.blockPosition()
-                : BlockPos.containing(oldBox.getCenter().x, oldBox.minY, oldBox.getCenter().z);
-        Entity target = liveTarget;
-        boolean restored = false;
-        if (target != null && target.isRemoved()) {
-            target = null;
-        }
-
-        if (target == null) {
-            target = restoreVehicle(player, data, targetUuid, switchPos).orElse(null);
-            restored = target != null;
-        } else {
-            target = moveVehicleTo(target, player.serverLevel(), switchPos, player.getYRot(), player.getXRot());
-        }
-        if (target == null || target.isRemoved()) {
-            tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-            return false;
-        }
-
-        target.setYRot(player.getYRot());
-        target.setXRot(player.getXRot());
-        target.setDeltaMovement(Vec3.ZERO);
-        target.fallDistance = 0.0f;
-
-        boolean riding = VehicleCompatibilityService.tryBoardVehicle(player, target, null);
-        if (!riding) {
-            if (restored || data.containsVehicle(targetUuid)) {
-                storeVehicle(player, data, target);
-                data.clearDeployedVehicle(targetUuid);
-            }
-            tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-            return false;
-        }
-        boolean sourceRetired = RideHandoffService.beginRetirement(
-                player, data, rideSource, targetUuid, "vehicle:sable_to_entity");
-        if (!sourceRetired) {
-            if (restored || data.containsVehicle(targetUuid)) {
-                storeVehicle(player, data, target);
-                data.clearDeployedVehicle(targetUuid);
-            }
-            restoreSableAfterFailedSwitch(player, data, oldSableUuid, switchPos);
-            tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-            return false;
-        }
-
-        data.setDeployedVehicle(targetUuid);
-        data.setLastKnownPosition(targetUuid, SavedPosition.of(target.level(), target.getX(), target.getY(), target.getZ(), target.getYRot(), target.getXRot()));
-        enforceSingleRideSlotForVehicle(player, data, targetUuid, null);
-        markSableActionCooldown(player);
-        CompanionDataService.save(player, data);
-        spawnBlinkParticles(target);
-        tell(player, "message.find_me.vehicle_switched", ChatFormatting.AQUA, target.getDisplayName());
-        return true;
-    }
-
-    private static void restoreSableAfterFailedSwitch(ServerPlayer player, PlayerCompanionData data, UUID sableUuid, BlockPos fallbackPos) {
-        if (player == null || data == null || sableUuid == null || fallbackPos == null || !SableVehicleCompatibility.canRestore(data, sableUuid)) {
-            return;
-        }
-        SableVehicleCompatibility.restore(player, data, sableUuid, fallbackPos).ifPresent(handle -> {
-            if (VehicleSeatService.hasSeat(data, handle.uuid())) {
-                VehicleSeatService.teleportToSableSeat(player, handle, data);
-            }
-            data.setDeployedVehicle(handle.uuid());
-            Vec3 anchor = Vec3.atBottomCenterOf(fallbackPos);
-            data.setLastKnownPosition(handle.uuid(), SavedPosition.of(player.serverLevel(), anchor.x, anchor.y, anchor.z, player.getYRot(), player.getXRot()));
-            CompanionDataService.save(player, data);
-        });
-    }
-
     private static boolean restoreSourceRideAfterFailedRetirement(ServerPlayer player, PlayerCompanionData data,
                                                                   RideHandoffService.Source source) {
         if (source == null || !source.present() || source.type() == RideHandoffService.SourceType.OTHER) {
             return true;
         }
         boolean restored = switch (source.type()) {
-            case SABLE -> SableVehicleCompatibility.find(player, source.uuid())
-                    .map(handle -> !VehicleSeatService.hasSeat(data, source.uuid())
-                            || VehicleSeatService.teleportToSableSeat(player, handle, data))
-                    .orElse(false);
-            case MACHINE_MAX -> MachineMaxVehicleCompatibility.find(player, source.uuid())
-                    .map(handle -> MachineMaxVehicleCompatibility.tryBoard(player, handle))
-                    .orElse(false);
             case FINDME_MOUNT, ENTITY_VEHICLE ->
                     VehicleCompatibilityService.restorePreviousRide(player, source.entity());
             case NONE, OTHER -> true;
@@ -780,11 +447,7 @@ public final class VehicleManager {
         data.deployedVehicle().ifPresent(uuid -> {
             Entity entity = locateEntity(player.getServer(), data, uuid).orElse(null);
             boolean collected = false;
-            if (isMachineMaxVehicle(player, data, uuid)) {
-                collected = MachineMaxVehicleCompatibility.store(player, data, uuid);
-            } else if (isSableVehicle(player, data, uuid)) {
-                collected = SableVehicleCompatibility.store(player, data, uuid);
-            } else if (entity != null && !entity.isRemoved()) {
+            if (entity != null && !entity.isRemoved()) {
                 collected = storeVehicle(player, data, entity);
             } else {
                 collected = true;
@@ -803,31 +466,9 @@ public final class VehicleManager {
         UUID playerUuid = player.getUUID();
         cancelPendingSummons(playerUuid);
         SWITCH_DAMAGE_PROTECTIONS.removeIf(protection -> protection.playerUuid.equals(playerUuid));
-        SABLE_ACTION_COOLDOWNS.remove(playerUuid);
         VehicleCinematicService.cancelForPlayer(player, reason);
         VehicleSeatService.cleanup(player);
         FindMeDebugLogger.info("module", "vehicle runtime cancelled player={} reason={}", playerUuid, reason);
-    }
-
-    public static void collectDeployedSable(ServerPlayer player) {
-        if (player == null) {
-            return;
-        }
-        PlayerCompanionData data = CompanionDataService.data(player);
-        PENDING_SUMMONS.removeIf(pending -> pending.playerUuid.equals(player.getUUID())
-                && isSableVehicle(player, data, pending.vehicleUuid));
-        Optional<UUID> deployed = data.deployedVehicle().filter(uuid -> isSableVehicle(player, data, uuid));
-        if (deployed.isEmpty()) {
-            deployed = currentSableForRideHandoff(player, data);
-        }
-        deployed.ifPresent(uuid -> {
-            cancelPendingSummon(player.getUUID(), uuid);
-            if (SableVehicleCompatibility.store(player, data, uuid)) {
-                data.clearDeployedVehicle(uuid);
-                CompanionDataService.save(player, data);
-            }
-        });
-        syncToClient(player);
     }
 
     public static void rename(ServerPlayer player, boolean wheel, int index, String name) {
@@ -849,9 +490,7 @@ public final class VehicleManager {
 
     public static boolean isVehicleEntry(PlayerCompanionData data, UUID uuid) {
         return data.containsVehicle(uuid) || data.isVehicleMount(uuid) || rawStoredTag(data, uuid)
-                .map(tag -> tag.getBoolean(VEHICLE_MARKER) || tag.getBoolean("FindMeVehicleMount")
-                        || SableVehicleCompatibility.isStoredSable(tag)
-                        || MachineMaxVehicleCompatibility.isStoredMachineMax(tag))
+                .map(tag -> tag.getBoolean(VEHICLE_MARKER) || tag.getBoolean("FindMeVehicleMount"))
                 .orElse(false);
     }
 
@@ -887,7 +526,6 @@ public final class VehicleManager {
 
     public static void tickPendingSummons(MinecraftServer server) {
         tickSwitchDamageProtections();
-        tickSableActionCooldowns(server);
         Iterator<PendingVehicleSummon> iterator = PENDING_SUMMONS.iterator();
         while (iterator.hasNext()) {
             PendingVehicleSummon pending = iterator.next();
@@ -909,101 +547,6 @@ public final class VehicleManager {
             }
             RideHandoffService.Source rideSource = RideHandoffService.resolveSource(player, data);
             Entity currentRide = VehicleSeatService.resolveCurrentRide(player);
-            if (isMachineMaxVehicle(player, data, pending.vehicleUuid)) {
-                Optional<MachineMaxVehicleCompatibility.Handle> restored = MachineMaxVehicleCompatibility.restore(
-                        player, data, pending.vehicleUuid, pending.position);
-                if (restored.isEmpty()) {
-                    data.clearDeployedVehicle(pending.vehicleUuid);
-                    FindMeDebugLogger.lifecycle("VEHICLE_PENDING_SUMMON_UNAVAILABLE_KEEP_RECORD", player,
-                            pending.vehicleUuid, null, "STORED", "UNKNOWN", "vehicle:pending_machine_max",
-                            rawStoredTag(data, pending.vehicleUuid).isPresent(), false);
-                    CompanionDataService.save(player, data);
-                    syncToClient(player);
-                    tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-                    continue;
-                }
-                MachineMaxVehicleCompatibility.Handle handle = restored.get();
-                if (rideSource.present()) {
-                    if (!MachineMaxVehicleCompatibility.tryBoard(player, handle)) {
-                        MachineMaxVehicleCompatibility.store(player, data, handle);
-                        tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                        continue;
-                    }
-                    if (!RideHandoffService.retireSourceForSwitch(player, data, rideSource,
-                            pending.vehicleUuid, "vehicle:pending_machine_max")) {
-                        MachineMaxVehicleCompatibility.store(player, data, handle);
-                        data.clearDeployedVehicle(pending.vehicleUuid);
-                        restoreSourceRideAfterFailedRetirement(player, data, rideSource);
-                        CompanionDataService.save(player, data);
-                        syncToClient(player);
-                        tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                        continue;
-                    }
-                }
-                enforceSingleRideSlotForVehicle(player, data, pending.vehicleUuid, null);
-                AABB box = handle.box();
-                Vec3 center = box == null ? Vec3.atBottomCenterOf(pending.position) : box.getCenter();
-                data.setDeployedVehicle(pending.vehicleUuid);
-                data.setLastKnownPosition(pending.vehicleUuid, SavedPosition.of(player.serverLevel(),
-                        center.x, center.y, center.z, player.getYRot(), player.getXRot()));
-                CompanionDataService.save(player, data);
-                syncToClient(player);
-                tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA,
-                        Component.literal(handle.name()));
-                continue;
-            }
-            if (isSableVehicle(player, data, pending.vehicleUuid)) {
-                Optional<SableVehicleCompatibility.Handle> restored = SableVehicleCompatibility.restore(player, data, pending.vehicleUuid, pending.position);
-                if (restored.isEmpty()) {
-                    data.clearDeployedVehicle(pending.vehicleUuid);
-                    FindMeDebugLogger.lifecycle("VEHICLE_PENDING_SUMMON_UNAVAILABLE_KEEP_RECORD", player, pending.vehicleUuid, null,
-                            "STORED", "UNKNOWN", "vehicle:pending_sable", rawStoredTag(data, pending.vehicleUuid).isPresent(), false);
-                    CompanionDataService.save(player, data);
-                    syncToClient(player);
-                    tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-                    continue;
-                }
-                UUID restoredUuid = restored.get().uuid();
-                if (!pending.vehicleUuid.equals(restoredUuid)) {
-                    sendSablePreviewTransfer(player, pending.vehicleUuid, restoredUuid);
-                }
-                boolean hasSeat = VehicleSeatService.hasSeat(data, restoredUuid);
-                if (rideSource.present() && !rideSource.uuid().equals(restoredUuid) && !hasSeat) {
-                    SableVehicleCompatibility.store(player, data, restored.get());
-                    data.clearDeployedVehicle(restoredUuid);
-                    CompanionDataService.save(player, data);
-                    syncToClient(player);
-                    tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                    continue;
-                }
-                if (hasSeat && !VehicleSeatService.teleportToSableSeat(player, restored.get(), data)) {
-                    SableVehicleCompatibility.store(player, data, restored.get());
-                    data.clearDeployedVehicle(restoredUuid);
-                    CompanionDataService.save(player, data);
-                    syncToClient(player);
-                    tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                    continue;
-                }
-                if (!RideHandoffService.retireSourceForSwitch(
-                        player, data, rideSource, restoredUuid, "vehicle:pending_sable")) {
-                    SableVehicleCompatibility.store(player, data, restored.get());
-                    data.clearDeployedVehicle(restoredUuid);
-                    restoreSourceRideAfterFailedRetirement(player, data, rideSource);
-                    CompanionDataService.save(player, data);
-                    syncToClient(player);
-                    tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
-                    continue;
-                }
-                enforceSingleRideSlotForVehicle(player, data, restoredUuid, null);
-                Vec3 anchor = Vec3.atBottomCenterOf(pending.position);
-                data.setDeployedVehicle(restoredUuid);
-                data.setLastKnownPosition(restoredUuid, SavedPosition.of(player.serverLevel(), anchor.x, anchor.y, anchor.z, player.getYRot(), player.getXRot()));
-                markSableActionCooldown(player);
-                CompanionDataService.save(player, data);
-                syncToClient(player);
-                tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA, Component.literal(restored.get().name()));
-                continue;
-            }
             Entity entity = restoreVehicle(player, data, pending.vehicleUuid, pending.position).orElse(null);
             if (entity == null || entity.isRemoved()) {
                 data.clearDeployedVehicle(pending.vehicleUuid);
@@ -1112,18 +655,13 @@ public final class VehicleManager {
     }
 
     public static boolean snapshotBeforeUnload(MinecraftServer server, Entity entity) {
-        Optional<MachineMaxVehicleCompatibility.Handle> machineMax = MachineMaxVehicleCompatibility.findForEntity(entity);
-        UUID uuid = machineMax.map(MachineMaxVehicleCompatibility.Handle::uuid).orElseGet(entity::getUUID);
+        UUID uuid = entity.getUUID();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             PlayerCompanionData data = CompanionDataService.data(player);
             if (!data.containsVehicle(uuid)) {
                 continue;
             }
-            if (machineMax.isPresent()) {
-                MachineMaxVehicleCompatibility.store(player, data, machineMax.get());
-            } else {
-                storeVehicle(player, data, entity);
-            }
+            storeVehicle(player, data, entity);
             data.clearDeployedVehicle(uuid);
             CompanionDataService.save(player, data);
             syncToClient(player);
@@ -1136,14 +674,6 @@ public final class VehicleManager {
         if (entity == null) {
             return false;
         }
-        Optional<SableVehicleCompatibility.Handle> sable = SableVehicleCompatibility.findForEntity(entity);
-        if (sable.isPresent() && isVehicleEntry(data, sable.get().uuid())) {
-            return SableVehicleCompatibility.store(player, data, sable.get());
-        }
-        Optional<MachineMaxVehicleCompatibility.Handle> machineMax = MachineMaxVehicleCompatibility.findForEntity(entity);
-        if (machineMax.isPresent() && isVehicleEntry(data, machineMax.get().uuid())) {
-            return MachineMaxVehicleCompatibility.store(player, data, machineMax.get());
-        }
         if (!isVehicleEntry(data, entity.getUUID())) {
             return false;
         }
@@ -1153,28 +683,6 @@ public final class VehicleManager {
     public static boolean collectIfFindMeVehicle(ServerPlayer player, PlayerCompanionData data, Entity entity) {
         if (entity == null || data == null || entity.isRemoved()) {
             return false;
-        }
-        Optional<SableVehicleCompatibility.Handle> sable = SableVehicleCompatibility.findForEntity(entity);
-        if (sable.isPresent() && isVehicleEntry(data, sable.get().uuid())) {
-            UUID uuid = sable.get().uuid();
-            if (!SableVehicleCompatibility.store(player, data, sable.get())) {
-                return false;
-            }
-            data.clearDeployedVehicle(uuid);
-            CompanionDataService.save(player, data);
-            syncToClient(player);
-            return true;
-        }
-        Optional<MachineMaxVehicleCompatibility.Handle> machineMax = MachineMaxVehicleCompatibility.findForEntity(entity);
-        if (machineMax.isPresent() && isVehicleEntry(data, machineMax.get().uuid())) {
-            UUID uuid = machineMax.get().uuid();
-            if (!MachineMaxVehicleCompatibility.store(player, data, machineMax.get())) {
-                return false;
-            }
-            data.clearDeployedVehicle(uuid);
-            CompanionDataService.save(player, data);
-            syncToClient(player);
-            return true;
         }
         if (!isVehicleEntry(data, entity.getUUID())) {
             return false;
@@ -1190,11 +698,6 @@ public final class VehicleManager {
     }
 
     public static Optional<Entity> locateEntity(MinecraftServer server, PlayerCompanionData data, UUID uuid) {
-        Optional<Entity> machineMaxAnchor = MachineMaxVehicleCompatibility.find(server, uuid)
-                .flatMap(MachineMaxVehicleCompatibility.Handle::anchorEntity);
-        if (machineMaxAnchor.isPresent()) {
-            return machineMaxAnchor;
-        }
         Optional<Entity> loaded = CompanionEntityLookup.findEntity(server, uuid);
         if (loaded.isPresent()) {
             return loaded;
@@ -1229,31 +732,7 @@ public final class VehicleManager {
     private static boolean storeSelected(ServerPlayer player, PlayerCompanionData data, UUID uuid, Entity entity) {
         cancelPendingSummon(player.getUUID(), uuid);
         Entity vehicle = entity == null ? locateEntity(player.getServer(), data, uuid).orElse(null) : entity;
-        if (isMachineMaxVehicle(player, data, uuid)) {
-            AABB sealBox = MachineMaxVehicleCompatibility.find(player, uuid)
-                    .map(MachineMaxVehicleCompatibility.Handle::box).orElse(null);
-            if (!MachineMaxVehicleCompatibility.store(player, data, uuid)) {
-                tell(player, "message.find_me.vehicle_store_failed", ChatFormatting.RED);
-                return false;
-            }
-            sendMachineMaxVehicleSealEffect(player, uuid, sealBox);
-        } else if (isSableVehicle(player, data, uuid)) {
-            if (isSableActionCoolingDown(player)) {
-                return false;
-            }
-            if (!SableVehicleCompatibility.snapshotAvailable()) {
-                tell(player, "message.find_me.sable_blueprint_not_loaded", ChatFormatting.YELLOW);
-                return false;
-            }
-            AABB sealBox = SableVehicleCompatibility.find(player, uuid).map(SableVehicleCompatibility.Handle::box).orElse(null);
-            sendSablePreviewCapture(player, uuid, sealBox);
-            if (!SableVehicleCompatibility.store(player, data, uuid)) {
-                tell(player, "message.find_me.vehicle_store_failed", ChatFormatting.RED);
-                return false;
-            }
-            sendSableVehicleSealEffect(player, uuid, sealBox);
-            markSableActionCooldown(player);
-        } else if (vehicle != null && !vehicle.isRemoved()) {
+        if (vehicle != null && !vehicle.isRemoved()) {
             if (!storeVehicle(player, data, vehicle)) {
                 tell(player, "message.find_me.vehicle_store_failed", ChatFormatting.RED);
                 return false;
@@ -1265,14 +744,6 @@ public final class VehicleManager {
         return true;
     }
 
-    private static boolean isSableVehicle(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
-        if (!SableVehicleCompatibility.available()) {
-            return false;
-        }
-        return SableVehicleCompatibility.find(player, uuid).isPresent()
-                || SableVehicleCompatibility.isStored(data, uuid);
-    }
-
     public static boolean recallUuid(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
         if (uuid == null || !data.containsVehicle(uuid)) {
             tell(player, "message.find_me.invalid_vehicle_index", ChatFormatting.RED);
@@ -1281,11 +752,6 @@ public final class VehicleManager {
         if (rejectBusy(player, data, uuid, "vehicle:recall")) return true;
         cancelPendingSummon(player.getUUID(), uuid);
         return storeSelected(player, data, uuid, locateEntity(player.getServer(), data, uuid).orElse(null));
-    }
-
-    private static boolean isMachineMaxVehicle(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
-        return MachineMaxVehicleCompatibility.find(player, uuid).isPresent()
-                || MachineMaxVehicleCompatibility.isStored(data, uuid);
     }
 
     private static void removeAt(ServerPlayer player, PlayerCompanionData data, int index) {
@@ -1330,47 +796,6 @@ public final class VehicleManager {
     private static boolean removeUuid(ServerPlayer player, PlayerCompanionData data, UUID uuid, Entity entity) {
         CompanionTransientStateService.cancelTarget(player, data, uuid, CompanionTransientStateService.Reason.RELEASE);
         boolean hadSnapshot = data.storedEntity(uuid).isPresent();
-        if (isMachineMaxVehicle(player, data, uuid)) {
-            MachineMaxVehicleCompatibility.Handle handle = MachineMaxVehicleCompatibility.find(player, uuid)
-                    .orElseGet(() -> MachineMaxVehicleCompatibility.restore(player, data, uuid,
-                            findMachineMaxVehicleSpot(player, data, uuid, null, player.blockPosition())).orElse(null));
-            if (handle == null) {
-                tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-                return false;
-            }
-            MachineMaxVehicleCompatibility.move(handle, player.serverLevel(),
-                    findMachineMaxVehicleSpot(player, data, uuid, handle, player.blockPosition()));
-            MachineMaxVehicleCompatibility.release(handle);
-            data.remove(uuid);
-            CompanionDataService.save(player, data);
-            tell(player, "message.find_me.vehicle_released", ChatFormatting.GRAY);
-            FindMeDebugLogger.lifecycle("VEHICLE_RELEASE_RECORD_REMOVED", player, uuid,
-                    handle.anchorEntity().orElse(null), "BOUND", "RELEASED", "vehicle:release_machine_max",
-                    hadSnapshot, true);
-            return true;
-        }
-        if (isSableVehicle(player, data, uuid)) {
-            SableVehicleCompatibility.Handle handle = SableVehicleCompatibility.find(player, uuid)
-                    .orElseGet(() -> SableVehicleCompatibility.restore(player, data, uuid, findSableVehicleSpot(player, data, uuid, null)).orElse(null));
-            if (handle == null) {
-                tell(player, "message.find_me.unavailable_vehicle", ChatFormatting.RED);
-                return false;
-            }
-            UUID releaseUuid = handle.uuid();
-            SableVehicleCompatibility.move(handle, player.serverLevel(), findSableVehicleSpot(player, data, uuid, handle));
-            SableVehicleCompatibility.pushPlayerOut(player, handle);
-            SableVehicleCompatibility.release(handle);
-            sendSablePreviewDelete(player, uuid);
-            if (releaseUuid != null && !releaseUuid.equals(uuid)) {
-                sendSablePreviewDelete(player, releaseUuid);
-            }
-            data.remove(releaseUuid == null ? uuid : releaseUuid);
-            CompanionDataService.save(player, data);
-            tell(player, "message.find_me.vehicle_released", ChatFormatting.GRAY);
-            FindMeDebugLogger.lifecycle("VEHICLE_RELEASE_RECORD_REMOVED", player, releaseUuid == null ? uuid : releaseUuid, null,
-                    "BOUND", "RELEASED", "vehicle:release_sable", hadSnapshot, false);
-            return true;
-        }
         Entity release = entity;
         if (release == null) {
             release = restoreVehicle(player, data, uuid, findVehicleSpotForStored(player, data, uuid, player.blockPosition())).orElse(null);
@@ -1379,7 +804,6 @@ public final class VehicleManager {
             moveVehicleTo(release, player.serverLevel(), findVehicleSpotForEntity(player, release, player.blockPosition()), player.getYRot(), player.getXRot());
         }
         data.remove(uuid);
-        sendSablePreviewDelete(player, uuid);
         CompanionDataService.save(player, data);
         tell(player, "message.find_me.vehicle_released", ChatFormatting.GRAY);
         FindMeDebugLogger.lifecycle("VEHICLE_RELEASE_RECORD_REMOVED", player, uuid, release,
@@ -1402,47 +826,15 @@ public final class VehicleManager {
     private static List<VehicleListPacket.Entry> entries(ServerPlayer player, PlayerCompanionData data, List<UUID> uuids) {
         ArrayList<VehicleListPacket.Entry> entries = new ArrayList<>();
         for (UUID uuid : uuids) {
-            Optional<MachineMaxVehicleCompatibility.Handle> machineMax = MachineMaxVehicleCompatibility.find(player, uuid);
-            Optional<CompoundTag> machineMaxTag = rawStoredTag(data, uuid)
-                    .filter(MachineMaxVehicleCompatibility::isStoredMachineMax);
-            if (machineMax.isPresent() || machineMaxTag.isPresent()) {
-                Entity anchor = machineMax.flatMap(MachineMaxVehicleCompatibility.Handle::anchorEntity).orElse(null);
-                String name = data.displayName(uuid).orElseGet(() -> machineMax
-                        .map(MachineMaxVehicleCompatibility.Handle::name)
-                        .orElseGet(() -> machineMaxTag.map(VehicleManager::storedName)
-                                .orElse(uuid.toString().substring(0, 8))));
-                boolean ridden = MachineMaxVehicleCompatibility.currentRide(player)
-                        .filter(handle -> uuid.equals(handle.uuid())).isPresent();
-                boolean deployed = ridden || data.isVehicleDeployed(uuid);
-                entries.add(new VehicleListPacket.Entry(uuid, anchor == null ? -1 : anchor.getId(),
-                        MachineMaxVehicleCompatibility.TYPE, name, machineMax.isPresent(), true, deployed, ridden,
-                        data.animationStyle(uuid, com.kuzhi.findme.common.CompanionAnimationPurpose.SUMMON,
-                                MachineMaxVehicleCompatibility.TYPE),
-                        data.animationStyle(uuid, com.kuzhi.findme.common.CompanionAnimationPurpose.RESCUE,
-                                MachineMaxVehicleCompatibility.TYPE),
-                        data.animationStyle(uuid, com.kuzhi.findme.common.CompanionAnimationPurpose.STORAGE,
-                                MachineMaxVehicleCompatibility.TYPE),
-                        data.animationStyle(uuid, com.kuzhi.findme.common.CompanionAnimationPurpose.SWITCH,
-                                MachineMaxVehicleCompatibility.TYPE),
-                        data.effectStyle(uuid, com.kuzhi.findme.common.CompanionEffectPurpose.SUMMON,
-                                MachineMaxVehicleCompatibility.TYPE),
-                        data.effectStyle(uuid, com.kuzhi.findme.common.CompanionEffectPurpose.RESCUE,
-                                MachineMaxVehicleCompatibility.TYPE),
-                        data.effectStyle(uuid, com.kuzhi.findme.common.CompanionEffectPurpose.STORAGE,
-                                MachineMaxVehicleCompatibility.TYPE), null));
-                continue;
-            }
             Entity entity = CompanionEntityLookup.findEntity(player.getServer(), uuid).orElse(null);
             Optional<CompoundTag> storedTag = rawStoredTag(data, uuid);
-            Optional<SableVehicleCompatibility.Handle> sable = SableVehicleCompatibility.find(player, uuid);
-            boolean storedSable = storedTag.filter(SableVehicleCompatibility::isStoredSable).isPresent();
-            String entityType = sable.isPresent() || storedSable ? SableVehicleCompatibility.TYPE : (entity == null ? storedTag.map(VehicleManager::storedType).orElse("") : entityType(entity));
-            String name = data.displayName(uuid).orElseGet(() -> sable.map(SableVehicleCompatibility.Handle::name).orElseGet(() -> entity == null ? storedTag.map(VehicleManager::storedName).orElse(uuid.toString().substring(0, 8)) : entity.getDisplayName().getString()));
-            boolean loaded = entity != null || sable.isPresent();
-            boolean alive = sable.isPresent() || (entity == null ? storedTag.isPresent() : entity.isAlive());
+            String entityType = entity == null ? storedTag.map(VehicleManager::storedType).orElse("") : entityType(entity);
+            String name = data.displayName(uuid).orElseGet(() -> entity == null ? storedTag.map(VehicleManager::storedName).orElse(uuid.toString().substring(0, 8)) : entity.getDisplayName().getString());
+            boolean loaded = entity != null;
+            boolean alive = entity == null ? storedTag.isPresent() : entity.isAlive();
             boolean ridden = player.getVehicle() != null && player.getVehicle().getUUID().equals(uuid);
             boolean deployed = ridden || data.isVehicleDeployed(uuid);
-            CompoundTag previewTag = entity == null ? storedTag.map(tag -> storedSable ? null : tag.copy()).orElse(null) : CompanionEntitySnapshots.previewEntityTag(entity, entityType);
+            CompoundTag previewTag = entity == null ? storedTag.map(CompoundTag::copy).orElse(null) : CompanionEntitySnapshots.previewEntityTag(entity, entityType);
             entries.add(new VehicleListPacket.Entry(uuid, entity == null ? -1 : entity.getId(), entityType, name, loaded, alive, deployed, ridden,
                     data.animationStyle(uuid, com.kuzhi.findme.common.CompanionAnimationPurpose.SUMMON, entityType),
                     data.animationStyle(uuid, com.kuzhi.findme.common.CompanionAnimationPurpose.RESCUE, entityType),
@@ -1456,15 +848,6 @@ public final class VehicleManager {
     }
 
     private static boolean storeVehicle(ServerPlayer player, PlayerCompanionData data, Entity entity) {
-        Optional<MachineMaxVehicleCompatibility.Handle> machineMax = MachineMaxVehicleCompatibility.findForEntity(entity);
-        if (machineMax.isPresent()) {
-            return MachineMaxVehicleCompatibility.store(player, data, machineMax.get());
-        }
-        if (MachineMaxVehicleCompatibility.isPartEntity(entity)) {
-            FindMeMod.LOGGER.warn("FindMe refused generic storage for unresolved MachineMax part entity {}",
-                    entity.getUUID());
-            return false;
-        }
         UUID uuid = entity.getUUID();
         if (!CompanionOperationLockService.tryBegin(player, uuid, CompanionOperationLockService.Operation.STORE, "vehicle:store")) {
             return false;
@@ -1515,8 +898,7 @@ public final class VehicleManager {
             return false;
         }
         return stored.contains("id") && (stored.getBoolean(VEHICLE_MARKER)
-                || stored.getBoolean("FindMeVehicleMount")
-                || MachineMaxVehicleCompatibility.isStoredMachineMax(stored));
+                || stored.getBoolean("FindMeVehicleMount"));
     }
 
     private static boolean scheduleStoredVehicleSummon(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
@@ -1525,16 +907,10 @@ public final class VehicleManager {
             return false;
         }
         BlockPos pos = findVehicleSpotForStored(player, data, uuid, vehiclePlacementOrigin(player));
-        if (maybeTag.filter(SableVehicleCompatibility::isStoredSable).isPresent()) {
-            if (!SableVehicleCompatibility.canRestore(data, uuid)) {
-                return false;
-            }
-            pos = findSableVehicleSpot(player, data, uuid, null);
-        }
         Vec3 anchor = Vec3.atBottomCenterOf(pos);
         float radius = vehicleRadius(player, data, uuid, pos);
         float height = vehicleHeight(player, data, uuid, pos);
-        String entityType = maybeTag.filter(SableVehicleCompatibility::isStoredSable).isPresent() ? SableVehicleCompatibility.TYPE : maybeTag.map(VehicleManager::storedType).orElse("");
+        String entityType = maybeTag.map(VehicleManager::storedType).orElse("");
         com.kuzhi.findme.common.CompanionEffectStyle style = data.effectStyle(uuid, com.kuzhi.findme.common.CompanionEffectPurpose.SUMMON, entityType);
         com.kuzhi.findme.common.CompanionAnimationStyle animation = data.animationStyle(uuid,
                 com.kuzhi.findme.common.CompanionAnimationPurpose.SUMMON, entityType);
@@ -1561,12 +937,6 @@ public final class VehicleManager {
     private static Optional<Entity> restoreVehicle(ServerPlayer player, PlayerCompanionData data, UUID uuid, BlockPos pos) {
         Optional<CompoundTag> maybeTag = rawStoredTag(data, uuid);
         if (maybeTag.isEmpty()) {
-            return Optional.empty();
-        }
-        if (SableVehicleCompatibility.isStoredSable(maybeTag.get())) {
-            return Optional.empty();
-        }
-        if (MachineMaxVehicleCompatibility.isStoredMachineMax(maybeTag.get())) {
             return Optional.empty();
         }
         if (!CompanionOperationLockService.tryBegin(player, uuid, CompanionOperationLockService.Operation.DEPLOY, "vehicle:restore")) {
@@ -1622,124 +992,6 @@ public final class VehicleManager {
         collectOtherVehiclesForSharedSlot(player, data, null, previousRide == null ? null : previousRide.getUUID());
     }
 
-    public static Optional<UUID> currentMachineMaxForRideHandoff(ServerPlayer player, PlayerCompanionData data) {
-        return MachineMaxVehicleCompatibility.currentRide(player)
-                .map(MachineMaxVehicleCompatibility.Handle::uuid)
-                .filter(uuid -> isVehicleEntry(data, uuid));
-    }
-
-    public static boolean collectMachineMaxForRideHandoff(ServerPlayer player, PlayerCompanionData data,
-                                                           UUID sourceUuid) {
-        Optional<MachineMaxVehicleCompatibility.Handle> current = MachineMaxVehicleCompatibility.find(player, sourceUuid);
-        if (current.isEmpty()) {
-            return false;
-        }
-        MachineMaxVehicleCompatibility.Handle handle = current.get();
-        AABB sealBox = handle.box();
-        if (!MachineMaxVehicleCompatibility.store(player, data, handle)) {
-            return false;
-        }
-        sendMachineMaxVehicleSealEffect(player, sourceUuid, sealBox);
-        data.clearDeployedVehicle(sourceUuid);
-        CompanionDataService.save(player, data);
-        syncToClient(player);
-        FindMeDebugLogger.info("ride-handoff", "MachineMax retirement started player={} vehicle={} box={}",
-                player.getUUID(), sourceUuid, FindMeDebugLogger.box(sealBox));
-        return true;
-    }
-
-    public static boolean isPlayerOnDeployedSable(ServerPlayer player, PlayerCompanionData data) {
-        return currentDeployedSableForPlayer(player, data).isPresent();
-    }
-
-    public static Optional<UUID> currentSableForRideHandoff(ServerPlayer player, PlayerCompanionData data) {
-        return currentDeployedSableForPlayer(player, data).map(SableVehicleCompatibility.Handle::uuid);
-    }
-
-    public static boolean collectCurrentSableForRideHandoff(ServerPlayer player, PlayerCompanionData data) {
-        Optional<UUID> current = currentSableForRideHandoff(player, data);
-        return current.isPresent() && collectSableForRideHandoff(player, data, current.get());
-    }
-
-    public static boolean collectSableForRideHandoff(ServerPlayer player, PlayerCompanionData data, UUID sourceUuid) {
-        Optional<SableVehicleCompatibility.Handle> current = SableVehicleCompatibility.find(player, sourceUuid);
-        if (current.isEmpty()) {
-            current = currentDeployedSableForPlayer(player, data)
-                    .filter(handle -> sourceUuid.equals(handle.uuid()));
-        }
-        if (current.isEmpty()) {
-            return false;
-        }
-        SableVehicleCompatibility.Handle handle = current.get();
-        UUID uuid = handle.uuid();
-        AABB sealBox = handle.box();
-        sendSablePreviewCapture(player, uuid, sealBox);
-        if (!SableVehicleCompatibility.store(player, data, handle)) {
-            return false;
-        }
-        VehicleSeatService.cleanup(player);
-        sendSableVehicleSealEffect(player, uuid, sealBox);
-        data.clearDeployedVehicle(uuid);
-        markSableActionCooldown(player);
-        CompanionDataService.save(player, data);
-        syncToClient(player);
-        FindMeDebugLogger.info("ride-handoff", "Sable retirement started player={} vehicle={} box={}",
-                player.getUUID(), uuid, FindMeDebugLogger.box(sealBox));
-        return true;
-    }
-
-    public static boolean detachPlayerFromDeployedSable(ServerPlayer player, PlayerCompanionData data) {
-        Optional<SableVehicleCompatibility.Handle> current = currentDeployedSableForPlayer(player, data);
-        if (current.isEmpty()) {
-            return false;
-        }
-        SableVehicleCompatibility.Handle handle = current.get();
-        FindMeDebugLogger.info("sable-mount-switch", "detaching player={} from deployed Sable={} box={}",
-                player.getGameProfile().getName(), handle.uuid(), FindMeDebugLogger.box(handle.box()));
-        SableVehicleCompatibility.pushPlayerOut(player, handle);
-        VehicleSeatService.cleanup(player);
-        return true;
-    }
-
-    private static Optional<SableVehicleCompatibility.Handle> currentDeployedSableForPlayer(ServerPlayer player, PlayerCompanionData data) {
-        if (player == null || data == null) {
-            return Optional.empty();
-        }
-        Optional<UUID> deployedUuid = data.deployedVehicle();
-        if (deployedUuid.isEmpty() || !data.containsVehicle(deployedUuid.get())) {
-            return Optional.empty();
-        }
-        Optional<SableVehicleCompatibility.Handle> tracked = SableVehicleCompatibility.findForEntity(player);
-        if (tracked.isPresent()) {
-            SableVehicleCompatibility.Handle trackedHandle = tracked.get();
-            if (deployedUuid.get().equals(trackedHandle.uuid())) {
-                return tracked;
-            }
-            // Multi-SubLevel aircraft may track the player against a child SubLevel while
-            // FindMe stores the root UUID. The deployed vehicle is still the sole active slot.
-            return tracked;
-        }
-
-        Optional<SableVehicleCompatibility.Handle> containing = SableVehicleCompatibility.findAt(player.serverLevel(), player.blockPosition());
-        if (containing.isPresent()) {
-            SableVehicleCompatibility.Handle containingHandle = containing.get();
-            if (deployedUuid.get().equals(containingHandle.uuid())) {
-                return containing;
-            }
-            return containing;
-        }
-
-        Optional<SableVehicleCompatibility.Handle> deployed = SableVehicleCompatibility.find(player, deployedUuid.get());
-        if (deployed.isEmpty()) {
-            return Optional.empty();
-        }
-        AABB playerBox = player.getBoundingBox();
-        AABB vehicleBox = deployed.get().box();
-        return vehicleBox != null && playerBox.intersects(vehicleBox.inflate(1.5, 2.5, 1.5))
-                ? deployed
-                : Optional.empty();
-    }
-
     private static void enforceSingleRideSlotForVehicle(ServerPlayer player, PlayerCompanionData data, UUID keepVehicleUuid, Entity previousRide) {
         collectPreviousRideForSharedSlot(player, data, keepVehicleUuid, previousRide);
         collectOtherVehiclesForSharedSlot(player, data, keepVehicleUuid, previousRide == null ? null : previousRide.getUUID());
@@ -1751,21 +1003,6 @@ public final class VehicleManager {
     private static void collectPreviousRideForSharedSlot(ServerPlayer player, PlayerCompanionData data, UUID keepUuid, Entity previousRide) {
         UUID previousRideUuid = null;
         if (previousRide != null && !previousRide.isRemoved()) {
-            Optional<MachineMaxVehicleCompatibility.Handle> machineMax = MachineMaxVehicleCompatibility.findForEntity(previousRide);
-            if (machineMax.isPresent() && !machineMax.get().uuid().equals(keepUuid)
-                    && isVehicleEntry(data, machineMax.get().uuid())) {
-                if (MachineMaxVehicleCompatibility.store(player, data, machineMax.get())) {
-                    data.clearDeployedVehicle(machineMax.get().uuid());
-                }
-                return;
-            }
-            Optional<SableVehicleCompatibility.Handle> sable = SableVehicleCompatibility.findForEntity(previousRide);
-            if (sable.isPresent() && !sable.get().uuid().equals(keepUuid) && isVehicleEntry(data, sable.get().uuid())) {
-                if (SableVehicleCompatibility.store(player, data, sable.get())) {
-                    data.clearDeployedVehicle(sable.get().uuid());
-                }
-                return;
-            }
             previousRideUuid = previousRide.getUUID();
             if (!previousRideUuid.equals(keepUuid)) {
                 if (isVehicleEntry(data, previousRideUuid)) {
@@ -1785,20 +1022,6 @@ public final class VehicleManager {
             if (otherVehicle.equals(keepVehicleUuid) || otherVehicle.equals(excludedUuid)) {
                 continue;
             }
-            Optional<SableVehicleCompatibility.Handle> liveSable = SableVehicleCompatibility.find(player, otherVehicle);
-            if (liveSable.isPresent()) {
-                if (SableVehicleCompatibility.store(player, data, liveSable.get())) {
-                    data.clearDeployedVehicle(otherVehicle);
-                }
-                continue;
-            }
-            Optional<MachineMaxVehicleCompatibility.Handle> liveMachineMax = MachineMaxVehicleCompatibility.find(player, otherVehicle);
-            if (liveMachineMax.isPresent()) {
-                if (MachineMaxVehicleCompatibility.store(player, data, liveMachineMax.get())) {
-                    data.clearDeployedVehicle(otherVehicle);
-                }
-                continue;
-            }
             CompanionEntityLookup.findEntity(player.getServer(), otherVehicle).ifPresent(entity -> {
                 if (storeVehicle(player, data, entity)) {
                     data.clearDeployedVehicle(otherVehicle);
@@ -1807,18 +1030,6 @@ public final class VehicleManager {
         }
         data.deployedVehicle().ifPresent(previous -> {
             if (previous.equals(keepVehicleUuid) || previous.equals(excludedUuid)) {
-                return;
-            }
-            if (isSableVehicle(player, data, previous)) {
-                if (SableVehicleCompatibility.store(player, data, previous)) {
-                    data.clearDeployedVehicle(previous);
-                }
-                return;
-            }
-            if (isMachineMaxVehicle(player, data, previous)) {
-                if (MachineMaxVehicleCompatibility.store(player, data, previous)) {
-                    data.clearDeployedVehicle(previous);
-                }
                 return;
             }
             locateEntity(player.getServer(), data, previous).ifPresent(entity -> {
@@ -1831,9 +1042,6 @@ public final class VehicleManager {
 
     private static boolean isBindableVehicle(Entity entity) {
         if (entity == null || entity instanceof Player || entity instanceof LivingEntity || entity instanceof ItemEntity || entity instanceof ExperienceOrb || entity instanceof Projectile) {
-            return false;
-        }
-        if (MachineMaxVehicleCompatibility.isPartEntity(entity)) {
             return false;
         }
         return true;
@@ -1925,40 +1133,6 @@ public final class VehicleManager {
         CompanionMagicAudioService.playStorageOpen(player, base, radius);
     }
 
-    private static void sendSableVehicleSealEffect(ServerPlayer player, UUID uuid, AABB box) {
-        sendExternalVehicleSealEffect(player, uuid, box, SableVehicleCompatibility.TYPE, "sable");
-    }
-
-    private static void sendMachineMaxVehicleSealEffect(ServerPlayer player, UUID uuid, AABB box) {
-        sendExternalVehicleSealEffect(player, uuid, box, MachineMaxVehicleCompatibility.TYPE, "machine_max");
-    }
-
-    private static void sendExternalVehicleSealEffect(ServerPlayer player, UUID uuid, AABB box,
-                                                      String entityType, String debugType) {
-        if (player == null || box == null) {
-            return;
-        }
-        Vec3 base = new Vec3(box.getCenter().x, box.minY, box.getCenter().z);
-        float radius = vehicleRadius(box.getXsize(), box.getZsize());
-        float height = (float)Mth.clamp(box.getYsize(), 0.25, 128.0);
-        com.kuzhi.findme.common.CompanionEffectStyle style = CompanionDataService.data(player).effectStyle(uuid, com.kuzhi.findme.common.CompanionEffectPurpose.STORAGE, entityType);
-        if (style == com.kuzhi.findme.common.CompanionEffectStyle.NONE) return;
-        FindMeDebugLogger.info("effect-sizing", "side=server entity={}:{} purpose=STORAGE style={} source=live bounds={} packetRadius={} packetHeight={}",
-                debugType, uuid, style, FindMeDebugLogger.box(box), radius, height);
-        if (style == com.kuzhi.findme.common.CompanionEffectStyle.ENDER) { CompanionEnderEffectService.play(player, box); return; }
-        ModNetwork.sendToPlayersNear(player.serverLevel(), base, VEHICLE_EFFECT_PACKET_RADIUS, new VehicleSealEffectPacket(base.x, base.y, base.z, radius, height, VEHICLE_SEAL_TICKS, style == com.kuzhi.findme.common.CompanionEffectStyle.CUSTOM_MAGIC_CIRCLE));
-        CompanionMagicAudioService.playStorageOpen(player, base, radius);
-    }
-
-    private static void sendSablePreviewCapture(ServerPlayer player, UUID uuid, AABB box) {
-    }
-
-    private static void sendSablePreviewDelete(ServerPlayer player, UUID uuid) {
-    }
-
-    private static void sendSablePreviewTransfer(ServerPlayer player, UUID fromUuid, UUID toUuid) {
-    }
-
     private static void sendVehicleSummonMagic(ServerPlayer player, Vec3 anchor, float radius, float height, RescueMagicPacket.Visual visual) {
         float safeRadius = Math.max(0.30f, radius);
         float safeHeight = Math.max(0.25f, height);
@@ -1993,10 +1167,6 @@ public final class VehicleManager {
 
     private static float vehicleRadius(ServerPlayer player, PlayerCompanionData data, UUID uuid, BlockPos pos) {
         Optional<CompoundTag> maybeTag = rawStoredTag(data, uuid);
-        if (maybeTag.filter(SableVehicleCompatibility::isStoredSable).isPresent()) {
-            CompoundTag tag = maybeTag.get();
-            return vehicleRadius(storedEffectWidth(tag), storedEffectDepth(tag));
-        }
         Entity preview = previewStoredVehicle(player, data, uuid, pos).orElse(null);
         if (preview != null) {
             return vehicleRadius(preview);
@@ -2008,9 +1178,6 @@ public final class VehicleManager {
 
     private static float vehicleHeight(ServerPlayer player, PlayerCompanionData data, UUID uuid, BlockPos pos) {
         Optional<CompoundTag> maybeTag = rawStoredTag(data, uuid);
-        if (maybeTag.filter(SableVehicleCompatibility::isStoredSable).isPresent()) {
-            return (float)Mth.clamp(storedEffectHeight(maybeTag.get()), 0.25f, 128.0f);
-        }
         Entity preview = previewStoredVehicle(player, data, uuid, pos).orElse(null);
         if (preview != null) {
             return vehicleHeight(preview);
@@ -2029,10 +1196,6 @@ public final class VehicleManager {
     private static Optional<Entity> previewStoredVehicle(ServerPlayer player, PlayerCompanionData data, UUID uuid, BlockPos pos) {
         Optional<CompoundTag> maybeTag = rawStoredTag(data, uuid);
         if (maybeTag.isEmpty()) {
-            return Optional.empty();
-        }
-        if (SableVehicleCompatibility.isStoredSable(maybeTag.get())
-                || MachineMaxVehicleCompatibility.isStoredMachineMax(maybeTag.get())) {
             return Optional.empty();
         }
         CompoundTag tag = maybeTag.get().copy();
@@ -2092,50 +1255,6 @@ public final class VehicleManager {
         return VehiclePlacementService.findVehicleSpotNear(player, origin, storedType(tag), storedPreviewWidth(tag), storedPreviewHeight(tag), storedPreviewDepth(tag));
     }
 
-    private static BlockPos findSableVehicleSpot(ServerPlayer player, PlayerCompanionData data, UUID uuid, SableVehicleCompatibility.Handle handle) {
-        double width = 6.0;
-        double height = 4.0;
-        double depth = 6.0;
-        if (handle != null) {
-            AABB box = handle.box();
-            width = Math.max(width, box.getXsize());
-            height = Math.max(height, box.getYsize());
-            depth = Math.max(depth, box.getZsize());
-        } else {
-            Optional<CompoundTag> tag = rawStoredTag(data, uuid);
-            if (tag.isPresent()) {
-                width = Math.max(width, storedPreviewWidth(tag.get()));
-                height = Math.max(height, storedPreviewHeight(tag.get()));
-                depth = Math.max(depth, storedPreviewDepth(tag.get()));
-            }
-        }
-        BlockPos origin = vehiclePlacementOrigin(player);
-        return VehiclePlacementService.findVehicleSpotNear(player, origin, SableVehicleCompatibility.TYPE, width, height, depth);
-    }
-
-    private static BlockPos findMachineMaxVehicleSpot(ServerPlayer player, PlayerCompanionData data, UUID uuid,
-                                                      MachineMaxVehicleCompatibility.Handle handle, BlockPos origin) {
-        double width = 3.0;
-        double height = 3.0;
-        double depth = 3.0;
-        if (handle != null && handle.box() != null) {
-            AABB box = handle.box();
-            width = Math.max(width, box.getXsize());
-            height = Math.max(height, box.getYsize());
-            depth = Math.max(depth, box.getZsize());
-        } else {
-            Optional<CompoundTag> tag = rawStoredTag(data, uuid);
-            if (tag.isPresent()) {
-                width = Math.max(width, storedPreviewWidth(tag.get()));
-                height = Math.max(height, storedPreviewHeight(tag.get()));
-                depth = Math.max(depth, storedPreviewDepth(tag.get()));
-            }
-        }
-        BlockPos searchOrigin = origin == null ? vehiclePlacementOrigin(player) : origin;
-        return VehiclePlacementService.findVehicleSpotNear(player, searchOrigin,
-                MachineMaxVehicleCompatibility.TYPE, width, height, depth);
-    }
-
     private static BlockPos vehiclePlacementOrigin(ServerPlayer player) {
         Entity ride = player.getVehicle();
         if (ride != null && !ride.isRemoved() && ride.level() == player.level()) {
@@ -2186,40 +1305,6 @@ public final class VehicleManager {
                 iterator.remove();
             }
         }
-    }
-
-    private static boolean isSableActionCoolingDown(ServerPlayer player) {
-        if (player == null) {
-            return true;
-        }
-        long now = player.serverLevel().getGameTime();
-        Long until = SABLE_ACTION_COOLDOWNS.get(player.getUUID());
-        if (until == null || until <= now) {
-            SABLE_ACTION_COOLDOWNS.remove(player.getUUID());
-            return false;
-        }
-        tell(player, "message.find_me.vehicle_action_pending", ChatFormatting.YELLOW);
-        return true;
-    }
-
-    private static void markSableActionCooldown(ServerPlayer player) {
-        markSableActionCooldown(player, SABLE_ACTION_COOLDOWN_TICKS);
-    }
-
-    private static void markSableActionCooldown(ServerPlayer player, int ticks) {
-        if (player != null) {
-            SABLE_ACTION_COOLDOWNS.put(player.getUUID(), player.serverLevel().getGameTime() + Math.max(1, ticks));
-        }
-    }
-
-    private static void tickSableActionCooldowns(MinecraftServer server) {
-        if (SABLE_ACTION_COOLDOWNS.isEmpty() || server == null) {
-            return;
-        }
-        SABLE_ACTION_COOLDOWNS.entrySet().removeIf(entry -> {
-            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
-            return player == null || entry.getValue() <= player.serverLevel().getGameTime();
-        });
     }
 
     private static boolean isProtectedVehicleDamage(LivingEntity victim, DamageSource source, VehicleSwitchDamageProtection protection) {

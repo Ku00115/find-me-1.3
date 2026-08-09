@@ -76,6 +76,17 @@ final class FindMeWheelRenderer {
         graphics.fill(x - width / 2, y, x - width / 2 + Mth.clamp(Math.round(width * pct), 0, width), y + 3, fg);
     }
 
+    static void drawManaBar(GuiGraphics graphics, String label, float pct, float fade) {
+        int left = 20;
+        int top = 49;
+        int width = 132;
+        graphics.drawString(Minecraft.getInstance().font, label, left, top,
+                guiColor(0xFFB8EFFF, fade), false);
+        graphics.fill(left, top + 10, left + width, top + 13, guiColor(0xB50A151B, fade));
+        graphics.fill(left, top + 10, left + Mth.clamp(Math.round(width * pct), 0, width), top + 13,
+                guiColor(0xFF35A9D1, fade));
+    }
+
     static void drawFieldScrim(GuiGraphics graphics, int width, int height, float fade) {
         graphics.fill(0, 0, width, height, guiColor(0x52061013, fade));
         for (int y = 1; y < height; y += 4) {

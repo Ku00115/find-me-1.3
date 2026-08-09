@@ -48,6 +48,11 @@ public final class CompanionCinematicLandingService {
     }
 
     public static Vec3 cinematicTarget(PendingMountCinematic cinematic, Level level, ServerPlayer player) {
+        return cinematicTarget(cinematic, level, player, null);
+    }
+
+    public static Vec3 cinematicTarget(PendingMountCinematic cinematic, Level level,
+                                       ServerPlayer player, LivingEntity mount) {
         if (cinematic.mode().isRescue()) {
             if (cinematic.moveType() == CompanionMoveType.WALK && level instanceof ServerLevel serverLevel) {
                 BlockPos landing = rescueAnchor(serverLevel, player);
@@ -59,15 +64,14 @@ public final class CompanionCinematicLandingService {
             }
             if (cinematic.moveType() == CompanionMoveType.FLY && cinematic.mode().isRescue()
                     && level instanceof ServerLevel serverLevel) {
-                if (cinematic.rescueFlightMode() == RescueFlightMode.LANDING_SUMMON) {
-                    Vec3 landing = cinematic.rescueLandingPosition();
-                    return landing != null ? landing : Vec3.atBottomCenterOf(rescueAnchor(serverLevel, player));
+                if (!Double.isNaN(cinematic.catchY())) {
+                    if (!cinematic.flyingRescueStaged() && cinematic.flyingStageTarget() != null) {
+                        return cinematic.flyingStageTarget();
+                    }
+                    BlockPos landing = rescueAnchor(serverLevel, player);
+                    return new Vec3((double) landing.getX() + 0.5, cinematic.catchY(),
+                            (double) landing.getZ() + 0.5);
                 }
-                if (cinematic.rescueFlightMode() == RescueFlightMode.HOVER
-                        && cinematic.rescueHoverPosition() != null) {
-                    return cinematic.rescueHoverPosition();
-                }
-                return flyingInterceptTarget(serverLevel, player, null);
             }
             if (cinematic.moveType() == CompanionMoveType.FLY && level instanceof ServerLevel serverLevel && !Double.isNaN(cinematic.catchY())) {
                 return flyingCatchTarget(cinematic, serverLevel, player);
@@ -86,6 +90,11 @@ public final class CompanionCinematicLandingService {
     public static Vec3 flyingCatchTarget(PendingMountCinematic cinematic, ServerLevel level, ServerPlayer player) {
         BlockPos landing = rescueAnchor(level, player);
         return new Vec3((double)landing.getX() + 0.5, cinematic.catchY(), (double)landing.getZ() + 0.5);
+    }
+
+    static double bodyOriginYForBottom(double desiredBottom, double entityY,
+                                       double boundingBoxMinY) {
+        return desiredBottom - (boundingBoxMinY - entityY);
     }
 
     public static Vec3 flyingInterceptTarget(ServerLevel level, ServerPlayer player) {

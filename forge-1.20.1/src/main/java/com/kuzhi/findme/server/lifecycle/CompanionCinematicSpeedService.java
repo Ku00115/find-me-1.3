@@ -82,12 +82,8 @@ public final class CompanionCinematicSpeedService {
     }
 
     private static double flyingRescueSpeed(PendingMountCinematic cinematic, ServerPlayer player, double distance, double groundDistance, double fallSpeed) {
-        double blocksUntilCatch = Double.isNaN(cinematic.catchY())
-                ? Math.max(1.0, groundDistance)
-                : Math.max(1.0, player.getY() - cinematic.catchY());
-        CompanionRescuePlanner.Plan rescuePlan = CompanionRescuePlanner.plan(player);
-        double ticksUntilCatch = Math.max(2.0, rescuePlan.ticksToCatch() == Integer.MAX_VALUE
-                ? blocksUntilCatch / fallSpeed : rescuePlan.ticksToCatch());
+        double blocksUntilCatch = Math.max(1.0, player.getY() - cinematic.catchY());
+        double ticksUntilCatch = Math.max(2.0, blocksUntilCatch / fallSpeed);
         double targetTicks = cinematic.flyingRescueStaged() ? Math.max(2.0, ticksUntilCatch - 30.0) : ticksUntilCatch;
         double needed = distance / targetTicks * (cinematic.flyingRescueStaged() ? 1.0 : 1.03);
         double progress = 1.0 - Mth.clamp(blocksUntilCatch / Math.max(1.0, groundDistance), 0.0, 1.0);

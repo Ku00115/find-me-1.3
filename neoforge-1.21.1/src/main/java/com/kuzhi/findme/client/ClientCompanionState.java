@@ -3,7 +3,6 @@ package com.kuzhi.findme.client;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.CompanionTeamTarget;
-import com.kuzhi.findme.compat.cobblemon.CobblemonCompat;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.kuzhi.findme.network.DeadCompanionListPacket;
 import java.util.ArrayList;
@@ -144,7 +143,8 @@ public final class ClientCompanionState {
                 entry.deployed(), entry.ridden(), entry.hasHome(), entry.homeResident(), entry.tacticalAction(),
                 entry.health(), entry.maxHealth(), entry.armor(),
                 moveType, entry.summonAnimation(), entry.rescueAnimation(), entry.storageAnimation(),
-                entry.switchAnimation(), entry.summonStyle(), entry.rescueStyle(), entry.storageStyle(), previewTag);
+                entry.switchAnimation(), entry.summonStyle(), entry.rescueStyle(), entry.storageStyle(),
+                entry.spellBindings(), entry.magicState(), previewTag);
     }
 
     private static CompanionListPacket.Entry preferPreviewEntry(CompanionListPacket.Entry left, CompanionListPacket.Entry right) {
@@ -158,7 +158,7 @@ public final class ClientCompanionState {
     }
 
     private static List<CompanionListPacket.Entry> filterUnavailableIntegrations(List<CompanionListPacket.Entry> entries) {
-        if (CobblemonCompat.available() || entries.isEmpty()) {
+        if (entries.isEmpty()) {
             return entries;
         }
         List<CompanionListPacket.Entry> visible = entries.stream()

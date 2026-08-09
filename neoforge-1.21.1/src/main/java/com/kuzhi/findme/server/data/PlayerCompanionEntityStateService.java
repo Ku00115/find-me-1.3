@@ -87,6 +87,7 @@ final class PlayerCompanionEntityStateService {
                 data.homeNestBlocks.remove(uuid);
                 data.homePositions.remove(uuid);
                 data.homeHouseIds.remove(uuid);
+                data.markLifecycleChanged(uuid);
                 removed++;
             }
         }

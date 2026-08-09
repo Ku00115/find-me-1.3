@@ -50,8 +50,9 @@ public static void encode(PackAnimationPresetListPacket packet, FriendlyByteBuf 
 
     public static PackAnimationPresetListPacket decode(FriendlyByteBuf buffer) {
         boolean replace = buffer.readBoolean();
-        int size = buffer.readVarInt();
-        ArrayList<Entry> entries = new ArrayList<>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_PRESET_ENTRIES,
+                "preset list entry");
+        ArrayList<Entry> entries = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; i++) {
             entries.add(new Entry(buffer.readUtf(128), buffer.readUtf(128), buffer.readEnum(PackAnimationPresetCategory.class),
                     buffer.readEnum(PackEntityCategoryOverride.class), buffer.readEnum(PackEntityMovementOverride.class),

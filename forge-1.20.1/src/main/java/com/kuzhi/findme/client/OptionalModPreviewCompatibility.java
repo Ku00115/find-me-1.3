@@ -20,6 +20,7 @@ final class OptionalModPreviewCompatibility {
     }
 
     static void prepareForRender(Entity entity) {
+        SaintsDragonsPreviewCompatibility.prepareForRender(entity);
         Object animator = ersAnimator(entity);
         if (animator != null) {
             setBooleanField(animator, "isInScreen", true);

@@ -14,6 +14,7 @@ public final class ClientFindMeSessionState {
         ClientCompanionTeamState.reset();
         ClientWheelSelectionMemory.reset();
         ClientFindMeModuleState.reset();
+        FindMeHudRenderer.reset();
         FindMeAuiManageScreen.resetSession();
         CompanionDetailPreviewRenderer.reset();
         ClientCameraLock.clear();

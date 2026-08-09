@@ -321,13 +321,20 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         }
         if (action.startsWith("style:")) {
             String[] parts = action.split(":", 3);
-            if (parts.length == 3) sendStyle(CompanionEffectPurpose.valueOf(parts[1]), CompanionEffectStyle.valueOf(parts[2]));
+            if (parts.length == 3) {
+                CompanionEffectPurpose purpose = CompanionEffectPurpose.valueOf(parts[1]);
+                sendStyle(purpose, CompanionEffectStyle.valueOf(parts[2]));
+            }
             return;
         }
         if (action.startsWith("animation:")) {
             String[] parts = action.split(":", 3);
-            if (parts.length == 3) sendAnimation(CompanionAnimationPurpose.valueOf(parts[1]),
-                    CompanionAnimationStyle.valueOf(parts[2]));
+            if (parts.length == 3) {
+                CompanionAnimationPurpose purpose = CompanionAnimationPurpose.valueOf(parts[1]);
+                if (purpose != CompanionAnimationPurpose.SUMMON || supportsSummonPresentationEditing()) {
+                    sendAnimation(purpose, CompanionAnimationStyle.valueOf(parts[2]));
+                }
+            }
             return;
         }
         if (action.equals("save-sound")) {
@@ -1286,10 +1293,17 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     }
 
     private void animationFields(StringBuilder html, PackAnimationPresetCategory category) {
-        animationGroup(html, CompanionAnimationPurpose.SUMMON, PackAnimationPresetListPacket.Entry::summonAnimation, category);
+        if (supportsSummonPresentationEditing()) {
+            animationGroup(html, CompanionAnimationPurpose.SUMMON, PackAnimationPresetListPacket.Entry::summonAnimation, category);
+        }
         animationGroup(html, CompanionAnimationPurpose.RESCUE, PackAnimationPresetListPacket.Entry::rescueAnimation, category);
         animationGroup(html, CompanionAnimationPurpose.STORAGE, PackAnimationPresetListPacket.Entry::storageAnimation, category);
         animationGroup(html, CompanionAnimationPurpose.SWITCH, PackAnimationPresetListPacket.Entry::switchAnimation, category);
+    }
+
+    private boolean supportsSummonPresentationEditing() {
+        return selectedEntries().stream()
+                .noneMatch(entry -> entry.category() == PackAnimationPresetCategory.COMPANION);
     }
 
     private void animationGroup(StringBuilder html, CompanionAnimationPurpose purpose,

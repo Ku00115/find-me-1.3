@@ -6,7 +6,7 @@ import java.util.Locale;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
-final class FindMePerformanceMonitor {
+public final class FindMePerformanceMonitor {
     static final int MODULES = 0;
     static final int UNLOAD_SNAPSHOTS = 1;
     static final int OPERATION_LOCKS = 2;
@@ -25,12 +25,28 @@ final class FindMePerformanceMonitor {
     static final int PLAYER_SAFETY = 15;
     static final int HOME_RESIDENTS = 16;
     static final int ESCORTS = 17;
+    private static final int DATA_DECODE = 18;
+    private static final int DATA_SAVE = 19;
+    private static final int ROSTER_SYNC = 20;
+    private static final int PREVIEW_BUILD = 21;
+    private static final int THREAT_SCAN = 22;
+    private static final int RESTORE_SCAN = 23;
+    private static final int CHUNK_LOAD = 24;
+    private static final int AUTO_BACKUP = 25;
+    static final int ROSTER_TRANSACTIONS = 26;
+    private static final int ENTITY_LOOKUPS = 27;
+    private static final int ENTITY_INDEX_HITS = 28;
+    private static final int ENTITY_LEVEL_FALLBACKS = 29;
+    private static final int ENTITY_RESTORE_GLOBAL_SCANS = 30;
 
     private static final String[] NAMES = {
             "modules", "unload_snapshots", "operation_locks", "mount_cinematics", "retreats",
             "ride_home", "mount_settle", "contracts", "arrivals", "storage_effects",
             "tactical_orders", "temporary_actions", "vehicle_summons", "vehicle_seats",
-            "player_registration", "player_safety", "home_residents", "escorts"
+            "player_registration", "player_safety", "home_residents", "escorts",
+            "data_decode", "data_save", "roster_sync", "preview_build", "threat_scan",
+            "restore_scan", "chunk_load", "auto_backup", "roster_transactions",
+            "entity_lookups", "entity_index_hits", "entity_level_fallbacks", "entity_restore_global_scans"
     };
     private static final long[] TOTAL_NANOS = new long[NAMES.length];
     private static final long[] MAX_NANOS = new long[NAMES.length];
@@ -46,9 +62,22 @@ final class FindMePerformanceMonitor {
     private FindMePerformanceMonitor() {
     }
 
-    static long start() {
-        return System.nanoTime();
+    public static long start() {
+        return Config.enableDiagnosticLogging ? System.nanoTime() : 0L;
     }
+
+    public static void recordDataDecode(long startedAt) { record(DATA_DECODE, startedAt); }
+    public static void recordDataSave(long startedAt) { record(DATA_SAVE, startedAt); }
+    public static void recordRosterSync(long startedAt) { record(ROSTER_SYNC, startedAt); }
+    public static void recordPreviewBuild(long startedAt) { record(PREVIEW_BUILD, startedAt); }
+    public static void recordThreatScan(long startedAt) { record(THREAT_SCAN, startedAt); }
+    public static void recordRestoreScan(long startedAt) { record(RESTORE_SCAN, startedAt); }
+    public static void recordChunkLoad(long startedAt) { record(CHUNK_LOAD, startedAt); }
+    public static void recordAutoBackup(long startedAt) { record(AUTO_BACKUP, startedAt); }
+    static void recordEntityLookup(long startedAt) { record(ENTITY_LOOKUPS, startedAt); }
+    static void recordEntityIndexHit() { increment(ENTITY_INDEX_HITS); }
+    static void recordEntityLevelFallback() { increment(ENTITY_LEVEL_FALLBACKS); }
+    static void recordEntityRestoreGlobalScan() { increment(ENTITY_RESTORE_GLOBAL_SCANS); }
 
     static void record(int stage, long startedAt) {
         if (!Config.enableDiagnosticLogging) {
@@ -58,6 +87,13 @@ final class FindMePerformanceMonitor {
         TOTAL_NANOS[stage] += elapsed;
         MAX_NANOS[stage] = Math.max(MAX_NANOS[stage], elapsed);
         CURRENT_NANOS[stage] += elapsed;
+        CALLS[stage]++;
+    }
+
+    static void increment(int stage) {
+        if (!Config.enableDiagnosticLogging) {
+            return;
+        }
         CALLS[stage]++;
     }
 
@@ -141,5 +177,10 @@ final class FindMePerformanceMonitor {
         windowServerNanos = 0L;
         maxServerNanos = 0L;
         windowServerTicks = 0;
+    }
+
+    static void resetServerState() {
+        resetWindow();
+        java.util.Arrays.fill(CURRENT_NANOS, 0L);
     }
 }

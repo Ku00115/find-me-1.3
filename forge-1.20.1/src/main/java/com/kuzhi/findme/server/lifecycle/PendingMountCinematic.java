@@ -16,8 +16,9 @@ public final class PendingMountCinematic {
     private final boolean physicalCatchOnly;
     private final boolean originalNoGravity;
     private final boolean originalNoAi;
-    private final boolean externalMount;
     private final RideHandoffService.Source rideSource;
+    private Vec3 flyingStageTarget;
+    private Vec3 introAnchor;
     private RescueFlightMode rescueFlightMode = RescueFlightMode.HOVER;
     private Vec3 rescueLandingPosition;
     private Vec3 rescueHoverPosition;
@@ -37,19 +38,13 @@ public final class PendingMountCinematic {
     public PendingMountCinematic(UUID playerUuid, UUID mountUuid, CompanionMoveType moveType, MountCinematicMode mode, double catchY, boolean flyingRescueStaged, boolean physicalCatchOnly, int warmupTicks, Vec3 lastCinematicPosition, boolean originalNoGravity, boolean originalNoAi) {
         this(playerUuid, mountUuid, moveType, mode, catchY, flyingRescueStaged,
                 physicalCatchOnly, warmupTicks, lastCinematicPosition, originalNoGravity, originalNoAi,
-                false, RideHandoffService.Source.none());
-    }
-
-    public PendingMountCinematic(UUID playerUuid, UUID mountUuid, CompanionMoveType moveType, MountCinematicMode mode, double catchY, boolean flyingRescueStaged, boolean physicalCatchOnly, int warmupTicks, Vec3 lastCinematicPosition, boolean originalNoGravity, boolean originalNoAi, boolean externalMount) {
-        this(playerUuid, mountUuid, moveType, mode, catchY, flyingRescueStaged,
-                physicalCatchOnly, warmupTicks, lastCinematicPosition, originalNoGravity, originalNoAi,
-                externalMount, RideHandoffService.Source.none());
+                RideHandoffService.Source.none());
     }
 
     public PendingMountCinematic(UUID playerUuid, UUID mountUuid, CompanionMoveType moveType,
                                  MountCinematicMode mode, double catchY, boolean flyingRescueStaged,
                                  boolean physicalCatchOnly, int warmupTicks, Vec3 lastCinematicPosition,
-                                 boolean originalNoGravity, boolean originalNoAi, boolean externalMount,
+                                 boolean originalNoGravity, boolean originalNoAi,
                                  RideHandoffService.Source rideSource) {
         this.playerUuid = playerUuid;
         this.mountUuid = mountUuid;
@@ -62,7 +57,6 @@ public final class PendingMountCinematic {
         this.lastCinematicPosition = lastCinematicPosition;
         this.originalNoGravity = originalNoGravity;
         this.originalNoAi = originalNoAi;
-        this.externalMount = externalMount;
         this.rideSource = rideSource == null ? RideHandoffService.Source.none() : rideSource;
     }
 
@@ -98,12 +92,24 @@ public final class PendingMountCinematic {
         return this.originalNoAi;
     }
 
-    public boolean externalMount() {
-        return this.externalMount;
-    }
-
     public RideHandoffService.Source rideSource() {
         return this.rideSource;
+    }
+
+    public Vec3 flyingStageTarget() {
+        return this.flyingStageTarget;
+    }
+
+    public void setFlyingStageTarget(Vec3 flyingStageTarget) {
+        this.flyingStageTarget = flyingStageTarget;
+    }
+
+    public Vec3 introAnchor() {
+        return this.introAnchor;
+    }
+
+    public void setIntroAnchor(Vec3 introAnchor) {
+        this.introAnchor = introAnchor;
     }
 
     public RescueFlightMode rescueFlightMode() {
@@ -186,6 +192,10 @@ public final class PendingMountCinematic {
         this.waitPosition = waitPosition;
     }
 
+    public void updateWaitPosition(Vec3 waitPosition) {
+        this.waitPosition = waitPosition;
+    }
+
     public Vec3 lastCinematicPosition() {
         return this.lastCinematicPosition;
     }
@@ -204,6 +214,10 @@ public final class PendingMountCinematic {
 
     public boolean flyingRescueStaged() {
         return this.flyingRescueStaged;
+    }
+
+    public boolean requiresFlyingIntroLock() {
+        return this.moveType == CompanionMoveType.FLY && !this.mode.isRescue();
     }
 
     public void setFlyingRescueStaged() {

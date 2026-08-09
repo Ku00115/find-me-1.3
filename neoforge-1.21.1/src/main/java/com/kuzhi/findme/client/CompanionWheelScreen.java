@@ -1,7 +1,6 @@
 package com.kuzhi.findme.client;
 
 import com.kuzhi.findme.common.CompanionAction;
-import com.kuzhi.findme.common.CobblemonCommandAction;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionTeamAction;
 import com.kuzhi.findme.common.CompanionTeamTarget;
@@ -13,15 +12,12 @@ import com.kuzhi.findme.common.MountRosterAction;
 import com.kuzhi.findme.common.VehicleCommandAction;
 import com.kuzhi.findme.network.CompanionCommandPacket;
 import com.kuzhi.findme.network.CompanionWheelIntentPacket;
-import com.kuzhi.findme.network.CobblemonCommandPacket;
 import com.kuzhi.findme.network.CompanionListPacket;
-import com.kuzhi.findme.network.CobblemonPartyPacket;
 import com.kuzhi.findme.network.CompanionTeamCommandPacket;
 import com.kuzhi.findme.network.VehicleCommandPacket;
 import com.kuzhi.findme.network.VehicleListPacket;
 import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.network.FindMeSettingsPacket;
-import com.kuzhi.findme.compat.cobblemon.CobblemonCompat;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.systems.RenderSystem;
 import java.util.List;
@@ -90,10 +86,6 @@ extends FindMeScreen {
         this.send(CompanionAction.SYNC, -1);
         if (this.kind == CompanionKind.MOUNT) {
             ModNetwork.sendToServer(new VehicleCommandPacket(VehicleCommandAction.SYNC, null, -1));
-        }
-        if (this.kind == CompanionKind.MOUNT && CobblemonCompat.available()
-                && ClientFindMeModuleState.enabled(com.kuzhi.findme.common.FindMeModule.COBBLEMON_INTEGRATION)) {
-            this.sendCobblemon(CobblemonCommandAction.SYNC, -1, new UUID(0L, 0L));
         }
         this.syncTeams();
     }
@@ -168,6 +160,7 @@ extends FindMeScreen {
             }
         }
         FindMeWheelRenderer.drawRosterHeader(graphics, this.title, pageState.index(), pageState.count(), layout, fade);
+        drawSharedMana(graphics, fade);
         if (entries.isEmpty()) {
             graphics.drawCenteredString(this.font, (Component)Component.translatable((String)(this.kind == CompanionKind.MOUNT ? "screen.find_me.no_mounts" : "screen.find_me.no_companions")), centerX, centerY + 56, FindMeWheelRenderer.guiColor(0xFFFFD166, fade));
             graphics.pose().popPose();
@@ -325,6 +318,7 @@ extends FindMeScreen {
             }
         }
         FindMeWheelRenderer.drawRosterHeader(graphics, this.title, pageState.index(), pageState.count(), layout, fade);
+        drawSharedMana(graphics, fade);
         if (entries.isEmpty() || (pageState.visibleSize() == 0)) {
             graphics.drawCenteredString(this.font, Component.translatable("screen.find_me.no_mounts"), centerX, centerY + 56,
                     FindMeWheelRenderer.guiColor(0xFFFFD166, fade));
@@ -436,6 +430,20 @@ extends FindMeScreen {
                 FindMeWheelRenderer.guiColor(0xFFFFFFFF, fade));
     }
 
+    private static void drawSharedMana(GuiGraphics graphics, float fade) {
+        com.kuzhi.findme.api.CompanionMagicState state = ClientCompanionState.allEntries(CompanionKind.COMPANION)
+                .stream().map(CompanionListPacket.Entry::magicState)
+                .filter(com.kuzhi.findme.api.CompanionMagicState::available).findFirst()
+                .orElseGet(() -> ClientCompanionState.allEntries(CompanionKind.MOUNT).stream()
+                        .map(CompanionListPacket.Entry::magicState)
+                        .filter(com.kuzhi.findme.api.CompanionMagicState::available).findFirst()
+                        .orElse(com.kuzhi.findme.api.CompanionMagicState.EMPTY));
+        if (!state.available()) return;
+        String label = Component.translatable("screen.find_me.spell_slot.mana").getString() + "  "
+                + Math.round(state.mana()) + " / " + Math.round(state.maxMana());
+        FindMeWheelRenderer.drawManaBar(graphics, label, state.mana() / state.maxMana(), fade);
+    }
+
     private List<WheelEntry> mergedMountEntries() {
         return ClientMountRosterState.entries().stream().map(WheelEntry::from).toList();
     }
@@ -479,26 +487,24 @@ extends FindMeScreen {
         this.openTicks = 0;
         this.pageTransition.finish();
     }
-
     private void openTeamCommandWheel() {
         CompanionTeamTarget target = CompanionTeamTarget.COMPANION;
         int team = ClientCompanionTeamState.currentTeam(target);
         Minecraft.getInstance().setScreen(new CompanionCommandWheelScreen(target, team, this,
                 new CompanionCommandWheelScreen.AimSnapshot(this.commandAimPosition, this.commandAimEntityId)));
     }
-
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (scrollY == 0.0 || this.pageTransition.active()) return true;
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        if (delta == 0.0 || this.pageTransition.active()) return true;
         if (this.kind == CompanionKind.MOUNT) {
-            this.startMergedMountWheelTransition(scrollY);
+            this.startMergedMountWheelTransition(delta);
             return true;
         }
         CompanionTeamTarget target = this.teamTarget();
         List<UUID> wheelUuids = ClientCompanionState.allEntries(this.kind).stream()
                 .map(CompanionListPacket.Entry::uuid).toList();
-        int team = ClientCompanionTeamState.peekNextNonEmptyTeam(target, wheelUuids, scrollY);
+        int team = ClientCompanionTeamState.peekNextNonEmptyTeam(target, wheelUuids, delta);
         if (team >= 0) {
-            this.pageTransition.start(scrollY, () -> {
+            this.pageTransition.start(delta, () -> {
                 ClientCompanionTeamState.selectTeam(target, team);
                 this.page = 0;
                 this.selectFirstCompanionOnPage();
@@ -859,15 +865,6 @@ extends FindMeScreen {
         ClientCompanionWheelController.sendIntent(this.kind, uuid, action);
     }
 
-    private void sendCobblemon(CobblemonCommandAction action, int slot, UUID uuid) {
-        if (ModNetwork.channel != null) {
-            if (action == CobblemonCommandAction.ACTIVATE && ClientCobblemonState.shouldLockCamera(slot)) {
-                ClientCameraLock.arm();
-            }
-            ModNetwork.sendToServer(new CobblemonCommandPacket(action, slot, uuid));
-        }
-    }
-
     private void syncTeams() {
         if (ModNetwork.channel != null) {
             ModNetwork.sendToServer(new CompanionTeamCommandPacket(CompanionTeamAction.SYNC, this.teamTarget(), -1, -1, "", List.of()));
@@ -953,55 +950,48 @@ extends FindMeScreen {
         Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.0f, 0.42f));
     }
 
-    private record WheelEntry(MountRosterSource source, CobblemonPartyPacket.Entry pokemon,
+    private record WheelEntry(MountRosterSource source,
                               CompanionListPacket.Entry findMe, VehicleListPacket.Entry vehicle,
                               int sourceSlot, int teamIndex) {
         static WheelEntry from(ClientMountRosterState.Entry entry) {
-            return new WheelEntry(entry.source(), entry.pokemon(), entry.findMe(), entry.vehicle(),
+            return new WheelEntry(entry.source(), entry.findMe(), entry.vehicle(),
                     entry.sourceSlot(), entry.teamIndex());
         }
 
         boolean empty() {
-            return this.pokemon == null && this.findMe == null && this.vehicle == null;
+            return this.findMe == null && this.vehicle == null;
         }
 
         boolean deployed() {
-            return this.pokemon != null ? this.pokemon.deployed()
-                    : this.vehicle != null ? this.vehicle.deployed() || this.vehicle.ridden()
+            return this.vehicle != null ? this.vehicle.deployed() || this.vehicle.ridden()
                     : this.findMe != null && (this.findMe.deployed() || this.findMe.ridden());
         }
 
         boolean ridden() {
-            return this.pokemon != null ? this.pokemon.ridden()
-                    : this.vehicle != null ? this.vehicle.ridden()
+            return this.vehicle != null ? this.vehicle.ridden()
                     : this.findMe != null && this.findMe.ridden();
         }
 
         boolean alive() {
-            return this.pokemon != null ? !this.pokemon.fainted()
-                    : this.vehicle != null ? this.vehicle.alive()
+            return this.vehicle != null ? this.vehicle.alive()
                     : this.findMe != null && this.findMe.alive();
         }
 
         String name() {
-            return this.pokemon != null ? this.pokemon.name()
-                    : this.vehicle != null ? this.vehicle.name()
+            return this.vehicle != null ? this.vehicle.name()
                     : this.findMe == null ? "" : this.findMe.name();
         }
 
         UUID uuid() {
-            return this.pokemon != null ? this.pokemon.uuid()
-                    : this.vehicle != null ? this.vehicle.uuid()
+            return this.vehicle != null ? this.vehicle.uuid()
                     : this.findMe == null ? null : this.findMe.uuid();
         }
 
         CompanionListPacket.Entry asPreviewEntry() {
-            return this.pokemon != null ? this.pokemon.asPreviewEntry()
-                    : this.vehicle != null ? this.vehicle.asPreviewEntry() : this.findMe;
+            return this.vehicle != null ? this.vehicle.asPreviewEntry() : this.findMe;
         }
 
         String fallbackType(String fallback) {
-            if (this.pokemon != null) return "cobblemon:pokemon";
             CompanionListPacket.Entry preview = asPreviewEntry();
             return preview != null && !preview.entityType().isBlank() ? preview.entityType() : fallback;
         }

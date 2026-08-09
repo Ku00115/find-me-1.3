@@ -27,6 +27,8 @@
 
   .context-menu,.house-context-menu { position: absolute; z-index: 2; left: 0; top: 0; width: 91px; max-height: var(--fm-context-max-height); display: flex; flex-direction: column; gap: 1px; padding: 3px; overflow-x: hidden; overflow-y: auto; color: #eef1f2; border-left: 1px solid #16b5df; background-color: rgba(32,40,45,0.995); box-shadow: 0 1px 3px rgba(0,0,0,0.42); transform-origin: center center; pointer-events: auto; }
   .context-menu.warehouse-context { width: 100px; }
+  .context-menu.spell-picker-context { width: 132px; max-height: 142px; }
+  .spell-picker-context .menu-title { min-height: 13px; font-size: 10px; line-height: 11px; }
   .menu-title,.house-menu-title { min-height: 15px; display: flex; align-items: center; overflow: hidden; color: #ffffff; font-size: 12px; line-height: 12px; font-weight: bold; white-space: nowrap; }
   .menu-input,.house-menu-input { width: 100%; height: 15px; padding: 2px 3px; border: 1px solid #606b70; background-color: #11171b; color: #ffffff; font-family: minecraft,sans-serif; font-size: 8px; transition: border-color 80ms ease-out,background-color 80ms ease-out; }
   .menu-input:focus,.house-menu-input:focus { color: #ffffff; border-color: #16b5df; background-color: #11171b; box-shadow: inset 2px 0 rgba(22,181,223,0.28); }
@@ -41,6 +43,14 @@
   .warehouse-team-menu { width: 100%; max-height: 77px; display: flex; flex-direction: column; gap: 1px; overflow-x: hidden; overflow-y: auto; }
   .warehouse-style-viewport { width: 100%; max-height: 77px; overflow: hidden; }
   .warehouse-style-menu { width: calc(100% + 5px); max-height: 77px; display: flex; flex-direction: column; gap: 1px; padding-right: 5px; overflow-x: hidden; overflow-y: auto; }
+  .spell-picker-subject { width: 100%; min-height: 12px; overflow: hidden; color: #9da8ad; font-size: 8px; line-height: 10px; white-space: nowrap; }
+  .spell-picker-empty { width: 100%; min-height: 28px; display: flex; align-items: center; padding: 4px; overflow: hidden; color: #c5cdd1; border: 1px solid #465158; background-color: rgba(255,255,255,0.025); font-size: 9px; line-height: 11px; }
+  .spell-picker-list { width: 100%; max-height: 88px; display: flex; flex-direction: column; gap: 2px; overflow-x: hidden; overflow-y: auto; }
+  .spell-picker-row { min-height: 22px; gap: 4px; padding: 2px 3px; }
+  .spell-picker-row > span { min-width: 0; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+  .spell-picker-row b { display: block; overflow: hidden; color: inherit; font-size: 9px; line-height: 10px; font-weight: normal; white-space: nowrap; }
+  .spell-picker-row small { display: block; overflow: hidden; color: #9da8ad; font-size: 8px; line-height: 9px; white-space: nowrap; }
+  .spell-picker-icon { width: 17px; height: 17px; flex: 0 0 17px; display: block; object-fit: contain; image-rendering: pixelated; pointer-events: none; }
   .animation-purpose { min-height: 16px; }
   .danger { color: #efaaaa; border-color: #9d4e4e; }
   .menu-divider { width: 100%; height: 1px; margin: 1px 0; background-color: #47535a; }

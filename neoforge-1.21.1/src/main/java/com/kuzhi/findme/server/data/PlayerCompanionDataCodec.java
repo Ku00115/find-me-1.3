@@ -1,5 +1,6 @@
 package com.kuzhi.findme.server.data;
 
+import com.kuzhi.findme.api.CompanionSpellBinding;
 import com.kuzhi.findme.server.lifecycle.CompanionStorageService;
 
 import com.kuzhi.findme.common.VehicleSeatOffset;
@@ -157,6 +158,8 @@ final class PlayerCompanionDataCodec {
         }
         readEffectStyles(root, data);
         readAnimationStyles(root, data);
+        readSpellBindings(root, data);
+        readPendingSpellItemReturns(root, data);
         ListTag vehicles = root.getList("vehicles", 10);
         data.vehicles.clear();
         for (int i = 0; i < vehicles.size(); ++i) {
@@ -203,6 +206,7 @@ final class PlayerCompanionDataCodec {
             }
         }
         for (UUID vehicleUuid : data.vehicles) {
+            data.queueSpellItemReturns(vehicleUuid);
             data.companions.get(CompanionKind.MOUNT).remove(vehicleUuid);
             data.companions.get(CompanionKind.COMPANION).remove(vehicleUuid);
             data.wheelSlots.get(CompanionKind.MOUNT).remove(vehicleUuid);
@@ -217,7 +221,12 @@ final class PlayerCompanionDataCodec {
                 root.getList("bindingCinematicSeenTypes", 10), "entityType"));
         data.mountReadyAt = root.getLong("mountReadyAt");
         data.companionReadyAt = root.getLong("companionReadyAt");
+        if (root.contains("companionMagicMana", 99)) {
+            data.setCompanionMagicMana(root.getFloat("companionMagicMana"), root.getLong("companionMagicManaTick"),
+                    root.contains("companionMagicCapacity", 99) ? root.getFloat("companionMagicCapacity") : -1.0F);
+        }
         readLifecycleStates(root, data);
+        data.clearLifecycleChanges();
         return data;
     }
 
@@ -263,6 +272,7 @@ final class PlayerCompanionDataCodec {
                 || !root.getList("lifecycleStates", 10).isEmpty()
                 || !root.getList("animationStyles", 10).isEmpty()
                 || !root.getList("effectStyles", 10).isEmpty()
+                || !root.getList("spellBindings", 10).isEmpty()
                 || !root.getList("vault", 10).isEmpty()
                 || !root.getList("backups", 10).isEmpty()
                 || !root.getList("mountEligible", 10).isEmpty()
@@ -277,6 +287,7 @@ final class PlayerCompanionDataCodec {
                 || !root.getList("deadRecords", 10).isEmpty()
                 || root.contains("uiSettings", 10)
                 || !root.getList("bindingCinematicSeenTypes", 10).isEmpty()
+                || root.contains("companionMagicMana", 99)
                 || root.hasUUID("vehicleDeployed");
     }
 
@@ -308,6 +319,8 @@ final class PlayerCompanionDataCodec {
         root.put("lifecycleStates", (Tag)lifecycleStateList(data));
         root.put("animationStyles", (Tag)animationStyleList(data));
         root.put("effectStyles", (Tag)effectStyleList(data));
+        root.put("spellBindings", (Tag)spellBindingList(data));
+        root.put("pendingSpellItemReturns", (Tag)pendingSpellItemReturnList(data));
         ListTag vaultList = new ListTag();
         for (PlayerCompanionData.VaultEntry vaultEntry : data.vault) {
             vaultList.add((Tag)saveVaultEntry(vaultEntry));
@@ -337,6 +350,13 @@ final class PlayerCompanionDataCodec {
         root.put("deadRecords", (Tag)deadRecordList(data));
         root.put("uiSettings", data.uiSettings.save());
         root.put("bindingCinematicSeenTypes", stringValueList(data.bindingCinematicSeenTypes, "entityType"));
+        if (data.companionMagicMana >= 0.0F) {
+            root.putFloat("companionMagicMana", data.companionMagicMana);
+            root.putLong("companionMagicManaTick", data.companionMagicManaTick);
+            if (data.companionMagicCapacity >= 0.0F) {
+                root.putFloat("companionMagicCapacity", data.companionMagicCapacity);
+            }
+        }
         root.putBoolean("vehicleWheelSlotsConfigured", data.vehicleWheelSlotsConfigured || !data.vehicles.isEmpty());
         root.putInt("vehicleIndex", data.vehicleActiveIndex);
         if (data.deployedVehicle != null) {
@@ -398,6 +418,8 @@ final class PlayerCompanionDataCodec {
         root.put("lifecycleStates", (Tag)lifecycleStateList(data));
         root.put("animationStyles", (Tag)animationStyleList(data));
         root.put("effectStyles", (Tag)effectStyleList(data));
+        root.put("spellBindings", (Tag)spellBindingList(data));
+        root.put("pendingSpellItemReturns", (Tag)pendingSpellItemReturnList(data));
         root.put("mountEligible", (Tag)sortedUuidList(data.mountEligible));
         root.put("vehicleMounts", (Tag)sortedUuidList(data.vehicleMounts));
         root.put("vehicles", (Tag)uuidList(data.vehicles));
@@ -415,6 +437,13 @@ final class PlayerCompanionDataCodec {
         root.put("vault", (Tag)vaultList);
         root.put("uiSettings", data.uiSettings.save());
         root.put("bindingCinematicSeenTypes", stringValueList(data.bindingCinematicSeenTypes, "entityType"));
+        if (data.companionMagicMana >= 0.0F) {
+            root.putFloat("companionMagicMana", data.companionMagicMana);
+            root.putLong("companionMagicManaTick", data.companionMagicManaTick);
+            if (data.companionMagicCapacity >= 0.0F) {
+                root.putFloat("companionMagicCapacity", data.companionMagicCapacity);
+            }
+        }
         root.putBoolean("vehicleWheelSlotsConfigured", data.vehicleWheelSlotsConfigured || !data.vehicles.isEmpty());
         root.putInt("vehicleIndex", data.vehicleActiveIndex);
         if (data.deployedVehicle != null) {
@@ -532,6 +561,14 @@ final class PlayerCompanionDataCodec {
                 root.getList("bindingCinematicSeenTypes", 10), "entityType"));
         data.lifecycleStates.clear();
         readLifecycleStates(root, data);
+        data.spellBindings.clear();
+        readSpellBindings(root, data);
+        readPendingSpellItemReturns(root, data);
+        data.setCompanionMagicMana(root.contains("companionMagicMana", 99)
+                        ? root.getFloat("companionMagicMana") : -1.0F,
+                root.getLong("companionMagicManaTick"),
+                root.contains("companionMagicCapacity", 99)
+                        ? root.getFloat("companionMagicCapacity") : -1.0F);
     }
 
     private static void readDeadRecords(CompoundTag root, PlayerCompanionData data) {
@@ -754,6 +791,73 @@ final class PlayerCompanionDataCodec {
             }
         }
         return list;
+    }
+
+    private static void readSpellBindings(CompoundTag root, PlayerCompanionData data) {
+        ListTag bindings = root.getList("spellBindings", 10);
+        for (int index = 0; index < bindings.size(); index++) {
+            CompoundTag entry = bindings.getCompound(index);
+            if (!entry.hasUUID("uuid")) {
+                continue;
+            }
+            UUID uuid = entry.getUUID("uuid");
+            if (entry.contains("slots", 9)) {
+                ListTag slots = entry.getList("slots", 10);
+                for (int slot = 0; slot < Math.min(slots.size(), PlayerCompanionData.COMPANION_SPELL_SLOT_COUNT); slot++) {
+                    CompoundTag slotTag = slots.getCompound(slot);
+                    if (slotTag.contains("binding", 10)) {
+                        data.setSpellBinding(uuid, slot, CompanionSpellBinding.load(slotTag.getCompound("binding")));
+                    }
+                }
+            } else if (entry.contains("binding", 10)) {
+                // test.4/test.5 stored one binding directly; retain it as slot zero.
+                data.setSpellBinding(uuid, 0, CompanionSpellBinding.load(entry.getCompound("binding")));
+            }
+        }
+    }
+
+    private static ListTag spellBindingList(PlayerCompanionData data) {
+        ListTag list = new ListTag();
+        for (UUID uuid : sortedUuids(data.spellBindings.keySet())) {
+            CompoundTag entry = new CompoundTag();
+            entry.putUUID("uuid", uuid);
+            ListTag slots = new ListTag();
+            List<CompanionSpellBinding> bindings = data.spellBindings.get(uuid);
+            for (int slot = 0; slot < PlayerCompanionData.COMPANION_SPELL_SLOT_COUNT; slot++) {
+                CompoundTag slotTag = new CompoundTag();
+                if (bindings != null && slot < bindings.size() && bindings.get(slot) != null) {
+                    slotTag.put("binding", bindings.get(slot).save());
+                }
+                slots.add(slotTag);
+            }
+            entry.put("slots", slots);
+            list.add(entry);
+        }
+        return list;
+    }
+
+    private static ListTag pendingSpellItemReturnList(PlayerCompanionData data) {
+        ListTag list = new ListTag();
+        for (CompoundTag stored : data.pendingSpellItemReturns) {
+            if (stored == null || stored.isEmpty()) continue;
+            CompoundTag item = stored.copy();
+            item.putByte("Count", (byte)1);
+            item.putInt("count", 1);
+            list.add(item);
+        }
+        return list;
+    }
+
+    private static void readPendingSpellItemReturns(CompoundTag root, PlayerCompanionData data) {
+        data.pendingSpellItemReturns.clear();
+        ListTag pendingReturns = root.getList("pendingSpellItemReturns", 10);
+        for (int index = 0; index < pendingReturns.size(); index++) {
+            CompoundTag item = pendingReturns.getCompound(index).copy();
+            if (item.isEmpty()) continue;
+            item.putByte("Count", (byte)1);
+            item.putInt("count", 1);
+            data.pendingSpellItemReturns.add(item);
+        }
     }
 
     private static ListTag storedEntityList(Map<UUID, CompoundTag> storedEntities) {

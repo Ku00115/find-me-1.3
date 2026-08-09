@@ -1,6 +1,7 @@
 package com.kuzhi.findme.server.data;
 
 import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.CompanionLifecycleState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -14,14 +15,15 @@ final class PlayerCompanionWheelService {
         ArrayList<UUID> order = new ArrayList<UUID>();
         List<UUID> list = data.companions.get(kind);
         for (UUID uuid : data.wheelSlots.get(kind)) {
-            if (!list.contains(uuid) || order.contains(uuid)) continue;
+            if (!list.contains(uuid) || order.contains(uuid)
+                    || data.isRecovery(uuid)) continue;
             order.add(uuid);
         }
         if (!order.isEmpty()) {
             return List.copyOf(order);
         }
         for (UUID uuid : list) {
-            if (order.contains(uuid)) continue;
+            if (order.contains(uuid) || data.isRecovery(uuid)) continue;
             order.add(uuid);
         }
         return List.copyOf(order);

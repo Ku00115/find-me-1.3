@@ -11,6 +11,7 @@ import net.minecraft.nbt.Tag;
 
 final class PlayerCompanionArchiveService {
     private static final int BACKUP_FORMAT_VERSION = 1;
+    static final String SAFETY_BACKUP_REASON = "safety";
 
     private PlayerCompanionArchiveService() {
     }
@@ -51,14 +52,68 @@ final class PlayerCompanionArchiveService {
     }
 
     static void createBackup(PlayerCompanionData data, long savedAt, String reason, int limit, boolean manual) {
+        createBackup(data, savedAt, reason, limit, manual, null);
+    }
+
+    static void createBackup(PlayerCompanionData data, long savedAt, String reason, int limit, boolean manual,
+                             CompoundTag previewContents) {
+        String backupReason = reason == null ? "backup" : reason;
+        if (!manual && isSafetyBackupReason(backupReason)) {
+            // Safety protection is a single replaceable slot, not a second history.
+            data.backups.removeIf(backup -> isSafetyBackupReason(backup.reason()));
+        }
         CompoundTag state = PlayerCompanionDataCodec.createBackupState(data);
-        data.backups.add(0, new PlayerCompanionData.BackupEntry(savedAt, reason == null ? "backup" : reason,
-                state, BACKUP_FORMAT_VERSION, checksum(state), manual));
+        if (previewContents != null && !previewContents.isEmpty()) {
+            state.put("backupContents", previewContents.copy());
+        }
+        data.backups.add(0, new PlayerCompanionData.BackupEntry(savedAt, System.currentTimeMillis(),
+                backupReason, state, BACKUP_FORMAT_VERSION, checksum(state), manual));
         PlayerCompanionArchiveService.trimBackups(data, limit, manual);
     }
 
     static List<PlayerCompanionData.BackupEntry> backupList(PlayerCompanionData data) {
         return List.copyOf(data.backups);
+    }
+
+    static void normalizeBackups(PlayerCompanionData data, int automaticLimit, int manualLimit) {
+        PlayerCompanionData.BackupEntry newestSafety = null;
+        for (PlayerCompanionData.BackupEntry backup : data.backups) {
+            if (isSafetyBackupReason(backup.reason())
+                    && (newestSafety == null || backup.savedAt() > newestSafety.savedAt())) {
+                newestSafety = backup;
+            }
+        }
+        data.backups.removeIf(backup -> !backup.manual()
+                && !"auto".equalsIgnoreCase(backup.reason())
+                && !isSafetyBackupReason(backup.reason()));
+        PlayerCompanionData.BackupEntry safetyToKeep = newestSafety;
+        data.backups.removeIf(backup -> isSafetyBackupReason(backup.reason()) && backup != safetyToKeep);
+        if (safetyToKeep != null && !SAFETY_BACKUP_REASON.equals(safetyToKeep.reason())) {
+            int index = data.backups.indexOf(safetyToKeep);
+            if (index >= 0) {
+                data.backups.set(index, new PlayerCompanionData.BackupEntry(safetyToKeep.savedAt(),
+                        safetyToKeep.createdAtEpochMillis(), SAFETY_BACKUP_REASON, safetyToKeep.state(),
+                        safetyToKeep.formatVersion(), safetyToKeep.checksum(), false));
+            }
+        }
+        trimBackups(data, automaticLimit, false);
+        trimBackups(data, manualLimit, true);
+    }
+
+    static List<CompoundTag> recoverySnapshots(PlayerCompanionData data, UUID uuid) {
+        ArrayList<CompoundTag> snapshots = new ArrayList<>();
+        for (PlayerCompanionData.VaultEntry entry : data.vault) {
+            if (entry.uuid().equals(uuid)) {
+                snapshots.add(entry.entityTag());
+            }
+        }
+        for (PlayerCompanionData.BackupEntry backup : data.backups) {
+            if (!checksumMatches(backup)) continue;
+            PlayerCompanionData restored = new PlayerCompanionData();
+            PlayerCompanionDataCodec.restoreBackupState(restored, backup.state());
+            restored.rawStoredEntityForDiagnostics(uuid).ifPresent(snapshots::add);
+        }
+        return List.copyOf(snapshots);
     }
 
     static Optional<PlayerCompanionData.BackupEntry> backupAt(PlayerCompanionData data, int index) {
@@ -68,12 +123,15 @@ final class PlayerCompanionArchiveService {
         return Optional.of(data.backups.get(index));
     }
 
-    static boolean restoreBackupAt(PlayerCompanionData data, int index) {
-        Optional<PlayerCompanionData.BackupEntry> backup = PlayerCompanionArchiveService.backupAt(data, index);
-        if (backup.isEmpty()) {
+    static boolean deleteBackup(PlayerCompanionData data, int index, long expectedSavedAt) {
+        if (index < 0 || index >= data.backups.size()) {
             return false;
         }
-        PlayerCompanionArchiveService.restoreBackup(data, backup.get());
+        PlayerCompanionData.BackupEntry backup = data.backups.get(index);
+        if (backup.savedAt() != expectedSavedAt) {
+            return false;
+        }
+        data.backups.remove(index);
         return true;
     }
 
@@ -98,8 +156,8 @@ final class PlayerCompanionArchiveService {
         if (normalized.isBlank()) {
             normalized = "manual";
         }
-        data.backups.set(index, new PlayerCompanionData.BackupEntry(backup.savedAt(), normalized, backup.state(),
-                backup.formatVersion(), backup.checksum(), true));
+        data.backups.set(index, new PlayerCompanionData.BackupEntry(backup.savedAt(), backup.createdAtEpochMillis(),
+                normalized, backup.state(), backup.formatVersion(), backup.checksum(), true));
         return true;
     }
 
@@ -114,7 +172,8 @@ final class PlayerCompanionArchiveService {
     }
 
     static long lastBackupAt(PlayerCompanionData data) {
-        return data.backups.stream().filter(backup -> !backup.manual()).mapToLong(PlayerCompanionData.BackupEntry::savedAt)
+        return data.backups.stream().filter(backup -> !backup.manual() && isAutomaticBackup(backup))
+                .mapToLong(PlayerCompanionData.BackupEntry::savedAt)
                 .max().orElse(0L);
     }
 
@@ -125,16 +184,12 @@ final class PlayerCompanionArchiveService {
         }
     }
 
-    static void trimBackups(PlayerCompanionData data, int limit) {
-        trimBackups(data, limit, false);
-    }
-
     static void trimBackups(PlayerCompanionData data, int limit, boolean manual) {
         int max = Math.max(1, limit);
         int retained = 0;
         for (int index = 0; index < data.backups.size();) {
             PlayerCompanionData.BackupEntry backup = data.backups.get(index);
-            if (backup.manual() != manual) {
+            if (backup.manual() != manual || !manual && !isAutomaticBackup(backup)) {
                 index++;
                 continue;
             }
@@ -153,6 +208,15 @@ final class PlayerCompanionArchiveService {
 
     private static String legacyChecksum(CompoundTag state) {
         return NbtFingerprint.sha256(state == null ? "" : state.toString());
+    }
+
+    private static boolean isAutomaticBackup(PlayerCompanionData.BackupEntry backup) {
+        return backup != null && "auto".equalsIgnoreCase(backup.reason());
+    }
+
+    private static boolean isSafetyBackupReason(String reason) {
+        return reason != null && (SAFETY_BACKUP_REASON.equalsIgnoreCase(reason)
+                || reason.toLowerCase(java.util.Locale.ROOT).startsWith("before_"));
     }
 }
 

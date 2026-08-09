@@ -22,7 +22,8 @@ public final class CompanionCinematicPositionService {
     private CompanionCinematicPositionService() {
     }
 
-    public static void stabilizeAirRescueMount(LivingEntity mount, ServerPlayer player) {
+    public static void stabilizeAirRescueMount(PendingMountCinematic cinematic,
+                                               LivingEntity mount, ServerPlayer player) {
         double minY = player.getY() - 1.2;
         Level level = player.level();
         if (level instanceof ServerLevel serverLevel && CompanionCinematicLandingService.hasReliableLandingBelow(serverLevel, player)) {
@@ -95,18 +96,16 @@ public final class CompanionCinematicPositionService {
 
     public static void lockMountAtFlyingWait(PendingMountCinematic cinematic, LivingEntity mount, ServerPlayer player) {
         Level playerLevel = player.level();
-        if (!(playerLevel instanceof ServerLevel level)) {
+        if (!(playerLevel instanceof ServerLevel level) || Double.isNaN(cinematic.catchY())) {
             mount.setDeltaMovement(Vec3.ZERO);
             return;
         }
-        // Keep the wait state moving with the falling player. The old fixed
-        // hover anchor made the mount wait above a player who had already fallen
-        // far below it.
-        Vec3 waitPos = dynamicFlyingIntercept(cinematic, mount, player, level);
+        BlockPos landing = CompanionCinematicLandingService.rescueAnchor(level, player);
+        Vec3 waitPos = new Vec3((double) landing.getX() + 0.5, cinematic.catchY(),
+                (double) landing.getZ() + 0.5);
         cinematic.lockWait(waitPos);
         mount.moveTo(waitPos.x, waitPos.y, waitPos.z, mount.getYRot(), mount.getXRot());
         mount.setPos(waitPos.x, waitPos.y, waitPos.z);
-        mount.setXRot(0.0f);
         mount.setDeltaMovement(Vec3.ZERO);
         mount.setNoGravity(true);
         mount.fallDistance = 0.0f;
@@ -120,8 +119,10 @@ public final class CompanionCinematicPositionService {
         }
     }
 
-    public static void holdFlyingRescueHover(PendingMountCinematic cinematic, LivingEntity mount,
-                                              Vec3 hoverPosition) {
+    public static void holdFlyingRescueHover(PendingMountCinematic cinematic,
+                                              LivingEntity mount, ServerPlayer player) {
+        Vec3 hoverPosition = CompanionCinematicLandingService.cinematicTarget(
+                cinematic, player.level(), player, mount);
         if (hoverPosition == null) {
             return;
         }
@@ -141,24 +142,35 @@ public final class CompanionCinematicPositionService {
         }
     }
 
-    private static Vec3 dynamicFlyingIntercept(PendingMountCinematic cinematic, LivingEntity mount, ServerPlayer player,
-                                                 ServerLevel level) {
-        Vec3 velocity = player.getDeltaMovement();
-        double predictionTicks = player.getDeltaMovement().y < -0.35 ? 1.5 : 0.75;
-        double x = player.getX() + velocity.x * predictionTicks;
-        double z = player.getZ() + velocity.z * predictionTicks;
-        double belowFeet = Math.max(1.8, mount.getBbHeight() + 0.35);
-        double y = player.getY() - belowFeet + velocity.y * predictionTicks;
-        if (CompanionCinematicLandingService.hasReliableLandingBelow(level, player)) {
-            double landingY = CompanionCinematicLandingService.predictedLanding(level, player).getY();
-            y = Math.max(y, landingY);
+    public static void stabilizeAirRescueMount(LivingEntity mount, ServerPlayer player) {
+        stabilizeAirRescueMount(null, mount, player);
+    }
+
+    public static void holdFlyingRescueHover(PendingMountCinematic cinematic, LivingEntity mount,
+                                              Vec3 hoverPosition) {
+        if (hoverPosition == null) {
+            return;
         }
-        return new Vec3(x, y, z);
+        mount.moveTo(hoverPosition.x, hoverPosition.y, hoverPosition.z, mount.getYRot(), 0.0f);
+        mount.setPos(hoverPosition.x, hoverPosition.y, hoverPosition.z);
+        mount.setXRot(0.0f);
+        mount.setDeltaMovement(Vec3.ZERO);
+        mount.setNoGravity(true);
+        mount.fallDistance = 0.0f;
+        mount.hurtMarked = true;
+        cinematic.rememberPosition(hoverPosition);
+        CompanionAnimationHelper.forceFlyingAnimationPose(mount);
+        if (mount instanceof Mob mob) {
+            mob.getNavigation().stop();
+            mob.setTarget(null);
+        }
     }
 
     public static void lockMountAtGroundWait(PendingMountCinematic cinematic, LivingEntity mount, ServerPlayer player) {
         Vec3 waitPos;
-        if (!cinematic.waitLocked()) {
+        boolean followPredictedLanding = cinematic.mode().isAirToGroundSwitch()
+                && CompanionCinematicLandingService.distanceToGround(player) > 8.0;
+        if (!cinematic.waitLocked() || followPredictedLanding) {
             Level level;
             if (cinematic.moveType() == CompanionMoveType.WALK && (level = player.level()) instanceof ServerLevel serverLevel) {
                 waitPos = Vec3.atBottomCenterOf((Vec3i)CompanionCinematicLandingService.rescueAnchor(serverLevel, player)).add(0.0, CompanionCinematicLandingService.rescueGroundYOffset(cinematic), 0.0);
@@ -169,7 +181,7 @@ public final class CompanionCinematicPositionService {
                 double groundY = CompanionCinematicLandingService.walkGroundY(mount.level(), waitPos.x, waitPos.y, waitPos.z, waitPos.y);
                 waitPos = new Vec3(waitPos.x, groundY + CompanionCinematicLandingService.rescueGroundYOffset(cinematic), waitPos.z);
             }
-            cinematic.lockWait(waitPos);
+            cinematic.updateWaitPosition(waitPos);
         }
         if ((waitPos = cinematic.waitPosition()) != null && mount.position().distanceToSqr(waitPos) > 0.0025) {
             mount.setPos(waitPos.x, waitPos.y, waitPos.z);

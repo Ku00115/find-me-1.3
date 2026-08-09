@@ -55,14 +55,14 @@ class ClientRosterRevisionTest {
     @Test
     void firstVehicleTeamDoesNotHideExistingWheelVehicle() {
         UUID existingWheelVehicle = UUID.randomUUID();
-        UUID newlyBoundSable = UUID.randomUUID();
+        UUID newlyBoundVehicle = UUID.randomUUID();
         ClientVehicleState.update(13L, 0, List.of(vehicle(existingWheelVehicle)),
-                List.of(vehicle(newlyBoundSable)));
+                List.of(vehicle(newlyBoundVehicle)));
         ClientCompanionTeamState.update(13L, List.of(new ClientCompanionTeamState.TeamEntry(
                 CompanionTeamTarget.VEHICLE, 0, 1, true, "",
-                List.of(existingWheelVehicle, newlyBoundSable))));
+                List.of(existingWheelVehicle, newlyBoundVehicle))));
 
-        assertEquals(List.of(existingWheelVehicle, newlyBoundSable),
+        assertEquals(List.of(existingWheelVehicle, newlyBoundVehicle),
                 ClientVehicleState.wheelEntries().stream().map(VehicleListPacket.Entry::uuid).toList());
         assertEquals(2, ClientVehicleState.allEntries().size());
     }

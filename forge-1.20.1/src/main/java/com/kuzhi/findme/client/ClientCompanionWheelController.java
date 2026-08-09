@@ -18,7 +18,6 @@ import java.util.UUID;
 
 /** Client presentation state only. Gameplay truth still comes from server sync. */
 public final class ClientCompanionWheelController {
-    private static final long LEGACY_SWITCH_TIMEOUT_MS = 8_000L;
     private static final long DEATH_GHOST_MS = 1_200L;
     private static final Map<CompanionKind, UUID> PENDING = new EnumMap<>(CompanionKind.class);
     private static final Map<CompanionKind, Transition> SWITCHING = new EnumMap<>(CompanionKind.class);
@@ -44,14 +43,7 @@ public final class ClientCompanionWheelController {
 
     public static boolean switchInProgress(CompanionKind kind, UUID uuid) {
         Transition transition = currentTransition(kind);
-        return transition != null && (uuid == null || transition.uuid.equals(uuid));
-    }
-
-    public static void requestSwitch(CompanionKind kind, UUID uuid, CompanionAction action) {
-        if (kind != null && uuid != null) {
-            SWITCHING.put(kind, new Transition(UUID.randomUUID(), uuid, action, false,
-                    false, System.currentTimeMillis()));
-        }
+        return transition != null && (uuid == null || transition.uuid == null || transition.uuid.equals(uuid));
     }
 
     public static UUID sendIntent(CompanionKind kind, UUID uuid, CompanionAction action) {
@@ -69,8 +61,7 @@ public final class ClientCompanionWheelController {
                         .map(CompanionListPacket.Entry::uuid)
                         .forEach(CompanionDetailPreviewRenderer::suppressLiveMirror);
             }
-            SWITCHING.put(kind, new Transition(requestId, uuid, action, false,
-                    true, System.currentTimeMillis()));
+            SWITCHING.put(kind, new Transition(requestId, uuid, action, false, System.currentTimeMillis()));
         }
         ModNetwork.sendToServer(new CompanionWheelIntentPacket(requestId, kind, action, uuid,
                 ClientCompanionState.serverRevision(kind)));
@@ -88,32 +79,29 @@ public final class ClientCompanionWheelController {
             return;
         }
         Transition transition = SWITCHING.get(kind);
+        boolean targetMatches = transition != null
+                && (transition.uuid == null || transition.uuid.equals(result.targetUuid()));
         if (transition == null || !transition.requestId.equals(result.requestId())
-                || !transition.uuid.equals(result.targetUuid()) || transition.action != result.action()) {
+                || !targetMatches || transition.action != result.action()) {
             return;
         }
         if (result.phase() == WheelIntentPhase.STARTED) {
-            SWITCHING.put(kind, new Transition(transition.requestId, transition.uuid,
-                    transition.action, true, transition.serverOwned, transition.startedAt));
+            UUID resolvedTarget = transition.uuid != null ? transition.uuid
+                    : (isZeroUuid(result.targetUuid()) ? null : result.targetUuid());
+            SWITCHING.put(kind, new Transition(transition.requestId, resolvedTarget,
+                    transition.action, true, transition.startedAt));
             return;
         }
         if (result.phase().terminal()) {
             SWITCHING.remove(kind, transition);
-            PENDING.put(kind, transition.uuid);
+            if (transition.uuid != null) {
+                PENDING.put(kind, transition.uuid);
+            }
         }
     }
 
-    public static void acknowledgeSwitch(CompanionKind kind, UUID uuid, boolean accepted) {
-        Transition transition = SWITCHING.get(kind);
-        if (transition != null && transition.uuid.equals(uuid)) {
-            if (accepted) {
-                SWITCHING.put(kind, new Transition(transition.requestId, uuid, transition.action, true,
-                        transition.serverOwned, transition.startedAt));
-            } else {
-                SWITCHING.remove(kind, transition);
-                PENDING.put(kind, uuid);
-            }
-        }
+    private static boolean isZeroUuid(UUID uuid) {
+        return uuid == null || (uuid.getMostSignificantBits() == 0L && uuid.getLeastSignificantBits() == 0L);
     }
 
     public static void observeRoster(CompanionKind kind, List<CompanionListPacket.Entry> entries) {
@@ -142,7 +130,7 @@ public final class ClientCompanionWheelController {
             }
             PENDING.remove(dead.kind(), dead.uuid());
             Transition transition = SWITCHING.get(dead.kind());
-            if (transition != null && transition.uuid.equals(dead.uuid())) {
+            if (transition != null && transition.uuid != null && transition.uuid.equals(dead.uuid())) {
                 SWITCHING.remove(dead.kind());
             }
         }
@@ -182,11 +170,21 @@ public final class ClientCompanionWheelController {
     public static CompanionWheelVisualState state(CompanionKind kind, UUID uuid,
                                                    boolean alive, boolean deployed, boolean ridden,
                                                    UUID serverActiveUuid) {
+        return state(kind, uuid, alive, false, deployed, ridden, serverActiveUuid);
+    }
+
+    public static CompanionWheelVisualState state(CompanionKind kind, UUID uuid,
+                                                   boolean alive, boolean critical, boolean deployed,
+                                                   boolean ridden, UUID serverActiveUuid) {
         if (!alive || isDeathGhost(kind, uuid)) {
             return CompanionWheelVisualState.DEAD;
         }
+        if (critical) {
+            return CompanionWheelVisualState.CRITICAL;
+        }
         Transition transition = currentTransition(kind);
-        if (transition != null && transition.confirmed && transition.uuid.equals(uuid)) {
+        if (transition != null && transition.confirmed && transition.uuid != null
+                && transition.uuid.equals(uuid)) {
             return CompanionWheelVisualState.SWITCHING;
         }
         if (deployed || ridden) {
@@ -205,14 +203,7 @@ public final class ClientCompanionWheelController {
     }
 
     private static Transition currentTransition(CompanionKind kind) {
-        Transition transition = SWITCHING.get(kind);
-        if (transition != null && !transition.serverOwned
-                && System.currentTimeMillis() - transition.startedAt > LEGACY_SWITCH_TIMEOUT_MS) {
-            SWITCHING.remove(kind, transition);
-            PENDING.put(kind, transition.uuid);
-            return null;
-        }
-        return transition;
+        return SWITCHING.get(kind);
     }
 
     public static void reset() {
@@ -225,7 +216,7 @@ public final class ClientCompanionWheelController {
     }
 
     private record Transition(UUID requestId, UUID uuid, CompanionAction action, boolean confirmed,
-                              boolean serverOwned, long startedAt) {
+                              long startedAt) {
     }
 
     private record DeathGhost(CompanionListPacket.Entry entry, int index, long expiresAt) {

@@ -22,6 +22,8 @@ import com.kuzhi.findme.server.lifecycle.CompanionTeamOrderService;
 import com.kuzhi.findme.server.command.CompanionWheelTransactionService;
 import com.kuzhi.findme.server.command.MountRosterTransactionService;
 import com.kuzhi.findme.api.FindMeApi;
+import com.kuzhi.findme.server.api.ExternalActionLeaseService;
+import com.kuzhi.findme.server.api.CompanionActionRequestService;
 import com.kuzhi.findme.server.module.FindMeModuleService;
 import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.common.FindMeModule;
@@ -44,6 +46,8 @@ public final class CompanionTickService {
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.UNLOAD_SNAPSHOTS, stageStartedAt);
         stageStartedAt = FindMePerformanceMonitor.start();
         CompanionOperationLockService.tick(server);
+        ExternalActionLeaseService.tick(server);
+        CompanionActionRequestService.tick(server);
         CompanionWheelTransactionService.tick(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.OPERATION_LOCKS, stageStartedAt);
         stageStartedAt = FindMePerformanceMonitor.start();

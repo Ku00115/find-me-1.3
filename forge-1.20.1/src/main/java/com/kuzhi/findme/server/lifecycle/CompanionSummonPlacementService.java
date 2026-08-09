@@ -118,7 +118,7 @@ public final class CompanionSummonPlacementService {
             return CompanionSpawnPlacementService.findArrivalSpawn(player, summonMoveType, false,
                     entityType, null, liveDimensions);
         }
-        if (data.animationStyle(living.getUUID(), CompanionAnimationPurpose.SUMMON,
+        if (presentationEnabled && data.animationStyle(living.getUUID(), CompanionAnimationPurpose.SUMMON,
                 entityType) == CompanionAnimationStyle.GROUND_EMERGE) {
             return CompanionSpawnPlacementService.findBurrowSummonSpot(player, kind, summonMoveType);
         }

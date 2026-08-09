@@ -367,6 +367,7 @@ final class FindMeAuiWheelBackdrop {
             case PENDING -> new Color(139, 146, 148, alpha);
             case DEPLOYED -> new Color(32, 198, 232, alpha);
             case SWITCHING -> new Color(255, 194, 71, alpha);
+            case CRITICAL -> new Color(255, 112, 82, alpha);
             case DEAD -> new Color(227, 72, 80, alpha);
             case AVAILABLE -> new Color(20, 30, 34, alpha);
         };

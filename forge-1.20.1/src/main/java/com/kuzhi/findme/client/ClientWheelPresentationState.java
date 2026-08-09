@@ -22,6 +22,7 @@ public final class ClientWheelPresentationState {
     private static boolean showHealth = true;
     private static int defaultTeamIndex;
     private static SummonedOutlineMode summonedOutlineMode = SummonedOutlineMode.OFF;
+    private static boolean hideRiddenMountWhenLookingDown = true;
 
     private ClientWheelPresentationState() {
     }
@@ -54,6 +55,7 @@ public final class ClientWheelPresentationState {
     public static boolean showHealth() { return showHealth; }
     public static int defaultTeamIndex() { return defaultTeamIndex; }
     public static SummonedOutlineMode summonedOutlineMode() { return summonedOutlineMode; }
+    public static boolean hideRiddenMountWhenLookingDown() { return hideRiddenMountWhenLookingDown; }
 
     public static String typographyClasses() {
         return fontFamily.cssClass() + " " + fontSize.cssClass();
@@ -78,5 +80,6 @@ public final class ClientWheelPresentationState {
         defaultTeamIndex = settings == null ? 0 : Math.max(0, settings.defaultTeamIndex());
         summonedOutlineMode = settings == null || settings.summonedOutlineMode() == null
                 ? SummonedOutlineMode.OFF : settings.summonedOutlineMode();
+        hideRiddenMountWhenLookingDown = settings == null || settings.hideRiddenMountWhenLookingDown();
     }
 }

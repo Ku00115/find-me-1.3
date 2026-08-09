@@ -2,6 +2,7 @@ package com.kuzhi.findme.mixin;
 
 import com.kuzhi.findme.server.lifecycle.CompanionRideHomeJourneyService;
 import com.kuzhi.findme.server.lifecycle.CompanionWaystoneJourneyService;
+import com.kuzhi.findme.api.FindMeApi;
 import net.minecraft.network.protocol.game.ServerboundMoveVehiclePacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -19,7 +20,8 @@ abstract class ServerGamePacketListenerImplMixin {
     @Inject(method = "handleMoveVehicle", at = @At("HEAD"), cancellable = true)
     private void findMe$ignoreRideHomeVehicleMovement(ServerboundMoveVehiclePacket packet, CallbackInfo ci) {
         if (CompanionRideHomeJourneyService.ownsMountedMovement(this.player)
-                || CompanionWaystoneJourneyService.ownsMountedMovement(this.player)) {
+                || CompanionWaystoneJourneyService.ownsMountedMovement(this.player)
+                || FindMeApi.ownsExternalMountedMovement(this.player)) {
             ci.cancel();
         }
     }

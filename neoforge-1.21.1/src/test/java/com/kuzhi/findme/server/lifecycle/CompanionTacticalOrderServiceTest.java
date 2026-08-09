@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionTacticalAction;
+import com.kuzhi.findme.api.CompanionSpellRole;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
@@ -49,6 +50,36 @@ class CompanionTacticalOrderServiceTest {
         assertEquals(CompanionTacticalAction.MOVE_TO,
                 CompanionTacticalOrderService.currentAction(companion));
         assertTrue(CompanionTacticalOrderService.terminateRequest(tracked, null));
+    }
+
+    @Test
+    void splitMagicOrdersRequireOnlyTheirMatchingSpellRole() {
+        assertNull(CompanionTacticalOrderService.requiredSpellRole(CompanionTacticalAction.ATTACK_TARGET));
+        assertNull(CompanionTacticalOrderService.requiredSpellRole(CompanionTacticalAction.PROTECT_OWNER));
+        assertEquals(CompanionSpellRole.ATTACK,
+                CompanionTacticalOrderService.requiredSpellRole(CompanionTacticalAction.MAGIC_ATTACK));
+        assertEquals(CompanionSpellRole.DEFENSE,
+                CompanionTacticalOrderService.requiredSpellRole(CompanionTacticalAction.MAGIC_PROTECT));
+        assertEquals(CompanionSpellRole.HEAL,
+                CompanionTacticalOrderService.requiredSpellRole(CompanionTacticalAction.MAGIC_SUPPORT));
+    }
+
+    @Test
+    void onlyPhysicalAndMagicProtectionReactToOwnerThreats() {
+        assertTrue(CompanionTacticalOrderService.reactsToOwnerThreat(CompanionTacticalAction.PROTECT_OWNER));
+        assertTrue(CompanionTacticalOrderService.reactsToOwnerThreat(CompanionTacticalAction.MAGIC_PROTECT));
+        assertFalse(CompanionTacticalOrderService.reactsToOwnerThreat(CompanionTacticalAction.FOLLOW));
+        assertFalse(CompanionTacticalOrderService.reactsToOwnerThreat(CompanionTacticalAction.MAGIC_SUPPORT));
+    }
+
+    @Test
+    void magicAttackRetreatsWhenPressedAndApproachesOnlyFromLongRange() {
+        assertEquals(CompanionTacticalOrderService.MagicAttackMovement.RETREAT,
+                CompanionTacticalOrderService.magicAttackMovement(6.9 * 6.9));
+        assertEquals(CompanionTacticalOrderService.MagicAttackMovement.CAST,
+                CompanionTacticalOrderService.magicAttackMovement(12.0 * 12.0));
+        assertEquals(CompanionTacticalOrderService.MagicAttackMovement.APPROACH,
+                CompanionTacticalOrderService.magicAttackMovement(24.1 * 24.1));
     }
 
     private static CompanionTacticalOrderService.CommandRequest request(UUID companion) {

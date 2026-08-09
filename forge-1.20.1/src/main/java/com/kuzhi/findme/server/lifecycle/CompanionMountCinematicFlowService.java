@@ -35,8 +35,10 @@ import com.kuzhi.findme.server.lifecycle.CompanionRetreatService;
 
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
 import com.kuzhi.findme.server.compat.BookOfDragonsRescueCompatibility;
+import com.kuzhi.findme.server.compat.IceAndFireRescueCompatibility;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
+import com.kuzhi.findme.server.integration.SalvationCompatibilityService;
 import com.kuzhi.findme.server.profile.CompanionMountContactService;
 import com.kuzhi.findme.server.ui.CompanionSummonLineService;
 import com.kuzhi.findme.server.ui.CompanionSyncService;
@@ -137,70 +139,27 @@ public final class CompanionMountCinematicFlowService {
                 cinematic.incrementAge();
                 continue;
             }
-            logRescueTick(cinematic, player, living, null, Double.NaN, "pre-target");
-            // A rescue must never keep a mount hovering after the player has already
-            // reached the ground. Check contact first so a valid same-tick catch is
-            // still allowed to enter the handoff stage.
-            if (cinematic.mode().isRescue()
-                    && player.getVehicle() != living
-                    && playerHasReachedGround(player)
-                    && !isTouchingMountCollision(player, living, player.getVehicle())
-                    && cinematic.rescueFlightMode() != RescueFlightMode.LANDING_SUMMON
-                    && (!cinematic.mode().isFlyingRescue() || !isPlayerInFlyingCatchZone(player, living))) {
-                FindMeDebugLogger.info("rescue-failure",
-                        "player_landed_before_contact player={} mount={} mode={} playerY={} groundDistance={} mountY={} age={} switchAge={}",
-                        FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(living), cinematic.mode(),
-                        player.getY(), CompanionCinematicLandingService.distanceToGround(player), living.getY(),
-                        cinematic.age(), cinematic.switchAge());
-                finishMountCinematic(cinematic, player, living, false);
-                continue;
-            }
             if (cinematic.stage() == MountCinematicStage.SWITCH) {
                 CompanionMountSwitchService.tickMountSwitch(server, cinematic, player, living);
                 continue;
             }
             if (cinematic.mode().isFlyingRescue()
-                    && cinematic.rescueFlightMode() == RescueFlightMode.LANDING_SUMMON) {
-                Vec3 landing = cinematic.rescueLandingPosition();
-                if (landing != null) {
-                    living.teleportTo(landing.x, landing.y, landing.z);
-                    living.setDeltaMovement(Vec3.ZERO);
-                    living.fallDistance = 0.0f;
-                    cinematic.rememberPosition(landing);
-                }
-                if (isPlayerInFlyingCatchZone(player, living)
-                        || CompanionCinematicLandingService.distanceToGround(player) <= 2.0
-                        && player.distanceTo(living) <= 6.0f) {
-                    cinematic.latchContact();
-                    cinematic.beginSwitch();
-                } else if (playerHasReachedGround(player)) {
-                    FindMeDebugLogger.info("rescue-failure",
-                            "landing_summon_missed player={} mount={} playerPos={} mountPos={} age={}",
-                            FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(living),
-                            player.position(), living.position(), cinematic.age());
-                    finishMountCinematic(cinematic, player, living, false);
-                } else {
-                    cinematic.incrementAge();
-                }
-                continue;
-            }
-            if (cinematic.mode().isFlyingRescue()
                     && cinematic.rescueFlightMode() == RescueFlightMode.HOVER) {
                 Vec3 hoverTarget = cinematic.rescueHoverPosition();
-                if (hoverTarget == null && player.level() instanceof ServerLevel level) {
-                    hoverTarget = CompanionCinematicLandingService.flyingHoverTarget(level, player);
+                if (hoverTarget == null && living.level() instanceof ServerLevel serverLevel) {
+                    hoverTarget = CompanionCinematicLandingService.flyingHoverTarget(serverLevel, player);
                     cinematic.setRescueHoverPosition(hoverTarget);
                 }
                 if (hoverTarget != null && living.position().distanceTo(hoverTarget) > 1.75) {
                     CompanionCinematicMovementService.moveTowardCinematicTarget(
-                            cinematic, living, player, hoverTarget, living.position().distanceTo(hoverTarget));
+                            cinematic, living, player, hoverTarget,
+                            living.position().distanceTo(hoverTarget));
                     cinematic.incrementAge();
                     continue;
                 }
                 if (hoverTarget != null) {
                     CompanionCinematicPositionService.holdFlyingRescueHover(cinematic, living, hoverTarget);
-                    if (isPlayerInFlyingCatchZone(player, living)
-                            || player.getY() <= hoverTarget.y + 3.0) {
+                    if (isPlayerInFlyingCatchZone(player, living) || player.getY() <= hoverTarget.y + 3.0) {
                         cinematic.beginSwitch();
                     } else {
                         cinematic.incrementAge();
@@ -208,8 +167,15 @@ public final class CompanionMountCinematicFlowService {
                     }
                 }
             }
-            Vec3 target = CompanionCinematicLandingService.cinematicTarget(cinematic, living.level(), player);
+            logRescueTick(cinematic, player, living, null, Double.NaN, "pre-target");
+            Vec3 target = CompanionCinematicLandingService.cinematicTarget(cinematic, living.level(), player, living);
             double distance = living.position().distanceTo(target);
+            if (cinematic.mode().isFlyingRescue() && !cinematic.flyingRescueStaged()
+                    && !Double.isNaN(cinematic.catchY()) && distance <= 6.0) {
+                cinematic.setFlyingRescueStaged();
+                cinematic.incrementAge();
+                continue;
+            }
             double threshold = cinematic.mode().isRescue() ? 1.5 : 2.5;
             boolean rescueFallback = cinematic.mode().isRescue() && !cinematic.mode().isFlyingRescue() && distance < 8.0 && CompanionCinematicLandingService.distanceToGround(player) <= 12.0;
             boolean flyingCatchWindow = cinematic.mode().isFlyingRescue()
@@ -239,8 +205,13 @@ public final class CompanionMountCinematicFlowService {
                 CompanionMountSwitchService.tickMountSwitch(server, cinematic, player, living);
                 continue;
             }
-            if ((distance <= threshold && switchApproachReady) || rescueFallback || flyingCatchWindow || flyingEmergencyCatch) {
-                if (cinematic.mode().isGroundOrWaterRescue() && CompanionCinematicLandingService.distanceToGround(player) > 10.0) {
+            boolean flyingApproachReady = !cinematic.mode().isFlyingRescue()
+                    || flyingCatchWindow || flyingEmergencyCatch;
+            if (((distance <= threshold && switchApproachReady && flyingApproachReady)
+                    || rescueFallback || flyingCatchWindow || flyingEmergencyCatch)) {
+                if (cinematic.mode().isGroundOrWaterRescue()
+                        && !cinematic.mode().isAirToGroundSwitch()
+                        && CompanionCinematicLandingService.distanceToGround(player) > 10.0) {
                     CompanionCinematicMovementService.moveTowardMountContact(cinematic, living, player, player.getVehicle());
                     living.fallDistance = 0.0f;
                     living.invulnerableTime = Math.max(living.invulnerableTime, Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
@@ -267,25 +238,13 @@ public final class CompanionMountCinematicFlowService {
 
     public static void scheduleMountCinematic(ServerPlayer player, LivingEntity mount, CompanionMoveType moveType, MountCinematicMode mode, boolean restoredFromStorage, boolean sendArrivalMagic) {
         scheduleMountCinematic(player, mount, moveType, mode, restoredFromStorage,
-                sendArrivalMagic, false, true);
+                sendArrivalMagic, true);
     }
 
     public static void scheduleMountCinematic(ServerPlayer player, LivingEntity mount,
-                                              CompanionMoveType moveType, MountCinematicMode mode,
-                                              boolean restoredFromStorage, boolean sendArrivalMagic,
-                                              boolean presentationEnabled) {
-        scheduleMountCinematic(player, mount, moveType, mode, restoredFromStorage,
-                sendArrivalMagic, false, presentationEnabled);
-    }
-
-    public static void scheduleExternalMountCinematic(ServerPlayer player, LivingEntity mount, CompanionMoveType moveType, MountCinematicMode mode) {
-        scheduleMountCinematic(player, mount, moveType, mode, false, false, true, true);
-    }
-
-    private static void scheduleMountCinematic(ServerPlayer player, LivingEntity mount,
                                                CompanionMoveType moveType, MountCinematicMode mode,
                                                boolean restoredFromStorage, boolean sendArrivalMagic,
-                                               boolean externalMount, boolean presentationEnabled) {
+                                               boolean presentationEnabled) {
         double catchY;
         Level level = player.level();
         boolean originalNoGravity = mount.isNoGravity();
@@ -302,37 +261,40 @@ public final class CompanionMountCinematicFlowService {
             mob.getNavigation().stop();
             mob.setTarget(null);
         }
-        catchY = Double.NaN;
-        boolean startStaged = false;
+        catchY = mode.isFlyingRescue() && level instanceof ServerLevel serverLevel
+                ? (double) CompanionCinematicLandingService.predictedLanding(serverLevel, player).getY()
+                + CompanionCinematicLandingService.flyingCatchHeight(player) : Double.NaN;
+        boolean startStaged = mode.isFlyingRescue();
         int warmupTicks = 0;
         RideHandoffService.Source rideSource = capturedRideSource(player, mount, mode);
         PendingMountCinematic pending = new PendingMountCinematic(player.getUUID(), mount.getUUID(), moveType,
                 mode, catchY, startStaged, false, warmupTicks, mount.position(), originalNoGravity,
-                originalNoAi, externalMount, rideSource);
+                originalNoAi, rideSource);
+        pending.setIntroAnchor(moveType == CompanionMoveType.FLY ? mount.position() : null);
         RescueFlightMode rescueFlightMode = mode.isFlyingRescue()
                 ? CompanionRescuePlanner.plan(player).flightMode() : RescueFlightMode.HOVER;
         pending.setRescueFlightMode(rescueFlightMode);
         if (mode.isFlyingRescue() && rescueFlightMode == RescueFlightMode.LANDING_SUMMON
-                && player.level() instanceof ServerLevel level2) {
+                && level instanceof ServerLevel serverLevel) {
             pending.setRescueLandingPosition(Vec3.atBottomCenterOf(
-                    CompanionCinematicLandingService.rescueAnchor(level2, player)));
+                    CompanionCinematicLandingService.rescueAnchor(serverLevel, player)));
         }
         if (mode.isFlyingRescue() && rescueFlightMode == RescueFlightMode.HOVER
-                && player.level() instanceof ServerLevel level2) {
-            pending.setRescueHoverPosition(CompanionCinematicLandingService.flyingHoverTarget(level2, player));
+                && level instanceof ServerLevel serverLevel) {
+            pending.setRescueHoverPosition(
+                    CompanionCinematicLandingService.flyingHoverTarget(serverLevel, player));
         }
         if (mode.isRescue()) {
             BookOfDragonsRescueCompatibility.suspendConflictingGoals(mount);
         }
         PENDING_MOUNT_CINEMATICS.add(pending);
-        CompanionMountSwitchService.beginSimultaneousAirToGroundRetirement(pending, player, mount);
         if (!presentationEnabled && !mode.isRescue()) {
             pending.latchContact();
             pending.beginSwitch();
         }
-        FindMeDebugLogger.info("mount-cinematic", "scheduled player={} mount={} moveType={} mode={} rescueFlightMode={} restoredFromStorage={} sendArrivalMagic={} external={} warmup={} sourceType={} source={} originalNoGravity={} originalNoAi={} pos={}",
+        FindMeDebugLogger.info("mount-cinematic", "scheduled player={} mount={} moveType={} mode={} rescueFlightMode={} restoredFromStorage={} sendArrivalMagic={} warmup={} sourceType={} source={} originalNoGravity={} originalNoAi={} pos={}",
                 FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), moveType, mode,
-                rescueFlightMode, restoredFromStorage, sendArrivalMagic, externalMount, warmupTicks, rideSource.type(),
+                rescueFlightMode, restoredFromStorage, sendArrivalMagic, warmupTicks, rideSource.type(),
                 rideSource.uuid(), originalNoGravity, originalNoAi, mount.position());
         if (presentationEnabled && (mode.isMountSwitch() || mode.isAirToAirSwitch())) {
             sendMountApproachMask(player, mount);
@@ -352,7 +314,7 @@ public final class CompanionMountCinematicFlowService {
                 || (mode.isRescue() && restoredFromStorage))) {
             mount.noPhysics = shouldUseCinematicNoPhysics(pending, mount);
             mount.setNoGravity(mode.isGroundOrWaterRescue() && moveType != CompanionMoveType.WALK);
-            Vec3 target = CompanionCinematicLandingService.cinematicTarget(pending, mount.level(), player);
+            Vec3 target = CompanionCinematicLandingService.cinematicTarget(pending, mount.level(), player, mount);
             double distance = mount.position().distanceTo(target);
             if (distance > 0.05) {
                 CompanionCinematicMovementService.moveTowardCinematicTarget(pending, mount, player, target, distance);
@@ -432,6 +394,18 @@ public final class CompanionMountCinematicFlowService {
             FindMeDebugLogger.info("transient", "cancelled mount cinematic player={} mount={} reason={} count={}", player.getUUID(), mountUuid, reason, removed);
         }
         return removed;
+    }
+
+    public static boolean isPendingForCompanion(UUID mountUuid) {
+        if (mountUuid == null) {
+            return false;
+        }
+        for (PendingMountCinematic pending : PENDING_MOUNT_CINEMATICS) {
+            if (mountUuid.equals(pending.mountUuid())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static int cancelForPlayer(ServerPlayer player, String reason) {
@@ -750,12 +724,6 @@ public final class CompanionMountCinematicFlowService {
             return true;
         }
         Entity currentVehicle = player.getVehicle();
-        if (mode.requiresExactRideContact()
-                && !CompanionMountContactService.intersectsMountContact(mount, player.getBoundingBox().inflate(0.04), 0.0)) {
-            FindMeDebugLogger.info("mount-ride", "waiting for exact ride contact player={} mount={} mode={}",
-                    FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), mode);
-            return false;
-        }
         if (!isMountRideContact(player, mount, currentVehicle)) {
             double maxDistance = Math.max(4.0, Math.min(12.0, Math.max(mount.getBbWidth(), mount.getBbHeight()) + 2.0));
             if (player.distanceTo(mount) > maxDistance) {
@@ -764,6 +732,18 @@ public final class CompanionMountCinematicFlowService {
                         mode, player.distanceTo(mount), maxDistance);
                 return false;
             }
+        }
+        SalvationCompatibilityService.RideStartResult salvationRide =
+                SalvationCompatibilityService.tryStartRide(player, mount);
+        if (salvationRide == SalvationCompatibilityService.RideStartResult.STARTED) {
+            FindMeDebugLogger.info("mount-ride", "Salvation ride API success player={} mount={} mode={}",
+                    FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), mode);
+            return true;
+        }
+        if (salvationRide == SalvationCompatibilityService.RideStartResult.REJECTED) {
+            FindMeDebugLogger.info("mount-ride", "Salvation ride API rejected player={} mount={} mode={}",
+                    FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), mode);
+            return false;
         }
         long interactionStartedAt = System.nanoTime();
         mount.interact(player, InteractionHand.MAIN_HAND);
@@ -774,7 +754,11 @@ public final class CompanionMountCinematicFlowService {
             return true;
         }
         boolean normalForceAllowed = CompanionMountContactService.canMountByNormalUse(player, mount);
-        boolean externalForceAllowed = com.kuzhi.findme.api.FindMeApi.canForceMount(player, mount);
+        boolean externalForceAllowed = com.kuzhi.findme.api.FindMeApi.canForceMount(player, mount)
+                || (mode.isRescue() && IceAndFireRescueCompatibility.canForceRescueMount(player, mount));
+        if (mode.isMountSwitch()) {
+            return CompanionTemporaryForcedRideService.forceForSwitch(player, mount);
+        }
         if (!normalForceAllowed && !externalForceAllowed) {
             FindMeDebugLogger.info("mount-ride", "normal interaction failed and force ride blocked player={} mount={} mode={} interactionMs={}",
                     FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), mode, interactionMs);
@@ -796,8 +780,11 @@ public final class CompanionMountCinematicFlowService {
             return;
         }
         CompanionMountCinematicFlowService.restoreCinematicPhysics(cinematic, mount);
-        if (mounted && cinematic.moveType() == CompanionMoveType.FLY) {
+        if (mounted && cinematic.mode().isRescue() && cinematic.moveType() == CompanionMoveType.FLY) {
             BookOfDragonsRescueCompatibility.forceAirborne(mount);
+            IceAndFireRescueCompatibility.finishMountedRide(mount);
+        } else if (!mounted && cinematic.mode().isRescue()) {
+            IceAndFireRescueCompatibility.clearRescueState(mount);
         }
         if (mounted && cinematic.rideHandoff().compatibleWith(cinematic.moveType())) {
             CompanionMountSwitchService.applyCompatibleRideState(cinematic, mount);

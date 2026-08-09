@@ -66,6 +66,13 @@ public final class CompanionArrivalMagicService {
         sendAt(player, effectLevel(player, living), living, anchor, focus, durationTicks, style, purpose, null);
     }
 
+    public static void openEffectAt(ServerPlayer player, LivingEntity living, Vec3 anchor, Vec3 focus,
+                                    int durationTicks, RescueMagicPacket.Style style,
+                                    RescueMagicPacket.Purpose purpose) {
+        sendAt(player, effectLevel(player, living), living, anchor, focus, durationTicks, style, purpose,
+                null, animationPurpose(purpose), false);
+    }
+
     public static void openAt(ServerPlayer player, LivingEntity living, Vec3 anchor, Vec3 focus, int durationTicks,
                               RescueMagicPacket.Style style, RescueMagicPacket.Purpose purpose,
                               CompanionEntityVisualBoundsService.VisualDimensions storedDimensions) {
@@ -205,6 +212,14 @@ public final class CompanionArrivalMagicService {
                                int durationTicks, RescueMagicPacket.Style style, RescueMagicPacket.Purpose purpose,
                                CompanionEntityVisualBoundsService.VisualDimensions storedDimensions,
                                CompanionAnimationPurpose animationPurpose) {
+        sendAt(player, level, living, anchor, focus, durationTicks, style, purpose, storedDimensions,
+                animationPurpose, true);
+    }
+
+    private static void sendAt(ServerPlayer player, ServerLevel level, LivingEntity living, Vec3 anchor, Vec3 focus,
+                               int durationTicks, RescueMagicPacket.Style style, RescueMagicPacket.Purpose purpose,
+                               CompanionEntityVisualBoundsService.VisualDimensions storedDimensions,
+                               CompanionAnimationPurpose animationPurpose, boolean includeEntityAnimation) {
         CompanionEffectPurpose effectPurpose = purpose == RescueMagicPacket.Purpose.RESCUE ? CompanionEffectPurpose.RESCUE : CompanionEffectPurpose.SUMMON;
         String entityType = living == null ? "" : EntityType.getKey(living.getType()).toString();
         CompanionEffectStyle selected = animationPurpose == CompanionAnimationPurpose.SWITCH
@@ -213,11 +228,15 @@ public final class CompanionArrivalMagicService {
         CompanionEntityVisualBoundsService.VisualDimensions dimensions = storedDimensions == null
                 ? CompanionEntityVisualBoundsService.effectDimensions(living) : storedDimensions;
         AABB liveBounds = CompanionEntityVisualBoundsService.effectBounds(living);
-        CompanionAnimationStyle animation = CompanionDataService.data(player).animationStyle(living.getUUID(), animationPurpose, entityType);
+        CompanionAnimationStyle animation = includeEntityAnimation
+                ? CompanionDataService.data(player).animationStyle(living.getUUID(), animationPurpose, entityType)
+                : CompanionAnimationStyle.NONE;
         FindMeDebugLogger.info("arrival-presentation",
                 "entity={} purpose={} effect={} animation={} duration={} anchor={}",
                 FindMeDebugLogger.entity(living), purpose, selected, animation, durationTicks, anchor);
-        sendAnimationAt(player, level, living, anchor, focus, durationTicks, purpose, dimensions, animation);
+        if (includeEntityAnimation) {
+            sendAnimationAt(player, level, living, anchor, focus, durationTicks, purpose, dimensions, animation);
+        }
         if (selected == CompanionEffectStyle.NONE) return;
         if (selected == CompanionEffectStyle.ENDER) {
             CompanionEnderEffectService.play(player, CompanionEntityVisualBoundsService.effectBounds(living, dimensions));

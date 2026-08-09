@@ -2,16 +2,21 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.kuzhi.findme.mixin",
-  "plugin": "com.kuzhi.findme.mixin.FindMeMixinConfigPlugin",
   "refmap": "find_me.refmap.json",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
     "HomeResidentCollisionMixin",
     "PlayerInteractionMixin",
-    "ServerGamePacketListenerImplMixin",
-    "SalvationRitualServiceMixin"
+    "ServerGamePacketListenerImplMixin"
   ],
-  "client": ["client.MinecraftOutlineMixin", "client.EntityOutlineColorMixin"],
+  "client": [
+    "client.MinecraftOutlineMixin",
+    "client.EntityOutlineColorMixin",
+    "client.LevelRendererContractSkyStageMixin",
+    "client.EntityRenderDispatcherContractSkyStageMixin",
+    "client.BlockEntityRenderDispatcherContractSkyStageMixin",
+    "client.ParticleEngineContractSkyStageMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

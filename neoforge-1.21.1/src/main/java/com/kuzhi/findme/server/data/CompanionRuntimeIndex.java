@@ -4,6 +4,7 @@ import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 
@@ -42,6 +43,10 @@ public final class CompanionRuntimeIndex {
 
     public Entry entry(UUID uuid) {
         return uuid == null ? null : entries.get(uuid);
+    }
+
+    public Set<UUID> uuids() {
+        return entries.keySet();
     }
 
     public record Entry(CompanionKind kind, CompanionLifecycleState lifecycleState,

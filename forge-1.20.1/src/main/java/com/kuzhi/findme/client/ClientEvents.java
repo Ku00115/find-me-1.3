@@ -10,6 +10,7 @@ import com.kuzhi.findme.common.ModParticles;
 import com.kuzhi.findme.common.FindMeModule;
 import com.kuzhi.findme.common.MountRosterAction;
 import com.kuzhi.findme.network.CompanionCommandPacket;
+import com.kuzhi.findme.network.CompanionForwardTravelTeleportPacket;
 import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.network.VehicleCommandPacket;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -35,6 +36,7 @@ import net.minecraftforge.client.event.RenderLivingEvent;
 import net.minecraftforge.client.event.RenderPlayerEvent;
 import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
+import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
@@ -67,6 +69,15 @@ public final class ClientEvents {
     private static boolean iceAndFireRenderingRidersResolved;
 
     private ClientEvents() {
+    }
+
+    static String keyName(CompanionKind kind) {
+        KeyMapping key = kind == CompanionKind.MOUNT ? MOUNT_KEY : COMPANION_KEY;
+        return key.getTranslatedKeyMessage().getString();
+    }
+
+    static String commandKeyName() {
+        return COMMAND_KEY.getTranslatedKeyMessage().getString();
     }
 
     public static void register(IEventBus modEventBus) {
@@ -178,7 +189,17 @@ public final class ClientEvents {
             return;
         }
         if (kind == CompanionKind.MOUNT) {
+            UUID forwardTravelUuid = findForwardTravelTarget(kind);
+            if (forwardTravelUuid != null) {
+                ModNetwork.sendToServer(new CompanionForwardTravelTeleportPacket(kind, forwardTravelUuid));
+                return;
+            }
             handleMountShortPress(minecraft);
+            return;
+        }
+        UUID forwardTravelUuid = findForwardTravelTarget(kind);
+        if (forwardTravelUuid != null) {
+            ModNetwork.sendToServer(new CompanionForwardTravelTeleportPacket(kind, forwardTravelUuid));
             return;
         }
         UUID pendingUuid = ClientCompanionWheelController.pendingUuid(kind);
@@ -190,6 +211,23 @@ public final class ClientEvents {
         } else {
             ClientEvents.send(kind, CompanionAction.SUMMON, -1);
         }
+    }
+
+    private static UUID findForwardTravelTarget(CompanionKind kind) {
+        if (kind == null) return null;
+        if (kind == CompanionKind.MOUNT) {
+            ClientMountRosterState.Entry selected = ClientMountRosterState.selectedEntry();
+            if (selected != null && selected.source() == com.kuzhi.findme.common.MountRosterSource.FIND_ME
+                    && selected.findMe() != null
+                    && selected.findMe().tacticalAction() == com.kuzhi.findme.common.CompanionTacticalAction.MOVE_FORWARD) {
+                return selected.uuid();
+            }
+        }
+        return ClientCompanionState.allEntries(kind).stream()
+                .filter(entry -> entry.tacticalAction() == com.kuzhi.findme.common.CompanionTacticalAction.MOVE_FORWARD
+                        && entry.alive() && entry.deployed())
+                .map(com.kuzhi.findme.network.CompanionListPacket.Entry::uuid)
+                .findFirst().orElse(null);
     }
 
     private static void handleMountShortPress(Minecraft minecraft) {
@@ -546,7 +584,7 @@ public final class ClientEvents {
 
         @SubscribeEvent
         public static void onMovementInput(MovementInputUpdateEvent event) {
-            if (ClientContractCamera.active()) {
+            if (ClientContractRenderState.locksInput()) {
                 event.getInput().up = false;
                 event.getInput().down = false;
                 event.getInput().left = false;
@@ -565,6 +603,13 @@ public final class ClientEvents {
         }
 
         @SubscribeEvent
+        public static void onInteractionInput(InputEvent.InteractionKeyMappingTriggered event) {
+            if (ClientContractRenderState.locksInput()) {
+                event.setCanceled(true);
+            }
+        }
+
+        @SubscribeEvent
         public static void onRenderLevelStage(RenderLevelStageEvent event) {
             ClientContractCeremonyRenderer.renderWorld(event);
             ClientBurrowEffectRenderer.renderWorld(event);
@@ -579,6 +624,10 @@ public final class ClientEvents {
             Minecraft minecraft = Minecraft.getInstance();
             if (!ClientEntityPreviewRenderGuard.active()
                     && ClientMountApproachPresentationState.hidden(event.getEntity())) {
+                event.setCanceled(true);
+                return;
+            }
+            if (ClientRiddenMountRenderPolicy.shouldHide(minecraft, event.getEntity())) {
                 event.setCanceled(true);
                 return;
             }
@@ -644,9 +693,20 @@ public final class ClientEvents {
 
         @SubscribeEvent
         public static void onRenderGuiLayer(RenderGuiOverlayEvent.Pre event) {
+            if (ClientContractSkyStage.active()) {
+                event.setCanceled(true);
+                return;
+            }
             Screen screen = Minecraft.getInstance().screen;
             if ((screen instanceof CompanionWheelScreen || screen instanceof VehicleWheelScreen || screen instanceof CompanionCommandWheelScreen)
                     && event.getOverlay().id().equals(VanillaGuiOverlay.CROSSHAIR.id())) {
+                event.setCanceled(true);
+            }
+        }
+
+        @SubscribeEvent
+        public static void onRenderHand(RenderHandEvent event) {
+            if (ClientContractSkyStage.active()) {
                 event.setCanceled(true);
             }
         }
@@ -673,6 +733,13 @@ public final class ClientEvents {
             ClientContractCeremonyRenderer.renderGui(event);
             ClientCompanionDialogueRenderer.renderGui(event);
             ClientRideHomeTransitionState.render(event.getGuiGraphics(), event.getPartialTick());
+        }
+
+        @SubscribeEvent
+        public static void onRenderGuiLayerPost(RenderGuiOverlayEvent.Post event) {
+            if (event.getOverlay().id().equals(VanillaGuiOverlay.HOTBAR.id())) {
+                FindMeHudRenderer.render(event.getGuiGraphics());
+            }
         }
     }
 

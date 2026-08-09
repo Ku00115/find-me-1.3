@@ -8,7 +8,14 @@
     "PlayerInteractionMixin",
     "ServerGamePacketListenerImplMixin"
   ],
-  "client": ["client.MinecraftOutlineMixin", "client.EntityOutlineColorMixin"],
+  "client": [
+    "client.MinecraftOutlineMixin",
+    "client.EntityOutlineColorMixin",
+    "client.LevelRendererContractSkyStageMixin",
+    "client.EntityRenderDispatcherContractSkyStageMixin",
+    "client.BlockEntityRenderDispatcherContractSkyStageMixin",
+    "client.ParticleEngineContractSkyStageMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

@@ -1,5 +1,6 @@
 package com.kuzhi.findme.api;
 
+import com.kuzhi.findme.Config;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionMoveType;
@@ -16,6 +17,7 @@ import com.kuzhi.findme.server.core.CompanionOperationLockService;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
 import com.kuzhi.findme.server.profile.CompanionOwnershipGuardService;
 import com.kuzhi.findme.server.profile.PackAnimationPresetService;
+import com.kuzhi.findme.server.ui.CompanionSyncService;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,6 +30,8 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.animal.horse.AbstractHorse;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.nbt.CompoundTag;
 
 /** Stable integration surface for addons that hand creatures into FindMe. */
 public final class FindMeApi {
@@ -35,8 +39,10 @@ public final class FindMeApi {
     private static final List<ServerMovementProfileProvider> SERVER_MOVEMENT_PROVIDERS = new CopyOnWriteArrayList<>();
     private static final List<OwnershipProvider> OWNERSHIP_PROVIDERS = new CopyOnWriteArrayList<>();
     private static final List<MountRideProvider> MOUNT_RIDE_PROVIDERS = new CopyOnWriteArrayList<>();
+    private static final List<MountedMovementOwner> MOUNTED_MOVEMENT_OWNERS = new CopyOnWriteArrayList<>();
     private static final List<StoragePresentationProvider> STORAGE_PRESENTATION_PROVIDERS = new CopyOnWriteArrayList<>();
     private static final List<FindMeTemporaryActionController> TEMPORARY_ACTION_CONTROLLERS = new CopyOnWriteArrayList<>();
+    private static final List<FindMeCompanionSpellProvider> COMPANION_SPELL_PROVIDERS = new CopyOnWriteArrayList<>();
 
     private FindMeApi() {
     }
@@ -65,6 +71,25 @@ public final class FindMeApi {
         }
     }
 
+    public static void registerMountedMovementOwner(MountedMovementOwner owner) {
+        if (owner != null && !MOUNTED_MOVEMENT_OWNERS.contains(owner)) {
+            MOUNTED_MOVEMENT_OWNERS.add(owner);
+        }
+    }
+
+    /** True while an addon-owned, server-authoritative mounted action must ignore rider vehicle packets. */
+    public static boolean ownsExternalMountedMovement(ServerPlayer player) {
+        if (player == null || player.getVehicle() == null) return false;
+        for (MountedMovementOwner owner : MOUNTED_MOVEMENT_OWNERS) {
+            try {
+                if (owner.owns(player)) return true;
+            } catch (RuntimeException ignored) {
+                // Optional movement owners fail closed and cannot capture unrelated riding.
+            }
+        }
+        return false;
+    }
+
     public static void registerStoragePresentationProvider(StoragePresentationProvider provider) {
         if (provider != null && !STORAGE_PRESENTATION_PROVIDERS.contains(provider)) {
             STORAGE_PRESENTATION_PROVIDERS.add(provider);
@@ -75,6 +100,147 @@ public final class FindMeApi {
         if (controller != null && !TEMPORARY_ACTION_CONTROLLERS.contains(controller)) {
             TEMPORARY_ACTION_CONTROLLERS.add(controller);
         }
+    }
+
+    public static void registerCompanionSpellProvider(FindMeCompanionSpellProvider provider) {
+        if (provider != null && !COMPANION_SPELL_PROVIDERS.contains(provider)) {
+            COMPANION_SPELL_PROVIDERS.add(provider);
+        }
+    }
+
+    public static boolean hasCompanionSpellProviders() {
+        return !COMPANION_SPELL_PROVIDERS.isEmpty();
+    }
+
+    public static Optional<CompanionSpellBinding> createCompanionSpellBinding(ServerPlayer player,
+                                                                              UUID companionUuid,
+                                                                              ItemStack stack) {
+        if (player == null || companionUuid == null || stack == null || stack.isEmpty()) {
+            return Optional.empty();
+        }
+        for (FindMeCompanionSpellProvider provider : COMPANION_SPELL_PROVIDERS) {
+            try {
+                Optional<CompanionSpellBinding> binding = provider.createBinding(player, companionUuid, stack);
+                if (binding != null && binding.isPresent()) {
+                    return binding;
+                }
+            } catch (RuntimeException ignored) {
+                // Optional spell providers fail closed so a broken addon cannot consume an item.
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static boolean tryCastCompanionSpell(ServerPlayer owner, LivingEntity companion,
+                                                CompanionSpellBinding binding,
+                                                CompanionSpellIntent intent, LivingEntity target) {
+        if (owner == null || companion == null || binding == null || intent == null || !companion.isAlive()) {
+            return false;
+        }
+        for (FindMeCompanionSpellProvider provider : COMPANION_SPELL_PROVIDERS) {
+            if (!provider.id().equals(binding.providerId())) continue;
+            try {
+                return provider.tryCast(owner, companion, binding, intent, target);
+            } catch (RuntimeException exception) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    public static boolean isCastingCompanionSpell(LivingEntity companion) {
+        if (companion == null || !companion.isAlive()) return false;
+        for (FindMeCompanionSpellProvider provider : COMPANION_SPELL_PROVIDERS) {
+            try {
+                if (provider.isCasting(companion)) return true;
+            } catch (RuntimeException ignored) {
+                // Optional providers fail closed.
+            }
+        }
+        return false;
+    }
+
+    public static CompanionMagicState companionMagicState(ServerPlayer owner, UUID companionUuid,
+                                                           LivingEntity companion, CompoundTag storedEntity,
+                                                           List<CompanionSpellBinding> bindings) {
+        if (owner == null || companionUuid == null || bindings == null || bindings.isEmpty()) {
+            return CompanionMagicState.EMPTY;
+        }
+        for (CompanionSpellBinding binding : bindings) {
+            if (binding == null) continue;
+            for (FindMeCompanionSpellProvider provider : COMPANION_SPELL_PROVIDERS) {
+                if (!provider.id().equals(binding.providerId())) continue;
+                try {
+                    CompanionMagicState state = provider.magicState(owner, companionUuid, companion, storedEntity);
+                    if (state != null && state.available()) return state;
+                } catch (RuntimeException ignored) {
+                    // A broken optional provider must not block roster synchronization.
+                }
+            }
+        }
+        return CompanionMagicState.EMPTY;
+    }
+
+    public static void syncCompanionMagicState(ServerPlayer owner) {
+        if (owner == null) return;
+        CompanionSyncService.syncToClient(owner, CompanionKind.COMPANION);
+        CompanionSyncService.syncToClient(owner, CompanionKind.MOUNT);
+    }
+
+    /** Returns the owner-wide companion mana pool after applying projected regeneration. */
+    public static CompanionMagicState sharedCompanionMagicState(ServerPlayer owner, float regenPerTick) {
+        if (owner == null) return CompanionMagicState.EMPTY;
+        var data = CompanionDataService.data(owner);
+        int contributors = data.companionMagicContributorCount(Config.companionMagicContributionLimit);
+        float maxMana = contributors * 100.0F;
+        if (maxMana <= 0.0F) return CompanionMagicState.EMPTY;
+        long now = owner.serverLevel().getGameTime();
+        SharedManaProjection projection = projectedCompanionMana(data.companionMagicMana(),
+                data.companionMagicManaTick(), data.companionMagicCapacity(), maxMana, now,
+                sharedCompanionRegenPerTick(contributors, regenPerTick));
+        if (projection.capacityChanged()) {
+            data.setCompanionMagicMana(projection.mana(), now, maxMana);
+            CompanionDataService.save(owner, data);
+        }
+        return new CompanionMagicState(projection.mana(), maxMana);
+    }
+
+    /** Atomically regenerates and spends mana from the owner's shared companion pool. */
+    public static boolean tryConsumeSharedCompanionMana(ServerPlayer owner, float amount, float regenPerTick) {
+        if (owner == null || amount < 0.0F) return false;
+        var data = CompanionDataService.data(owner);
+        int contributors = data.companionMagicContributorCount(Config.companionMagicContributionLimit);
+        float maxMana = contributors * 100.0F;
+        if (maxMana <= 0.0F) return false;
+        long now = owner.serverLevel().getGameTime();
+        SharedManaProjection projection = projectedCompanionMana(data.companionMagicMana(),
+                data.companionMagicManaTick(), data.companionMagicCapacity(), maxMana, now,
+                sharedCompanionRegenPerTick(contributors, regenPerTick));
+        if (projection.mana() + 0.001F < amount) return false;
+        data.setCompanionMagicMana(Math.max(0.0F, projection.mana() - amount), now, maxMana);
+        CompanionDataService.save(owner, data);
+        return true;
+    }
+
+    static SharedManaProjection projectedCompanionMana(float storedMana, long storedTick, float storedCapacity,
+                                                        float maxMana, long now, float regenPerTick) {
+        if (storedMana < 0.0F || storedCapacity < 0.0F) {
+            return new SharedManaProjection(maxMana, true);
+        }
+        float oldCapacity = Math.max(0.0F, storedCapacity);
+        float mana = Math.min(oldCapacity, storedMana);
+        long lastTick = storedTick <= 0L ? now : storedTick;
+        long elapsed = Math.max(0L, Math.min(24000L, now - lastTick));
+        mana = Math.min(oldCapacity, mana + elapsed * Math.max(0.0F, regenPerTick));
+        if (maxMana > oldCapacity) mana += maxMana - oldCapacity;
+        return new SharedManaProjection(Math.min(maxMana, mana), maxMana != oldCapacity);
+    }
+
+    static float sharedCompanionRegenPerTick(int contributors, float regenPerContributorTick) {
+        return Math.max(0, contributors) * Math.max(0.0F, regenPerContributorTick);
+    }
+
+    record SharedManaProjection(float mana, boolean capacityChanged) {
     }
 
     public static void tickTemporaryActions(MinecraftServer server) {
@@ -112,6 +278,14 @@ public final class FindMeApi {
         if (entity == null) return false;
         for (FindMeTemporaryActionController controller : TEMPORARY_ACTION_CONTROLLERS) {
             if (controller.isTemporaryPerformer(entity)) return true;
+        }
+        return false;
+    }
+
+    public static boolean ownsTacticalCombat(Entity entity) {
+        if (entity == null) return false;
+        for (FindMeTemporaryActionController controller : TEMPORARY_ACTION_CONTROLLERS) {
+            if (controller.ownsTacticalCombat(entity)) return true;
         }
         return false;
     }
@@ -200,7 +374,7 @@ public final class FindMeApi {
         UUID uuid = entity.getUUID();
         return isFixedPost(entity)
                 || CompanionTacticalOrderService.controls(uuid)
-                || CompanionOperationLockService.get(uuid) != null
+                || CompanionOperationLockService.isFindMeOwned(uuid)
                 || CompanionPreSpawnPresentationService.isPending(uuid)
                 || CompanionStorageService.isStoragePending(entity)
                 || CompanionArrivalSequenceService.isPending(entity);
@@ -366,6 +540,11 @@ public final class FindMeApi {
     @FunctionalInterface
     public interface MountRideProvider {
         boolean canForceMount(ServerPlayer player, LivingEntity entity);
+    }
+
+    @FunctionalInterface
+    public interface MountedMovementOwner {
+        boolean owns(ServerPlayer player);
     }
 
     public interface StoragePresentationProvider {

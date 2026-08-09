@@ -14,20 +14,19 @@ final class CompanionSummonPresentationPolicy {
         if (data == null || kind == null || purpose == null) {
             return true;
         }
+        if (tacticalDeploy) {
+            // Protect/guard deployment is an intentional tactical action. It
+            // must keep its arrival presentation even when ordinary companion
+            // summons are configured to appear instantly.
+            return true;
+        }
         if (purpose == CompanionAnimationPurpose.RESCUE) {
             return true;
         }
-        return kind == CompanionKind.MOUNT
-                ? data.uiSettings().mountSummonAnimations()
-                : data.uiSettings().companionSummonAnimations();
+        if (kind == CompanionKind.COMPANION) {
+            return false;
+        }
+        return data.uiSettings().mountSummonAnimations();
     }
 
-    static boolean ordinaryCompanionApproach(PlayerCompanionData data, CompanionKind kind,
-                                               CompanionAnimationPurpose purpose,
-                                               boolean tacticalDeploy) {
-        return kind == CompanionKind.COMPANION
-                && purpose == CompanionAnimationPurpose.SUMMON
-                && !tacticalDeploy
-                && enabled(data, kind, purpose, false);
-    }
 }

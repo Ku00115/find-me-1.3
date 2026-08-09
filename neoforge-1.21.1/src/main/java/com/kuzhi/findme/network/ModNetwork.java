@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import com.kuzhi.findme.network.FindMeNetworkContext;
 
 public final class ModNetwork {
-    private static final String PROTOCOL = "79";
+    private static final String PROTOCOL = "85";
     public static final Object channel = new Object();
 
     private ModNetwork() {
@@ -51,6 +51,8 @@ public final class ModNetwork {
         registrar.playToClient(SableVehiclePreviewTransferPacket.TYPE, SableVehiclePreviewTransferPacket.STREAM_CODEC, (packet, context) -> SableVehiclePreviewTransferPacket.handle(packet, legacyContext(context)));
         registrar.playToServer(CompanionEffectStylePacket.TYPE, CompanionEffectStylePacket.STREAM_CODEC, (packet, context) -> CompanionEffectStylePacket.handle(packet, legacyContext(context)));
         registrar.playToServer(CompanionAnimationStylePacket.TYPE, CompanionAnimationStylePacket.STREAM_CODEC, (packet, context) -> CompanionAnimationStylePacket.handle(packet, legacyContext(context)));
+        registrar.playToServer(CompanionSpellSlotPacket.TYPE, CompanionSpellSlotPacket.STREAM_CODEC, (packet, context) -> CompanionSpellSlotPacket.handle(packet, legacyContext(context)));
+        registrar.playToClient(CompanionSpellSlotCandidatesPacket.TYPE, CompanionSpellSlotCandidatesPacket.STREAM_CODEC, (packet, context) -> CompanionSpellSlotCandidatesPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(PackAnimationPresetModePacket.TYPE, PackAnimationPresetModePacket.STREAM_CODEC, (packet, context) -> PackAnimationPresetModePacket.handle(packet, legacyContext(context)));
         registrar.playToClient(PackAnimationPresetListPacket.TYPE, PackAnimationPresetListPacket.STREAM_CODEC, (packet, context) -> PackAnimationPresetListPacket.handle(packet, legacyContext(context)));
         registrar.playToServer(PackAnimationPresetStylePacket.TYPE, PackAnimationPresetStylePacket.STREAM_CODEC, (packet, context) -> PackAnimationPresetStylePacket.handle(packet, legacyContext(context)));
@@ -97,6 +99,7 @@ public final class ModNetwork {
 
     public static void sendToServer(CompanionEffectStylePacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(CompanionAnimationStylePacket packet) { PacketDistributor.sendToServer(packet); }
+    public static void sendToServer(CompanionSpellSlotPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(CompanionTeamCommandPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(FindMeSettingsPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(WarehouseEntityCommandPacket packet) { PacketDistributor.sendToServer(packet); }
@@ -249,6 +252,10 @@ public final class ModNetwork {
     }
 
     public static void sendToPlayer(ServerPlayer player, CompanionDialoguePacket packet) {
+        PacketDistributor.sendToPlayer(player, packet);
+    }
+
+    public static void sendToPlayer(ServerPlayer player, CompanionSpellSlotCandidatesPacket packet) {
         PacketDistributor.sendToPlayer(player, packet);
     }
 

@@ -1,5 +1,6 @@
 package com.kuzhi.findme.server.data;
 
+import com.kuzhi.findme.Config;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.CompanionAnimationPurpose;
@@ -9,6 +10,7 @@ import com.kuzhi.findme.common.CompanionEffectPurpose;
 import com.kuzhi.findme.common.CompanionTeamTarget;
 import com.kuzhi.findme.common.SavedPosition;
 import com.kuzhi.findme.common.VehicleSeatOffset;
+import com.kuzhi.findme.api.CompanionSpellBinding;
 import com.kuzhi.findme.common.FindMeUiSettings;
 import com.kuzhi.findme.server.profile.PackAnimationPresetService;
 import java.util.ArrayList;
@@ -63,7 +65,14 @@ public class PlayerCompanionData {
     // Visual and pack/player customization.
     final Map<UUID, EnumMap<CompanionAnimationPurpose, CompanionAnimationStyle>> animationStyles = new HashMap<>();
     final Map<UUID, EnumMap<CompanionEffectPurpose, CompanionEffectStyle>> effectStyles = new HashMap<>();
+    public static final int COMPANION_SPELL_SLOT_COUNT = 3;
+    final Map<UUID, List<CompanionSpellBinding>> spellBindings = new HashMap<>();
+    final List<CompoundTag> pendingSpellItemReturns = new ArrayList<>();
+    float companionMagicMana = -1.0F;
+    long companionMagicManaTick;
+    float companionMagicCapacity = -1.0F;
     final Set<String> bindingCinematicSeenTypes = new HashSet<>();
+    final Set<UUID> lifecycleChanges = new HashSet<>();
     FindMeUiSettings uiSettings = FindMeUiSettings.defaults();
 
     // Mount and vehicle classification.
@@ -109,6 +118,7 @@ public class PlayerCompanionData {
     }
 
     public boolean add(CompanionKind kind, UUID uuid) {
+        int previousMagicContributors = companionCreatureCount();
         List<UUID> list = this.companions.get((Object)kind);
         boolean clearedDead = this.deadCompanions.remove(uuid);
         clearedDead |= this.deadKinds.remove(uuid) != null;
@@ -122,6 +132,7 @@ public class PlayerCompanionData {
         this.clearDeployed(other, uuid);
         this.removeFromTeams(uuid);
         list.add(uuid);
+        markLifecycleChanged(uuid);
         if (kind == CompanionKind.MOUNT) {
             this.markMountEligible(uuid);
         }
@@ -135,6 +146,7 @@ public class PlayerCompanionData {
             teamIndex = this.autoAssignTeam(target, uuid);
         }
         this.activeIndexes.put(kind, list.size() - 1);
+        reconcileCompanionMagicContributors(previousMagicContributors);
         return true;
     }
 
@@ -332,6 +344,8 @@ public class PlayerCompanionData {
     }
 
     public void remove(UUID uuid) {
+        if (uuid != null && (contains(uuid) || this.deadCompanions.contains(uuid))) markLifecycleChanged(uuid);
+        int previousMagicContributors = companionCreatureCount();
         this.vaultSnapshot(uuid, this.kindOf(uuid).orElse(CompanionKind.COMPANION), "remove", VAULT_LIMIT_DEFAULT);
         for (List<UUID> list : this.companions.values()) {
             list.remove(uuid);
@@ -346,6 +360,7 @@ public class PlayerCompanionData {
         this.lifecycleStates.remove(uuid);
         this.animationStyles.remove(uuid);
         this.effectStyles.remove(uuid);
+        queueSpellItemReturns(uuid);
         for (List<UUID> slots : this.wheelSlots.values()) {
             slots.remove(uuid);
         }
@@ -365,6 +380,7 @@ public class PlayerCompanionData {
         this.deadCompanions.remove(uuid);
         this.deadKinds.remove(uuid);
         this.deadRecords.remove(uuid);
+        reconcileCompanionMagicContributors(previousMagicContributors);
     }
 
     public void replaceUuid(UUID oldUuid, UUID newUuid) {
@@ -405,6 +421,7 @@ public class PlayerCompanionData {
         moveMapEntry(this.lifecycleStates, oldUuid, newUuid);
         moveMapEntry(this.animationStyles, oldUuid, newUuid);
         moveMapEntry(this.effectStyles, oldUuid, newUuid);
+        moveMapEntry(this.spellBindings, oldUuid, newUuid);
         replaceInList(this.deadCompanions, oldUuid, newUuid);
         CompanionKind deadKind = this.deadKinds.remove(oldUuid);
         if (deadKind != null) {
@@ -902,6 +919,101 @@ public class PlayerCompanionData {
         return entityType != null && this.bindingCinematicSeenTypes.contains(entityType);
     }
 
+    public List<CompanionSpellBinding> spellBindings(UUID uuid) {
+        List<CompanionSpellBinding> bindings = uuid == null ? null : this.spellBindings.get(uuid);
+        if (bindings == null || bindings.isEmpty()) return List.of();
+        return java.util.Collections.unmodifiableList(new ArrayList<>(bindings));
+    }
+
+    public int companionMagicContributorCount(int contributionLimit) {
+        int count = companionCreatureCount();
+        return contributionLimit <= 0 ? count : Math.min(count, contributionLimit);
+    }
+
+    int companionCreatureCount() {
+        return this.companions.get(CompanionKind.COMPANION).size()
+                + this.companions.get(CompanionKind.MOUNT).size();
+    }
+
+    void reconcileCompanionMagicContributors(int previousCount) {
+        int limit = Config.companionMagicContributionLimit;
+        float oldCapacity = (limit <= 0 ? previousCount : Math.min(previousCount, limit)) * 100.0F;
+        float newCapacity = companionMagicContributorCount(limit) * 100.0F;
+        if (this.companionMagicMana < 0.0F || this.companionMagicCapacity < 0.0F) {
+            this.companionMagicMana = newCapacity;
+        } else {
+            float mana = Math.min(oldCapacity, this.companionMagicMana);
+            if (newCapacity > oldCapacity) mana += newCapacity - oldCapacity;
+            this.companionMagicMana = Math.min(newCapacity, mana);
+        }
+        this.companionMagicCapacity = newCapacity;
+    }
+
+    public float companionMagicMana() {
+        return this.companionMagicMana;
+    }
+
+    public long companionMagicManaTick() {
+        return this.companionMagicManaTick;
+    }
+
+    public float companionMagicCapacity() {
+        return this.companionMagicCapacity;
+    }
+
+    public void setCompanionMagicMana(float mana, long tick) {
+        this.companionMagicMana = mana;
+        this.companionMagicManaTick = Math.max(0L, tick);
+    }
+
+    public void setCompanionMagicMana(float mana, long tick, float capacity) {
+        setCompanionMagicMana(mana, tick);
+        this.companionMagicCapacity = capacity;
+    }
+
+    public Optional<CompanionSpellBinding> spellBinding(UUID uuid, int slot) {
+        List<CompanionSpellBinding> bindings = uuid == null ? null : this.spellBindings.get(uuid);
+        return slot < 0 || slot >= COMPANION_SPELL_SLOT_COUNT || bindings == null || slot >= bindings.size()
+                ? Optional.empty() : Optional.ofNullable(bindings.get(slot));
+    }
+
+    public void setSpellBinding(UUID uuid, int slot, CompanionSpellBinding binding) {
+        if (uuid == null || slot < 0 || slot >= COMPANION_SPELL_SLOT_COUNT) return;
+        List<CompanionSpellBinding> bindings = new ArrayList<>(this.spellBindings.getOrDefault(uuid, List.of()));
+        while (bindings.size() < COMPANION_SPELL_SLOT_COUNT) bindings.add(null);
+        bindings.set(slot, binding);
+        if (bindings.stream().allMatch(java.util.Objects::isNull)) this.spellBindings.remove(uuid);
+        else this.spellBindings.put(uuid, bindings);
+    }
+
+    public Optional<CompanionSpellBinding> clearSpellBinding(UUID uuid, int slot) {
+        Optional<CompanionSpellBinding> previous = spellBinding(uuid, slot);
+        setSpellBinding(uuid, slot, null);
+        return previous;
+    }
+
+    public void queueSpellItemReturns(UUID uuid) {
+        List<CompanionSpellBinding> bindings = uuid == null ? null : this.spellBindings.remove(uuid);
+        if (bindings == null) return;
+        for (CompanionSpellBinding binding : bindings) {
+            if (binding == null || binding.itemTag().isEmpty()) continue;
+            CompoundTag item = binding.itemTag();
+            item.putByte("Count", (byte)1);
+            item.putInt("count", 1);
+            this.pendingSpellItemReturns.add(item);
+        }
+    }
+
+    public boolean hasPendingSpellItemReturns() {
+        return !this.pendingSpellItemReturns.isEmpty();
+    }
+
+    public List<CompoundTag> drainPendingSpellItemReturns() {
+        List<CompoundTag> result = this.pendingSpellItemReturns.stream().map(CompoundTag::copy).toList();
+        this.pendingSpellItemReturns.clear();
+        return result;
+    }
+
     public boolean markBindingCinematicSeen(String entityType) {
         return entityType != null && !entityType.isBlank() && this.bindingCinematicSeenTypes.add(entityType);
     }
@@ -911,6 +1023,7 @@ public class PlayerCompanionData {
     }
 
     public boolean addVehicle(UUID uuid) {
+        int previousMagicContributors = companionCreatureCount();
         boolean changed = false;
         for (List<UUID> list : this.companions.values()) {
             changed |= list.remove(uuid);
@@ -922,6 +1035,7 @@ public class PlayerCompanionData {
         this.deadCompanions.remove(uuid);
         this.deadKinds.remove(uuid);
         this.vehicleMounts.remove(uuid);
+        queueSpellItemReturns(uuid);
         if (!this.vehicles.contains(uuid)) {
             this.vehicles.add(uuid);
             changed = true;
@@ -934,6 +1048,7 @@ public class PlayerCompanionData {
                 changed = true;
             }
         }
+        reconcileCompanionMagicContributors(previousMagicContributors);
         return changed;
     }
 
@@ -1046,14 +1161,28 @@ public class PlayerCompanionData {
 
     public void setLifecycleState(UUID uuid, CompanionLifecycleState state) {
         if (uuid != null && state != null) {
+            CompanionLifecycleState previous = lifecycleState(uuid);
             this.lifecycleStates.put(uuid, state);
+            if (previous != state) markLifecycleChanged(uuid);
         }
     }
 
     public void clearLifecycleState(UUID uuid) {
         if (uuid != null) {
-            this.lifecycleStates.remove(uuid);
+            if (this.lifecycleStates.remove(uuid) != null) markLifecycleChanged(uuid);
         }
+    }
+
+    void markLifecycleChanged(UUID uuid) {
+        if (uuid != null) this.lifecycleChanges.add(uuid);
+    }
+
+    Set<UUID> lifecycleChanges() {
+        return Set.copyOf(this.lifecycleChanges);
+    }
+
+    void clearLifecycleChanges() {
+        this.lifecycleChanges.clear();
     }
 
     public Set<UUID> storedEntityIds() {
@@ -1070,6 +1199,7 @@ public class PlayerCompanionData {
         metadata.put("display-name", Set.copyOf(this.displayNames.keySet()));
         metadata.put("animation-style", Set.copyOf(this.animationStyles.keySet()));
         metadata.put("effect-style", Set.copyOf(this.effectStyles.keySet()));
+        metadata.put("spell-binding", Set.copyOf(this.spellBindings.keySet()));
         metadata.put("origin", Set.copyOf(this.origins.keySet()));
         metadata.put("last-known-position", Set.copyOf(this.lastKnownPositions.keySet()));
         metadata.put("home-position", Set.copyOf(this.homePositions.keySet()));
@@ -1165,6 +1295,7 @@ public class PlayerCompanionData {
 
     public void setHomePosition(UUID uuid, SavedPosition position) {
         PlayerCompanionEntityStateService.setHomePosition(this, uuid, position);
+        markLifecycleChanged(uuid);
     }
 
     public Optional<SavedPosition> homePosition(UUID uuid) {
@@ -1173,10 +1304,12 @@ public class PlayerCompanionData {
 
     public void clearHomePosition(UUID uuid) {
         PlayerCompanionEntityStateService.clearHomePosition(this, uuid);
+        markLifecycleChanged(uuid);
     }
 
     public void setHomeNestBlock(UUID uuid, SavedPosition position) {
         PlayerCompanionEntityStateService.setHomeNestBlock(this, uuid, position);
+        markLifecycleChanged(uuid);
     }
 
     public Optional<SavedPosition> homeNestBlock(UUID uuid) {
@@ -1185,10 +1318,12 @@ public class PlayerCompanionData {
 
     public void clearHomeNestBlock(UUID uuid) {
         PlayerCompanionEntityStateService.clearHomeNestBlock(this, uuid);
+        markLifecycleChanged(uuid);
     }
 
     public void setHomeHouseId(UUID uuid, UUID houseId) {
         PlayerCompanionEntityStateService.setHomeHouseId(this, uuid, houseId);
+        markLifecycleChanged(uuid);
     }
 
     public Optional<UUID> homeHouseId(UUID uuid) {
@@ -1197,6 +1332,7 @@ public class PlayerCompanionData {
 
     public void clearHomeHouseId(UUID uuid) {
         PlayerCompanionEntityStateService.clearHomeHouseId(this, uuid);
+        markLifecycleChanged(uuid);
     }
 
     public int clearHomesForNestBlock(SavedPosition source) {

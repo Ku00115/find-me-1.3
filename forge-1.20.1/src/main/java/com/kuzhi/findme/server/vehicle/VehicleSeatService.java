@@ -110,11 +110,6 @@ public final class VehicleSeatService {
         return data.vehicleSeatOffset(vehicleUuid).isPresent();
     }
 
-    static boolean teleportToSableSeat(ServerPlayer player, SableVehicleCompatibility.Handle handle,
-                                       PlayerCompanionData data) {
-        return false;
-    }
-
     public static void tick(MinecraftServer server) {
         Iterator<SeatSession> iterator = SESSIONS.values().iterator();
         while (iterator.hasNext()) {

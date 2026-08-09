@@ -3,6 +3,7 @@ package com.kuzhi.findme.server.command;
 import com.kuzhi.findme.common.FindMeModule;
 import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.network.OpenFindMeManageScreenPacket;
+import com.kuzhi.findme.network.OpenFindMeHudEditorPacket;
 import com.kuzhi.findme.server.module.FindMeModuleService;
 import com.kuzhi.findme.server.profile.CompanionBindingProfileService;
 import com.kuzhi.findme.server.profile.PackAnimationPresetService;
@@ -39,6 +40,11 @@ public final class CompanionCommands {
                 .executes(ctx -> openEditor(player(ctx.getSource()))));
         root.then(Commands.literal("manage")
                 .executes(ctx -> openManage(player(ctx.getSource()))));
+        root.then(Commands.literal("hud")
+                .then(Commands.literal("edit")
+                        .executes(ctx -> openHudEditor(player(ctx.getSource()))))
+                .then(Commands.literal("reset")
+                        .executes(ctx -> resetHud(player(ctx.getSource())))));
         root.then(Commands.literal("tame")
                 .requires(source -> source.hasPermission(2))
                 .executes(ctx -> forceTameLookedAt(player(ctx.getSource())))
@@ -62,6 +68,18 @@ public final class CompanionCommands {
         }
         FindMeModuleService.sync(player);
         ModNetwork.sendToPlayer(player, new OpenFindMeManageScreenPacket());
+        return 1;
+    }
+
+    private static int openHudEditor(ServerPlayer player) {
+        if (!FindMeModuleService.require(player, FindMeModule.MANAGEMENT)) return 0;
+        ModNetwork.sendToPlayer(player, new OpenFindMeHudEditorPacket(false));
+        return 1;
+    }
+
+    private static int resetHud(ServerPlayer player) {
+        if (!FindMeModuleService.require(player, FindMeModule.MANAGEMENT)) return 0;
+        ModNetwork.sendToPlayer(player, new OpenFindMeHudEditorPacket(true));
         return 1;
     }
 

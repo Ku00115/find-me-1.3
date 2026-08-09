@@ -62,8 +62,9 @@ public static void encode(VehicleListPacket packet, FriendlyByteBuf buffer) {
     }
 
     private static List<Entry> readEntries(FriendlyByteBuf buffer) {
-        int size = buffer.readVarInt();
-        ArrayList<Entry> entries = new ArrayList<Entry>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_ROSTER_ENTRIES,
+                "vehicle roster entry");
+        ArrayList<Entry> entries = new ArrayList<Entry>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; ++i) {
             entries.add(new Entry(buffer.readUUID(), buffer.readInt(), buffer.readUtf(128), buffer.readUtf(128),
                     buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(),
@@ -81,11 +82,10 @@ public static void encode(VehicleListPacket packet, FriendlyByteBuf buffer) {
                         CompanionAnimationStyle switchAnimation, CompanionEffectStyle summonStyle,
                         CompanionEffectStyle rescueStyle, CompanionEffectStyle storageStyle, CompoundTag previewTag) {
         public CompanionListPacket.Entry asPreviewEntry() {
-            boolean sable = "simulated:sable_sublevel".equals(this.entityType);
-            return new CompanionListPacket.Entry(this.uuid, this.entityId, sable ? "" : this.entityType, this.name,
+            return new CompanionListPacket.Entry(this.uuid, this.entityId, this.entityType, this.name,
                     this.loaded, this.alive, this.deployed, this.ridden, false, false, null, 0.0f, 0.0f, 0.0f,
                     CompanionMoveType.WALK, summonAnimation, rescueAnimation, storageAnimation,
-                    switchAnimation, summonStyle, rescueStyle, storageStyle, sable ? null : this.previewTag);
+                    switchAnimation, summonStyle, rescueStyle, storageStyle, this.previewTag);
         }
     }
 }

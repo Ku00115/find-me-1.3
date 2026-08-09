@@ -18,6 +18,7 @@ import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.kuzhi.findme.network.DeadCompanionListPacket;
 import com.kuzhi.findme.network.ModNetwork;
+import com.kuzhi.findme.api.FindMeApi;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -93,6 +94,9 @@ public final class CompanionSyncService {
         CompanionMoveType entryMoveType = entity == null ? CompanionEntityClassifier.moveType(entityType, kind) : CompanionEntityClassifier.moveType(entity, kind);
         CompoundTag fullPreviewTag = entity == null ? storedTag.map(CompoundTag::copy).orElse(null) : CompanionEntitySnapshots.previewEntityTag(entity, entityType);
         CompoundTag previewTag = previewTagForPacket(player, kind, uuid, entityType, fullPreviewTag);
+        var spellBindings = data.spellBindings(uuid);
+        var magicState = FindMeApi.companionMagicState(player, uuid,
+                entity instanceof LivingEntity living ? living : null, storedTag.orElse(null), spellBindings);
         return new CompanionListPacket.Entry(uuid, entity == null ? -1 : entity.getId(), entityType, name, loaded,
                 alive, deployed, ridden, hasHome, homeResident,
                 CompanionTacticalOrderService.currentAction(uuid), health, maxHealth, armor, entryMoveType,
@@ -102,7 +106,8 @@ public final class CompanionSyncService {
                 data.animationStyle(uuid, com.kuzhi.findme.common.CompanionAnimationPurpose.SWITCH, entityType),
                 data.effectStyle(uuid, CompanionEffectPurpose.SUMMON, entityType),
                 data.effectStyle(uuid, CompanionEffectPurpose.RESCUE, entityType),
-                data.effectStyle(uuid, CompanionEffectPurpose.STORAGE, entityType), previewTag);
+                data.effectStyle(uuid, CompanionEffectPurpose.STORAGE, entityType),
+                spellBindings, magicState, previewTag);
     }
 
     public static void forgetPlayer(ServerPlayer player) {

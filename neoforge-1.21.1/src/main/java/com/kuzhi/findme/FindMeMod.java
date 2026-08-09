@@ -5,6 +5,7 @@ import com.kuzhi.findme.common.ModBlocks;
 import com.kuzhi.findme.common.ModBlockEntities;
 import com.kuzhi.findme.common.ModItems;
 import com.kuzhi.findme.common.ModParticles;
+import com.kuzhi.findme.common.ModCreativeTabs;
 import com.kuzhi.findme.client.ClientEvents;
 import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.server.core.CompanionEvents;
@@ -33,6 +34,7 @@ public class FindMeMod {
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModItems.register(modEventBus);
+        ModCreativeTabs.register(modEventBus);
         ModParticles.register(modEventBus);
         Config.register(modEventBus);
         if (FMLEnvironment.dist == Dist.CLIENT) {

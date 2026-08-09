@@ -5,8 +5,12 @@ public enum CompanionTacticalAction {
     HOLD,
     MOVE_TO,
     ATTACK_TARGET,
+    MAGIC_ATTACK,
     LAND,
     STOP_CURRENT,
     GUARD_HERE,
-    PROTECT_OWNER
+    PROTECT_OWNER,
+    HEAL_OWNER,
+    MAGIC_PROTECT,
+    MAGIC_SUPPORT
 }

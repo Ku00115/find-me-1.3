@@ -10,6 +10,7 @@ final class PlayerCompanionDeadService {
     }
 
     static boolean markDead(PlayerCompanionData data, UUID uuid, CompanionKind kind, int vaultLimit) {
+        int previousMagicContributors = data.companionCreatureCount();
         data.vaultSnapshot(uuid, kind, "dead", vaultLimit);
         boolean wasKnown = false;
         for (CompanionKind liveKind : CompanionKind.values()) {
@@ -30,6 +31,8 @@ final class PlayerCompanionDeadService {
         data.removeTeamMember(uuid);
         data.mountEligible.remove(uuid);
         data.vehicleMounts.remove(uuid);
+        data.reconcileCompanionMagicContributors(previousMagicContributors);
+        data.markLifecycleChanged(uuid);
         return true;
     }
 
@@ -50,6 +53,7 @@ final class PlayerCompanionDeadService {
             return false;
         }
         UUID deadUuid = uuid.get();
+        data.markLifecycleChanged(deadUuid);
         data.vaultSnapshot(deadUuid, data.deadKinds.getOrDefault(deadUuid, CompanionKind.COMPANION), "dead_remove", vaultLimit);
         data.deadCompanions.remove(index);
         data.deadKinds.remove(deadUuid);
@@ -60,6 +64,7 @@ final class PlayerCompanionDeadService {
         data.displayNames.remove(deadUuid);
         data.mountEligible.remove(deadUuid);
         data.vehicleMounts.remove(deadUuid);
+        data.queueSpellItemReturns(deadUuid);
         return true;
     }
 

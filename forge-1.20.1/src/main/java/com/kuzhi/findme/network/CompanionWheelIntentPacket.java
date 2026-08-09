@@ -15,7 +15,7 @@ public static void encode(CompanionWheelIntentPacket packet, FriendlyByteBuf buf
         buffer.writeUUID(packet.requestId);
         buffer.writeEnum(packet.kind);
         buffer.writeEnum(packet.action);
-        buffer.writeUUID(packet.targetUuid);
+        buffer.writeUUID(packet.targetUuid == null ? new UUID(0L, 0L) : packet.targetUuid);
         buffer.writeLong(packet.expectedRevision);
     }
 

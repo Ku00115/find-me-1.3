@@ -16,8 +16,6 @@ import com.kuzhi.findme.common.CompanionTeamAction;
 import com.kuzhi.findme.common.CompanionTeamTarget;
 import com.kuzhi.findme.common.WarehouseEntityAction;
 import com.kuzhi.findme.common.DoctorCommandAction;
-import com.kuzhi.findme.common.DoctorArea;
-import com.kuzhi.findme.common.DoctorIssueCode;
 import com.kuzhi.findme.common.FindMeSettingsAction;
 import com.kuzhi.findme.common.FindMeUiSettings;
 import com.kuzhi.findme.common.FindMeModule;
@@ -29,9 +27,12 @@ import com.kuzhi.findme.common.FindMeRidingCameraMode;
 import com.kuzhi.findme.common.BindingAnimationPolicy;
 import com.kuzhi.findme.common.SummonedOutlineMode;
 import com.kuzhi.findme.network.CompanionListPacket;
+import com.kuzhi.findme.network.BackupWarehousePacket;
 import com.kuzhi.findme.network.CompanionCommandPacket;
 import com.kuzhi.findme.network.CompanionEffectStylePacket;
 import com.kuzhi.findme.network.CompanionAnimationStylePacket;
+import com.kuzhi.findme.network.CompanionSpellSlotCandidatesPacket;
+import com.kuzhi.findme.network.CompanionSpellSlotPacket;
 import com.kuzhi.findme.network.CompanionTeamCommandPacket;
 import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.network.VehicleCommandPacket;
@@ -51,14 +52,19 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.HashSet;
 import java.util.Set;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 import org.lwjgl.glfw.GLFW;
 
 /** Shared AUI manager shell for mounts, vehicles, companions and teams. */
 public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
+    private static final DateTimeFormatter BACKUP_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT);
     private static final String PATH = "findme/manage/manager.html";
     private static final long FULL_SYNC_TTL_NANOS = 15_000_000_000L;
     private static final long MIN_SYNC_INTERVAL_NANOS = 2_000_000_000L;
@@ -106,18 +112,24 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private String contextMotionClass = "";
     private FindMeAuiContextMenuPlacement.Bounds contextBounds = FindMeAuiContextMenuPlacement.EMPTY;
     private String pendingDanger = "";
+    private UUID spellPickerUuid;
+    private UUID spellPickerRequestId;
+    private int spellPickerCompanionSlot = -1;
+    private List<CompanionSpellSlotCandidatesPacket.Entry> spellPickerCandidates = List.of();
+    private int spellPickerSelectedSlot = -1;
     private long lastSignature;
     private FindMeUiSettings settings = FindMeUiSettings.defaults();
     private DoctorPagePacket doctor;
+    private BackupWarehousePacket backupWarehouse;
+    private boolean backupWarehousePreview;
     private int pendingBackup = -1;
     private long pendingBackupSavedAt;
-    private DoctorView doctorView = DoctorView.OVERVIEW;
-    private DoctorArea doctorAreaFilter;
-    private int doctorSelectedIssue = -1;
-    private UUID doctorSelectedComparison;
-    private int doctorBackupPage;
+    private DoctorView doctorView = DoctorView.BACKUPS;
     private boolean doctorRestoreConfirm;
-    private double doctorBackupScrollLeft;
+    private double doctorBackupScrollTop;
+    private boolean doctorBackupScrollDragging;
+    private double doctorBackupScrollDragOffset;
+    private String lastDoctorBackupScrollThumbStyle = "";
     private int lastTeamScrollThumbTop = -1;
     private String lastTeamSelectionMarkerStyle = "";
     private String lastWarehouseScrollThumbStyle = "";
@@ -222,11 +234,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         deadFilter = DeadFilter.ALL;
         detailSection = 0;
         settingsSection = 0;
-        doctorView = DoctorView.OVERVIEW;
-        doctorAreaFilter = null;
-        doctorSelectedIssue = -1;
-        doctorBackupPage = 0;
+        doctorView = DoctorView.BACKUPS;
         doctorRestoreConfirm = false;
+        backupWarehouse = null;
+        backupWarehousePreview = false;
+        doctorBackupScrollTop = 0.0;
+        doctorBackupScrollDragging = false;
+        doctorBackupScrollDragOffset = 0.0;
+        lastDoctorBackupScrollThumbStyle = "";
         selectedUuid = null;
         expandedUuid = null;
         pendingInsertedMemberUuid = null;
@@ -252,6 +267,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         contextMotionClass = "";
         contextBounds = FindMeAuiContextMenuPlacement.EMPTY;
         pendingDanger = "";
+        clearSpellPicker();
         pendingSyncTicks = -1;
         forcedRefreshTicks = -1;
         refreshDebounceTicks = -1;
@@ -273,7 +289,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             if (targetUuid != null && targetUuid.equals(current.cardExitUuid)) {
                 current.finishCardExitResult(success, targetUuid);
             }
-            current.setStatus(tr(success ? "screen.find_me.aui.status.ok" : "screen.find_me.aui.status.error", message == null ? "" : message), success ? 40 : 100);
+            if (message != null && !message.isBlank()) {
+                current.setStatus(tr(success ? "screen.find_me.aui.status.ok" : "screen.find_me.aui.status.error", message), success ? 40 : 100);
+            }
             current.scheduleRefresh(0);
         }
     }
@@ -308,19 +326,28 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     public static void updateDoctor(DoctorPagePacket value) {
-        if (current == null) return;
+        if (current == null) {
+            com.kuzhi.findme.FindMeMod.LOGGER.warn("[FindMe backup-ui] doctor packet dropped: no active manage screen");
+            return;
+        }
+        if (value != null) {
+            com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] doctor packet received view={} doctorView={} success={} records={} message={}",
+                    current.view, current.doctorView, value.success(), value.backups().size(), value.messageKey());
+        } else {
+            com.kuzhi.findme.FindMeMod.LOGGER.warn("[FindMe backup-ui] doctor packet received: null payload");
+        }
+        // A doctor sync can arrive during the fold-in/fold-out page transition. Do not let
+        // the network response cancel the visual transition that is already in progress.
+        if (!current.isTransitionRunning()) current.settlePageTransition();
         current.doctor = value;
         if (value != null && value.messageKey() != null
-                && (value.messageKey().endsWith("backup_restored") || value.messageKey().endsWith("restore_refused"))) {
+                && (value.messageKey().endsWith("backup_created")
+                || value.messageKey().endsWith("backup_restored")
+                || value.messageKey().endsWith("restore_refused"))) {
             current.doctorView = DoctorView.BACKUPS;
             current.pendingBackup = -1;
             current.pendingBackupSavedAt = 0L;
             current.doctorRestoreConfirm = false;
-        }
-        current.pendingBackup = value == null ? -1 : value.previewIndex() >= 0 ? value.previewIndex() : current.pendingBackup;
-        if (value != null && value.backupDetail() != null) {
-            current.doctorBackupPage = value.backupDetail().page();
-            current.doctorView = DoctorView.BACKUP_DETAIL;
         }
         current.pendingBackupSavedAt = value == null || current.pendingBackup < 0 ? 0L
                 : value.backups().stream()
@@ -328,16 +355,86 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 .findFirst()
                 .map(DoctorPagePacket.Backup::savedAt)
                 .orElse(0L);
+        if (value != null && current.pendingBackup >= 0) {
+            boolean restoreTargetValid = value.backups().stream()
+                    .anyMatch(backup -> backup.index() == current.pendingBackup && backup.checksumValid());
+            if (!restoreTargetValid) current.doctorRestoreConfirm = false;
+        }
         if (value != null && value.messageKey() != null && !value.messageKey().isBlank()) {
             String localized = tr(value.messageKey());
             current.setStatus(tr(value.success() ? "screen.find_me.aui.status.ok" : "screen.find_me.aui.status.error", localized), value.success() ? 40 : 100);
         }
-        current.scheduleRefresh(2);
+        // The packet is already handled on the client thread. Rebuild the populated shell now.
+        current.scheduleRefresh(0);
+    }
+
+    public static void updateBackupWarehouse(BackupWarehousePacket value) {
+        if (current == null) return;
+        if (value != null) {
+            com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] received snapshot index={} success={} entries={} message={}",
+                    value.backupIndex(), value.success(), value.entries().size(), value.messageKey());
+        }
+        if (value != null && value.success()) {
+            current.backupWarehouse = value;
+            current.backupWarehousePreview = true;
+            current.view = View.WAREHOUSE;
+            current.warehouseFilter = WarehouseFilter.ALL;
+            current.warehouseSelectionMode = false;
+            current.warehouseScrollTop = 0.0;
+            current.selectedUuid = null;
+            current.expandedUuid = null;
+            current.search = "";
+            current.contextOpen = false;
+        } else if (value != null && !value.success()) {
+            current.backupWarehouse = null;
+            current.backupWarehousePreview = false;
+            current.view = View.DOCTOR;
+            current.doctorView = DoctorView.BACKUPS;
+        }
+        if (value != null && value.messageKey() != null && !value.messageKey().isBlank()) {
+            String localized = tr(value.messageKey());
+            current.setStatus(tr(value.success() ? "screen.find_me.aui.status.ok" : "screen.find_me.aui.status.error", localized), value.success() ? 40 : 100);
+        }
+        current.scheduleRefresh(0);
+    }
+
+    public static void openSpellScrollPicker(UUID uuid, int companionSlot, UUID requestId,
+                                             List<CompanionSpellSlotCandidatesPacket.Entry> entries) {
+        if (current == null || uuid == null || requestId == null
+                || !uuid.equals(current.spellPickerUuid)
+                || companionSlot != current.spellPickerCompanionSlot
+                || !requestId.equals(current.spellPickerRequestId)) return;
+        current.spellPickerUuid = uuid;
+        current.spellPickerCandidates = entries == null ? List.of() : List.copyOf(entries);
+        boolean keepSelection = current.spellPickerCandidates.stream()
+                .anyMatch(entry -> entry.inventorySlot() == current.spellPickerSelectedSlot);
+        if (!keepSelection) {
+            current.spellPickerSelectedSlot = current.spellPickerCandidates.isEmpty()
+                    ? -1 : current.spellPickerCandidates.get(0).inventorySlot();
+        }
+        current.contextTeam = -1;
+        current.contextBackupIndex = -1;
+        current.contextBackupSavedAt = 0L;
+        current.settingsChoiceMenu = SettingsChoiceMenu.NONE;
+        current.warehouseMenuPage = WarehouseMenuPage.MAIN;
+        current.teamMenuPage = TeamMenuPage.MAIN;
+        current.warehouseAnimationPurpose = null;
+        current.warehouseEffectPurpose = null;
+        current.pendingDanger = "";
+        current.contextOpen = true;
+        current.contextMotionClass = "fm-context-morph";
+        current.refreshContextOverlay();
+        if (current.spellPickerCandidates.isEmpty()) {
+            current.setStatus(tr("screen.find_me.spell_slot.no_candidates"), 70);
+        }
     }
 
     @Override
     protected void init() {
         super.init();
+        com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] manage init size={}x{} reusedMain={} mainActive={} overlayActive={} animations={}",
+                width, height, reusedMainDocument(), getLinkedDocument() != null && getLinkedDocument().isActive(),
+                getOverlayDocument() != null && getOverlayDocument().isActive(), ClientWheelPresentationState.uiAnimations());
         bindDocument();
         bindContextOverlay();
         refreshDocument();
@@ -397,6 +494,47 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     @Override
+    protected void renderMainDocumentOverlay(GuiGraphics graphics) {
+        if (expandedUuid == null || cardTogglePhase != CardTogglePhase.IDLE || isTransitionRunning()) return;
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0f, 0.0f, 450.0f);
+        renderSpellIcons(graphics, getLinkedDocument(),
+                ".member-card.selected-card .selected-spell-slots .spell-slot-icon[data-spell-icon]", false);
+        graphics.pose().popPose();
+    }
+
+    @Override
+    protected void renderContextDocumentOverlay(GuiGraphics graphics) {
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0f, 0.0f, 50.0f);
+        renderSpellIcons(graphics, getOverlayDocument(), ".spell-picker-icon[data-spell-icon]", true);
+        graphics.pose().popPose();
+    }
+
+    private void renderSpellIcons(GuiGraphics graphics, Document document, String selector, boolean clipToPicker) {
+        if (document == null) return;
+        Element clip = clipToPicker ? document.querySelector(".spell-picker-list") : null;
+        if (clip != null) {
+            Position position = Position.of(clip);
+            Size size = Size.of(clip);
+            graphics.enableScissor((int) Math.floor(position.x), (int) Math.floor(position.y),
+                    (int) Math.ceil(position.x + size.width()), (int) Math.ceil(position.y + size.height()));
+        }
+        for (Element element : document.querySelectorAll(selector)) {
+            ResourceLocation texture = ResourceLocation.tryParse(element.getAttribute("data-spell-icon"));
+            if (texture == null) continue;
+            Position position = Position.of(element);
+            Size size = Size.of(element);
+            int x = (int) Math.round(position.x);
+            int y = (int) Math.round(position.y);
+            int width = Math.max(1, (int) Math.round(size.width()));
+            int height = Math.max(1, (int) Math.round(size.height()));
+            graphics.blit(texture, x, y, 0.0f, 0.0f, width, height, width, height);
+        }
+        if (clip != null) graphics.disableScissor();
+    }
+
+    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (contextOpen && !contextBounds.overlaps(mouseX, mouseY, 1.0, 1.0)) {
             dismissContextMenu();
@@ -406,6 +544,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             Element directAction = expandedCardActionAt(mouseX, mouseY);
             if (directAction != null) {
                 settleCardToggleForDirectAction();
+                if ("spell-slot-bind".equals(directAction.getAttribute("data-action"))) {
+                    rememberContextAnchor(mouseX, mouseY);
+                }
                 handleAction(directAction.getAttribute("data-action"), directAction.getAttribute("data-value"));
                 return true;
             }
@@ -416,7 +557,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private Element expandedCardActionAt(double mouseX, double mouseY) {
         Document document = getLinkedDocument();
         if (document == null || view != View.TEAM || expandedUuid == null) return null;
-        for (Element element : document.querySelectorAll(".selected-action")) {
+        List<Element> directActions = new ArrayList<>();
+        directActions.addAll(document.querySelectorAll(".selected-action"));
+        directActions.addAll(document.querySelectorAll(".selected-spell-slots .spell-slot-frame"));
+        for (Element element : directActions) {
             Position position = Position.of(element);
             Size size = Size.of(element);
             if (size.width() <= 0.0 || size.height() <= 0.0) continue;
@@ -437,6 +581,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private void dismissContextMenu() {
         contextOpen = false;
+        doctorRestoreConfirm = false;
         settingsChoiceMenu = SettingsChoiceMenu.NONE;
         contextTeam = -1;
         contextBackupIndex = -1;
@@ -446,8 +591,17 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         warehouseAnimationPurpose = null;
         warehouseEffectPurpose = null;
         pendingDanger = "";
+        clearSpellPicker();
         contextBounds = FindMeAuiContextMenuPlacement.EMPTY;
         clearOverlayMarkup();
+    }
+
+    private void clearSpellPicker() {
+        spellPickerUuid = null;
+        spellPickerRequestId = null;
+        spellPickerCompanionSlot = -1;
+        spellPickerCandidates = List.of();
+        spellPickerSelectedSlot = -1;
     }
 
     @Override
@@ -479,9 +633,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private void bindDocument() {
         Document document = getLinkedDocument();
-        if (document == null || document.body == null) return;
+        if (document == null || document.body == null) {
+            com.kuzhi.findme.FindMeMod.LOGGER.error("[FindMe backup-ui] bind main failed document={} body={}",
+                    document != null, document != null && document.body != null);
+            return;
+        }
         Element root = document.body;
         if (!"1".equals(root.getAttribute("data-findme-bound"))) {
+            com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] main document event binding installed");
             root.setAttribute("data-findme-bound", "1");
             root.addEventListener("click", event -> {
                 if (suppressClickTicks > 0) {
@@ -494,9 +653,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 Element action = target.closest("[data-action]");
                 if (action == null) return;
                 FindMeAuiSound.click();
+                com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] main click action={} value={} view={} contextOpen={} transition={}",
+                        action.getAttribute("data-action"), action.getAttribute("data-value"), view, contextOpen, isTransitionRunning());
                 if (event instanceof MouseEvent mouse) {
                     String actionName = action.getAttribute("data-action");
-                    if ("open-team-menu".equals(actionName) || "open-settings-choice".equals(actionName)) {
+                    if ("open-team-menu".equals(actionName) || "open-settings-choice".equals(actionName)
+                            || "spell-slot-bind".equals(actionName)) {
                         rememberContextAnchor(mouse.clientX, mouse.clientY);
                     }
                 }
@@ -514,6 +676,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     return;
                 }
                 if (beginSettingsScroll(mouse, target)) {
+                    event.preventDefault();
+                    return;
+                }
+                if (beginDoctorBackupScroll(mouse, target)) {
                     event.preventDefault();
                     return;
                 }
@@ -536,6 +702,11 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     event.preventDefault();
                     return;
                 }
+                if (doctorBackupScrollDragging) {
+                    dragDoctorBackupScroll(mouse);
+                    event.preventDefault();
+                    return;
+                }
                 updateDrag(mouse, target);
             });
             root.addEventListener("mouseup", event -> {
@@ -547,6 +718,11 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 }
                 if (settingsScrollDragging) {
                     settingsScrollDragging = false;
+                    event.preventDefault();
+                    return;
+                }
+                if (doctorBackupScrollDragging) {
+                    doctorBackupScrollDragging = false;
                     event.preventDefault();
                     return;
                 }
@@ -563,11 +739,20 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     event.preventDefault();
                     return;
                 }
+                if (backupWarehousePreview && view == View.WAREHOUSE) {
+                    event.preventDefault();
+                    if (contextOpen) dismissContextMenu();
+                    return;
+                }
                 Element backup = target.closest("[data-backup-index]");
-                if (backup != null && "true".equals(backup.getAttribute("data-backup-manual"))) {
+                if (backup != null && backup.hasAttribute("data-backup-index")) {
                     rememberContextAnchor(mouse.clientX, mouse.clientY);
                     contextBackupIndex = parseInt(backup.getAttribute("data-backup-index"), -1);
                     contextBackupSavedAt = parseLong(backup.getAttribute("data-backup-saved-at"), 0L);
+                    pendingBackup = -1;
+                    pendingBackupSavedAt = 0L;
+                    doctorRestoreConfirm = false;
+                    pendingDanger = "";
                     contextTeam = -1;
                     selectedUuid = null;
                     settingsChoiceMenu = SettingsChoiceMenu.NONE;
@@ -640,11 +825,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     updateWarehouseScrollThumb();
                     return;
                 }
-                Element backups = targetElement.closest(".backup-list");
-                if (backups != null) {
-                    backups.setScrollLeft(backups.getTargetScrollLeft() + delta);
-                    doctorBackupScrollLeft = backups.getTargetScrollLeft();
+                Element backupRecords = targetElement.closest("#findme-doctor-backup-records");
+                if (backupRecords != null) {
+                    backupRecords.setScrollTop(backupRecords.getTargetScrollTop() + delta);
+                    doctorBackupScrollTop = backupRecords.getTargetScrollTop();
                     event.preventDefault();
+                    updateDoctorBackupScrollThumb();
                     return;
                 }
                 Element settingsGrid = targetElement.closest(".settings-grid-viewport");
@@ -664,14 +850,22 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private void bindContextOverlay() {
         Document document = getOverlayDocument();
-        if (document == null || document.body == null || "1".equals(document.body.getAttribute("data-findme-bound"))) return;
+        if (document == null || document.body == null) {
+            com.kuzhi.findme.FindMeMod.LOGGER.error("[FindMe backup-ui] bind overlay failed document={} body={}",
+                    document != null, document != null && document.body != null);
+            return;
+        }
+        if ("1".equals(document.body.getAttribute("data-findme-bound"))) return;
         Element root = document.body;
+        com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] overlay document event binding installed");
         root.setAttribute("data-findme-bound", "1");
         root.addEventListener("click", event -> {
             if (!(event.target instanceof Element element)) return;
             Element action = element.closest("[data-action]");
             if (action != null) {
                 FindMeAuiSound.click();
+                com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] overlay click action={} value={} view={} contextOpen={} transition={}",
+                        action.getAttribute("data-action"), action.getAttribute("data-value"), view, contextOpen, isTransitionRunning());
                 handleAction(action.getAttribute("data-action"), action.getAttribute("data-value"));
                 event.preventDefault();
                 return;
@@ -685,6 +879,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 warehouseAnimationPurpose = null;
                 warehouseEffectPurpose = null;
                 pendingDanger = "";
+                clearSpellPicker();
                 refreshContextOverlay();
                 event.preventDefault();
             }
@@ -698,12 +893,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             warehouseAnimationPurpose = null;
             warehouseEffectPurpose = null;
             pendingDanger = "";
+            clearSpellPicker();
             refreshContextOverlay();
             event.preventDefault();
         });
         root.addEventListener("wheel", event -> {
             if (!(event instanceof MouseEvent mouse) || !(event.target instanceof Element targetElement)) return;
-            Element list = targetElement.closest(".warehouse-team-menu");
+            Element list = targetElement.closest(".spell-picker-list");
+            if (list == null) list = targetElement.closest(".warehouse-team-menu");
             if (list == null) list = targetElement.closest(".warehouse-style-menu");
             if (list == null) list = targetElement.closest(".context-menu");
             if (list != null) {
@@ -1060,7 +1257,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (card == null) {
             selectedUuid = uuid;
             expandedUuid = expanding ? uuid : null;
-            refreshDocument();
+            refreshRosterCards();
             return;
         }
         clearDrag();
@@ -1196,7 +1393,13 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     private void changeView(View targetView) {
+        com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] change view {} -> {} doctor={} doctorView={}",
+                view, targetView, doctor != null, doctorView);
         view = targetView;
+        if (view != View.WAREHOUSE) {
+            backupWarehouse = null;
+            backupWarehousePreview = false;
+        }
         warehouseSelectionMode = false;
         if (view == View.WAREHOUSE) {
             warehouseFilter = WarehouseFilter.ALL;
@@ -1206,24 +1409,38 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         expandedUuid = null;
         contextOpen = false;
         pendingDanger = "";
+        clearSpellPicker();
         if (view == View.TEAM) search = "";
         if (view == View.SETTINGS) {
             ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SYNC, settings, true, ""));
         }
         if (view == View.DOCTOR) {
+            com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] requesting doctor sync from changeView");
             ModNetwork.sendToServer(new DoctorCommandPacket(DoctorCommandAction.SYNC, null, 0, 0L, 0));
         }
         refreshDocument();
+        com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] change view complete view={} doctor={} renderedKeyLength={}",
+                view, doctor != null, renderedMarkupKey.length());
     }
 
     private void handleAction(String action, String value) {
-        if (action == null) return;
-        if (cardExitAction != null || cardTogglePhase != CardTogglePhase.IDLE || isTransitionRunning()) return;
+        if (action == null) {
+            com.kuzhi.findme.FindMeMod.LOGGER.warn("[FindMe backup-ui] handle action ignored: null action");
+            return;
+        }
+        if (cardExitAction != null || cardTogglePhase != CardTogglePhase.IDLE || isTransitionRunning()) {
+            com.kuzhi.findme.FindMeMod.LOGGER.warn("[FindMe backup-ui] handle action blocked action={} view={} cardExit={} cardToggle={} transition={}",
+                    action, view, cardExitAction != null, cardTogglePhase, isTransitionRunning());
+            return;
+        }
+        com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] handle action={} value={} view={} contextOpen={}",
+                action, value, view, contextOpen);
         if (action.startsWith("category:")) {
             Category targetCategory = Category.valueOf(action.substring("category:".length()).toUpperCase(Locale.ROOT));
             if (targetCategory == category) return;
             View categoryView = view == View.WAREHOUSE ? View.WAREHOUSE
-                    : view == View.DEAD ? View.DEAD : View.TEAM;
+                    : view == View.DEAD ? View.DEAD
+                    : view == View.RECOVERY ? View.RECOVERY : View.TEAM;
             boolean forward = targetCategory.ordinal() > category.ordinal();
             transitionSibling(() -> {
                 category = targetCategory;
@@ -1290,12 +1507,13 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (action.equals("back")) {
             if (view == View.DETAIL || view == View.SETTINGS || view == View.DOCTOR) {
                 View targetView = view == View.DETAIL ? returnView : View.TEAM;
-                transitionBack(() -> {
+                Runnable backAction = () -> {
                     view = targetView;
                     contextOpen = false;
                     pendingDanger = "";
                     refreshDocument();
-                });
+                };
+                transitionBack(backAction);
             } else if (view == View.WAREHOUSE && warehouseSelectionMode) {
                 transitionBack(() -> {
                     view = View.TEAM;
@@ -1303,6 +1521,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     selectedUuid = null;
                     search = "";
                     warehouseScrollTop = 0.0;
+                    refreshDocument();
+                });
+            } else if (view == View.WAREHOUSE && backupWarehousePreview) {
+                transitionBack(() -> {
+                    view = View.DOCTOR;
+                    backupWarehousePreview = false;
+                    backupWarehouse = null;
+                    doctorView = DoctorView.BACKUPS;
                     refreshDocument();
                 });
             } else {
@@ -1328,6 +1554,77 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (action.equals("activate-card")) {
             UUID uuid = parseUuid(value);
             if (uuid != null) activateCard(uuid);
+            return;
+        }
+        if (action.equals("spell-slot-bind")) {
+            String[] parts = value == null ? new String[0] : value.split("\\|", 2);
+            UUID uuid = parts.length > 0 ? parseUuid(parts[0]) : null;
+            int companionSlot = parts.length > 1 ? parseInt(parts[1], -1) : -1;
+            if (uuid != null && companionSlot >= 0 && companionSlot < 3) {
+                spellPickerUuid = uuid;
+                spellPickerRequestId = UUID.randomUUID();
+                spellPickerCompanionSlot = companionSlot;
+                spellPickerCandidates = List.of();
+                spellPickerSelectedSlot = -1;
+                contextTeam = -1;
+                contextBackupIndex = -1;
+                contextBackupSavedAt = 0L;
+                settingsChoiceMenu = SettingsChoiceMenu.NONE;
+                warehouseMenuPage = WarehouseMenuPage.MAIN;
+                teamMenuPage = TeamMenuPage.MAIN;
+                warehouseAnimationPurpose = null;
+                warehouseEffectPurpose = null;
+                pendingDanger = "";
+                contextOpen = true;
+                contextMotionClass = "fm-context-open";
+                refreshContextOverlay();
+                ModNetwork.sendToServer(new CompanionSpellSlotPacket(uuid,
+                        CompanionSpellSlotPacket.Action.REQUEST_CANDIDATES, companionSlot, -1,
+                        spellPickerRequestId));
+                setStatus(tr("screen.find_me.spell_slot.scanning"), 50);
+            }
+            return;
+        }
+        if (action.equals("spell-picker-select")) {
+            spellPickerSelectedSlot = parseInt(value, -1);
+            contextMotionClass = "";
+            refreshContextOverlay();
+            return;
+        }
+        if (action.equals("spell-picker-confirm")) {
+            if (spellPickerUuid != null && spellPickerSelectedSlot >= 0) {
+                ModNetwork.sendToServer(new CompanionSpellSlotPacket(spellPickerUuid,
+                        CompanionSpellSlotPacket.Action.BIND_INVENTORY_SLOT,
+                        spellPickerCompanionSlot, spellPickerSelectedSlot));
+                setStatus(tr("screen.find_me.spell_slot.binding"), 50);
+                contextOpen = false;
+                clearSpellPicker();
+                clearOverlayMarkup();
+            }
+            return;
+        }
+        if (action.equals("spell-picker-refresh")) {
+            if (spellPickerUuid != null) {
+                spellPickerRequestId = UUID.randomUUID();
+                ModNetwork.sendToServer(new CompanionSpellSlotPacket(spellPickerUuid,
+                        CompanionSpellSlotPacket.Action.REQUEST_CANDIDATES, spellPickerCompanionSlot, -1,
+                        spellPickerRequestId));
+                setStatus(tr("screen.find_me.spell_slot.scanning"), 50);
+            }
+            return;
+        }
+        if (action.equals("spell-slot-clear")) {
+            String[] parts = value == null ? new String[0] : value.split("\\|", 2);
+            UUID uuid = parts.length > 0 ? parseUuid(parts[0]) : null;
+            int companionSlot = parts.length > 1 ? parseInt(parts[1], -1) : -1;
+            if (uuid != null && companionSlot >= 0 && companionSlot < 3) {
+                ModNetwork.sendToServer(new CompanionSpellSlotPacket(uuid,
+                        CompanionSpellSlotPacket.Action.CLEAR, companionSlot));
+                setStatus(tr("screen.find_me.spell_slot.clearing"), 50);
+                contextOpen = false;
+                clearSpellPicker();
+                clearOverlayMarkup();
+            }
             return;
         }
         if (action.equals("add-current-team")) {
@@ -1374,6 +1671,13 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             settings = settings.withUiAnimations(!settings.uiAnimations());
             ClientWheelPresentationState.update(settings);
             ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SAVE, settings, true, ""));
+            refreshDocument();
+            return;
+        }
+        if (action.equals("settings-hud-toggle")) {
+            boolean visible = ClientFindMeHudLayout.toggleVisible();
+            FindMeHudRenderer.refresh();
+            com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe settings-ui] HUD visibility changed visible={}", visible);
             refreshDocument();
             return;
         }
@@ -1456,56 +1760,63 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             ModNetwork.sendToServer(new DoctorCommandPacket(DoctorCommandAction.SYNC, null, 0, 0L, 0));
             return;
         }
-        if (action.startsWith("doctor-view:")) {
-            try {
-                DoctorView target = DoctorView.valueOf(action.substring("doctor-view:".length()).toUpperCase(Locale.ROOT));
-                transitionPage(() -> {
-                    doctorView = target;
-                    doctorSelectedIssue = -1;
-                    doctorSelectedComparison = null;
-                    doctorRestoreConfirm = false;
-                    refreshDocument();
-                });
-            } catch (IllegalArgumentException ignored) {
-            }
-            return;
-        }
-        if (action.startsWith("doctor-area:")) {
-            try {
-                doctorAreaFilter = DoctorArea.valueOf(action.substring("doctor-area:".length()).toUpperCase(Locale.ROOT));
-                doctorView = DoctorView.REPORT;
-                doctorSelectedIssue = -1;
-                refreshDocument();
-            } catch (IllegalArgumentException ignored) {
-            }
-            return;
-        }
-        if (action.equals("doctor-area-all")) {
-            doctorAreaFilter = null;
-            doctorSelectedIssue = -1;
+        if (action.equals("doctor-view-backups")) {
+            backupWarehousePreview = false;
+            backupWarehouse = null;
+            view = View.DOCTOR;
+            doctorView = DoctorView.BACKUPS;
+            doctorRestoreConfirm = false;
             refreshDocument();
             return;
         }
-        if (action.equals("doctor-issue")) {
-            doctorSelectedIssue = parseInt(value, -1);
-            refreshDocument();
+        if (action.equals("doctor-backup-open-warehouse")) {
+            int index = parseInt(value, -1);
+            long savedAt = doctor == null ? 0L : doctor.backups().stream()
+                    .filter(backup -> backup.index() == index)
+                    .findFirst().map(DoctorPagePacket.Backup::savedAt).orElse(0L);
+            if (index >= 0 && savedAt > 0L) {
+                setStatus(tr("screen.find_me.doctor.message.review_backup"), 40);
+                com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] request snapshot index={} savedAt={}", index, savedAt);
+                ModNetwork.sendToServer(new DoctorCommandPacket(DoctorCommandAction.OPEN_BACKUP_WAREHOUSE,
+                        null, index, savedAt, 0));
+            }
             return;
         }
-        if (action.equals("doctor-preview")) {
+        if (action.equals("doctor-backup-detail")) {
             pendingBackup = parseInt(value, -1);
             pendingBackupSavedAt = doctor == null ? 0L : doctor.backups().stream().filter(backup -> backup.index() == pendingBackup).findFirst().map(DoctorPagePacket.Backup::savedAt).orElse(0L);
-            doctorBackupPage = 0;
-            doctorSelectedComparison = null;
             doctorRestoreConfirm = false;
-            ModNetwork.sendToServer(new DoctorCommandPacket(DoctorCommandAction.PREVIEW_BACKUP, null, pendingBackup, pendingBackupSavedAt, 0));
+            doctorView = DoctorView.BACKUP_DETAIL;
+            refreshDocument();
             return;
         }
-        if (action.equals("doctor-backup-page")) {
-            int page = Math.max(0, parseInt(value, 0));
-            doctorSelectedComparison = null;
-            if (pendingBackup >= 0 && pendingBackupSavedAt > 0L) {
-                ModNetwork.sendToServer(new DoctorCommandPacket(DoctorCommandAction.BACKUP_PAGE, null, pendingBackup, pendingBackupSavedAt, page));
+        if (action.equals("doctor-backup-switch")) {
+            String[] parts = value == null ? new String[0] : value.split("\\|", 2);
+            int index = parts.length > 0 ? parseInt(parts[0], -1) : -1;
+            long savedAt = parts.length > 1 ? parseLong(parts[1], 0L) : 0L;
+            boolean valid = doctor != null && doctor.backups().stream()
+                    .anyMatch(backup -> backup.index() == index && backup.savedAt() == savedAt && backup.checksumValid());
+            if (valid) {
+                pendingBackup = index;
+                pendingBackupSavedAt = savedAt;
+                doctorRestoreConfirm = true;
+                contextMotionClass = "fm-context-alert";
+                refreshContextOverlay();
             }
+            return;
+        }
+        if (action.equals("ask-delete-backup")) {
+            pendingDanger = "backup";
+            contextMotionClass = "fm-context-alert";
+            refreshContextOverlay();
+            return;
+        }
+        if (action.equals("doctor-backup-delete")) {
+            if (contextBackupIndex >= 0 && contextBackupSavedAt > 0L) {
+                ModNetwork.sendToServer(new DoctorCommandPacket(DoctorCommandAction.DELETE_BACKUP, null,
+                        contextBackupIndex, contextBackupSavedAt, 0));
+            }
+            dismissContextMenu();
             return;
         }
         if (action.equals("doctor-backup-rename")) {
@@ -1518,12 +1829,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             dismissContextMenu();
             return;
         }
-        if (action.equals("doctor-compare-row")) {
-            UUID uuid = parseUuid(value);
-            doctorSelectedComparison = uuid != null && uuid.equals(doctorSelectedComparison) ? null : uuid;
-            refreshDocument();
-            return;
-        }
         if (action.equals("doctor-restore-arm")) {
             doctorRestoreConfirm = true;
             refreshDocument();
@@ -1531,12 +1836,18 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         if (action.equals("doctor-restore-cancel")) {
             doctorRestoreConfirm = false;
-            refreshDocument();
+            pendingDanger = "";
+            if (contextOpen) refreshContextOverlay();
+            else refreshDocument();
             return;
         }
         if (action.equals("doctor-restore")) {
             doctorRestoreConfirm = false;
-            if (pendingBackup >= 0 && pendingBackupSavedAt > 0L) ModNetwork.sendToServer(new DoctorCommandPacket(DoctorCommandAction.RESTORE_BACKUP, null, pendingBackup, pendingBackupSavedAt, 0));
+            if (pendingBackup >= 0 && pendingBackupSavedAt > 0L) {
+                ModNetwork.sendToServer(new DoctorCommandPacket(DoctorCommandAction.RESTORE_BACKUP,
+                        null, pendingBackup, pendingBackupSavedAt, 0));
+            }
+            if (contextOpen) dismissContextMenu();
             return;
         }
         if (action.startsWith("team:")) {
@@ -1673,6 +1984,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (action.startsWith("warehouse-animation-purpose:")) {
             try {
                 warehouseAnimationPurpose = CompanionAnimationPurpose.valueOf(action.substring("warehouse-animation-purpose:".length()).toUpperCase(Locale.ROOT));
+                if (category == Category.COMPANION && warehouseAnimationPurpose == CompanionAnimationPurpose.SUMMON) {
+                    warehouseAnimationPurpose = null;
+                    return;
+                }
                 warehouseMenuPage = WarehouseMenuPage.ANIMATION_STYLE;
                 contextMotionClass = "fm-context-forward";
                 refreshContextOverlay();
@@ -1723,7 +2038,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 startCardToggle(uuid, !uuid.equals(expandedUuid));
             } else {
                 selectedUuid = uuid;
-                expandedUuid = view == View.DEAD || uuid.equals(expandedUuid) ? null : uuid;
+                expandedUuid = view == View.DEAD || view == View.RECOVERY || uuid.equals(expandedUuid) ? null : uuid;
                 contextOpen = false;
                 refreshDocument();
             }
@@ -1766,6 +2081,34 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         if (action.equals("confirm-delete-dead")) {
             if (selectedUuid != null) warehouse(WarehouseEntityAction.DELETE_DEAD, selectedUuid);
+            pendingDanger = "";
+            contextOpen = false;
+            return;
+        }
+        if (action.equals("retry-recovery")) {
+            UUID uuid = parseUuid(value);
+            if (uuid != null) warehouse(WarehouseEntityAction.RETRY_RECOVERY, uuid);
+            contextOpen = false;
+            return;
+        }
+        if (action.equals("move-recovery-to-dead")) {
+            UUID uuid = parseUuid(value);
+            if (uuid != null) warehouse(WarehouseEntityAction.MOVE_RECOVERY_TO_DEAD, uuid);
+            contextOpen = false;
+            return;
+        }
+        if (action.equals("ask-delete-recovery")) {
+            UUID uuid = parseUuid(value);
+            if (uuid == null) return;
+            selectedUuid = uuid;
+            contextOpen = true;
+            pendingDanger = "recovery";
+            contextMotionClass = "fm-context-alert";
+            refreshContextOverlay();
+            return;
+        }
+        if (action.equals("confirm-delete-recovery")) {
+            if (selectedUuid != null) warehouse(WarehouseEntityAction.DELETE_RECOVERY, selectedUuid);
             pendingDanger = "";
             contextOpen = false;
             return;
@@ -1814,7 +2157,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private void activateCard(UUID uuid) {
         Card card = findCard(uuid);
-        if (card == null || !card.alive || view == View.DEAD) return;
+        if (card == null || !card.alive || view == View.DEAD || view == View.RECOVERY) return;
         if (view == View.WAREHOUSE) return;
         int memberIndex = ClientCompanionTeamState.members(target(), selectedTeam).indexOf(uuid);
         if (memberIndex < 0) return;
@@ -1908,18 +2251,28 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private void refreshDocument() {
         long refreshStartedAt = FindMeAuiPerformanceMonitor.start();
         Document document = getLinkedDocument();
-        if (document == null || document.body == null) return;
+        if (document == null || document.body == null) {
+            com.kuzhi.findme.FindMeMod.LOGGER.error("[FindMe backup-ui] refresh skipped document={} body={} view={}",
+                    document != null, document != null && document.body != null, view);
+            return;
+        }
         Element root = document.getElementById("findme-manager-root");
-        if (root == null) return;
+        if (root == null) {
+            com.kuzhi.findme.FindMeMod.LOGGER.error("[FindMe backup-ui] refresh skipped: manager root missing view={} bodyElements={}",
+                    view, document.getElements().size());
+            return;
+        }
         Element oldWarehouseGrid = document.getElementById("findme-warehouse-grid");
         if (oldWarehouseGrid != null) warehouseScrollTop = oldWarehouseGrid.getScrollTop();
         Element oldSettingsGrid = document.getElementById("findme-settings-grid");
         if (oldSettingsGrid != null && !resetSettingsScrollOnRefresh) {
             settingsScrollTop = oldSettingsGrid.getTargetScrollTop();
         }
+        Element oldBackupRecords = document.getElementById("findme-doctor-backup-records");
+        if (oldBackupRecords != null && view == View.DOCTOR && doctorView == DoctorView.BACKUPS) {
+            doctorBackupScrollTop = oldBackupRecords.getTargetScrollTop();
+        }
         if (resetSettingsScrollOnRefresh) settingsScrollTop = 0.0;
-        Element oldBackupList = document.querySelector(".backup-list");
-        if (oldBackupList != null) doctorBackupScrollLeft = oldBackupList.getScrollLeft();
         clearDrag();
         long markupStartedAt = FindMeAuiPerformanceMonitor.start();
         String nextLayoutStyle = layoutStyle();
@@ -1931,6 +2284,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         String nextMarkupKey = markupKey(nextMarkup);
         boolean layoutChanged = !nextLayoutStyle.equals(renderedLayoutStyle);
         boolean markupChanged = !nextMarkupKey.equals(renderedMarkupKey);
+        if (view == View.DOCTOR) {
+            com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] doctor refresh begin doctor={} doctorView={} markupChanged={} layoutChanged={} markupLength={} transition={}",
+                    doctor != null, doctorView, markupChanged, layoutChanged, nextMarkup.length(), isTransitionRunning());
+        }
         if (layoutChanged) {
             root.setAttribute("style", nextLayoutStyle);
             renderedLayoutStyle = nextLayoutStyle;
@@ -1942,8 +2299,29 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             long selectorsStartedAt = FindMeAuiPerformanceMonitor.start();
             document.rebuildSelectorIndex();
             FindMeAuiPerformanceMonitor.record(this, "refresh.selector_index", selectorsStartedAt, 5.0);
+            if (view == View.DOCTOR && doctor != null && doctorView == DoctorView.BACKUPS) {
+                Element records = document.getElementById("findme-doctor-backup-records");
+                int directRecords = countDoctorBackupRecords(records);
+                int selectorRecords = document.querySelectorAll(".doctor-backup-record").size();
+                int dataRecords = document.querySelectorAll("[data-backup-index]").size();
+                com.kuzhi.findme.FindMeMod.LOGGER.info(
+                        "[FindMe backup-ui] dom after setInnerHTML elements={} records={} directRecords={} classRecords={} dataRecords={} innerHtmlLength={}",
+                        document.getElements().size(), records != null, directRecords, selectorRecords, dataRecords,
+                        records == null ? 0 : records.getInnerHTML().length());
+                if (ensureDoctorBackupRecordsDom(document)) {
+                    document.rebuildSelectorIndex();
+                    com.kuzhi.findme.FindMeMod.LOGGER.info(
+                            "[FindMe backup-ui] rebuilt backup records with legacy DOM API directRecords={} classRecords={} dataRecords={}",
+                            countDoctorBackupRecords(records), document.querySelectorAll(".doctor-backup-record").size(),
+                            document.querySelectorAll("[data-backup-index]").size());
+                }
+            }
             long stylesStartedAt = FindMeAuiPerformanceMonitor.start();
             document.reapplyStylesFromCache();
+            // Old AUI does not always commit styles for nodes inserted by setInnerHTML.
+            // The doctor page is loaded through this path, so force the same synchronous
+            // style pass used by the legacy screen refresh flow.
+            document.commitStyleRecalc();
             FindMeAuiPerformanceMonitor.record(this, "refresh.styles", stylesStartedAt, 8.0);
             long bindStartedAt = FindMeAuiPerformanceMonitor.start();
             bindDocument();
@@ -1971,9 +2349,33 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (warehouseGrid != null) warehouseGrid.setScrollTop(warehouseScrollTop);
         Element settingsGrid = document.getElementById("findme-settings-grid");
         if (settingsGrid != null) settingsGrid.setScrollTop(settingsScrollTop);
+        Element backupRecords = document.getElementById("findme-doctor-backup-records");
+        if (backupRecords != null && view == View.DOCTOR && doctorView == DoctorView.BACKUPS) {
+            backupRecords.setScrollTop(doctorBackupScrollTop);
+        }
+        if (view == View.DOCTOR && doctor != null && markupChanged) {
+            Element renderedBackupRecords = document.getElementById("findme-doctor-backup-records");
+            int domRecords = document.querySelectorAll(".doctor-backup-record").size();
+            com.kuzhi.findme.FindMeMod.LOGGER.info(
+                    "[FindMe backup-ui] refresh view={} dataRecords={} domRecords={} recordsBox={}x{}",
+                    doctorView, doctor.backups().size(), domRecords,
+                    renderedBackupRecords == null ? 0 : Math.round((float) Box.of(renderedBackupRecords).innerSize().width()),
+                    renderedBackupRecords == null ? 0 : Math.round((float) Box.of(renderedBackupRecords).innerSize().height()));
+        }
+        if (view == View.DOCTOR) {
+            Element page = document.querySelector(".fm-page");
+            Element sidebar = document.querySelector(".fm-sidebar");
+            Element content = document.querySelector(".doctor-content");
+            com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] doctor refresh end page={} pageBox={}x{} sidebar={} content={}x{} records={}",
+                    page == null ? "missing" : page.getAttribute("class"),
+                    page == null ? 0 : Math.round((float) Box.of(page).innerSize().width()),
+                    page == null ? 0 : Math.round((float) Box.of(page).innerSize().height()),
+                    sidebar == null ? "missing" : "present",
+                    content == null ? 0 : Math.round((float) Box.of(content).innerSize().width()),
+                    content == null ? 0 : Math.round((float) Box.of(content).innerSize().height()),
+                    document.querySelectorAll(".doctor-backup-record").size());
+        }
         resetSettingsScrollOnRefresh = false;
-        Element backupList = document.querySelector(".backup-list");
-        if (backupList != null) backupList.setScrollLeft(doctorBackupScrollLeft);
         FindMeAuiPerformanceMonitor.record(this, "refresh.postwork.scroll_restore", postworkPhaseStartedAt, 4.0);
         if (pendingTeamScrollIndex >= 0) {
             scrollTeamIntoView(pendingTeamScrollIndex);
@@ -1991,6 +2393,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         postworkPhaseStartedAt = FindMeAuiPerformanceMonitor.start();
         updateSettingsScrollThumb();
         FindMeAuiPerformanceMonitor.record(this, "refresh.postwork.settings_scroll", postworkPhaseStartedAt, 4.0);
+        postworkPhaseStartedAt = FindMeAuiPerformanceMonitor.start();
+        updateDoctorBackupScrollThumb();
+        FindMeAuiPerformanceMonitor.record(this, "refresh.postwork.backup_scroll", postworkPhaseStartedAt, 4.0);
         lastSignature = stateSignature();
         pendingSignature = Long.MIN_VALUE;
         refreshDebounceTicks = -1;
@@ -2029,11 +2434,17 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             clearOverlayMarkup();
             return;
         }
-        setOverlayMarkup("<div class='findme-context-dismiss' data-context-dismiss='1'></div>" + contextMarkup());
+        String nextMarkup = "<div class='findme-context-dismiss' data-context-dismiss='1' data-action='close-context'></div>" + contextMarkup();
+        // ApricityUI 1.1.6 can retain descendants when a menu changes shape (for example,
+        // the rename input surviving into the restore-confirm page). Clear the old tree first.
+        if (!overlayMarkupEquals(nextMarkup)) {
+            clearOverlayMarkup();
+            setOverlayMarkup(nextMarkup);
+        }
         contextMotionClass = "";
+        double fallbackWidth = spellPickerUuid != null ? 100.0 : view == View.WAREHOUSE ? 100.0 : 91.0;
         contextBounds = FindMeAuiContextMenuPlacement.place(getOverlayDocument(), "findme-context-menu", ".findme-context-overlay-root",
-                contextAnchorX, contextAnchorY, width - (view == View.WAREHOUSE ? 108.0 : 99.0), 4.0,
-                view == View.WAREHOUSE ? 100.0 : 91.0, 24.0);
+                contextAnchorX, contextAnchorY, width - fallbackWidth - 8.0, 4.0, fallbackWidth, 24.0);
     }
 
     private void updateTeamScrollThumb() {
@@ -2094,6 +2505,76 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "px;visibility:" + (scrollLimit > 0.0 ? "visible" : "hidden");
         if (!style.equals(lastWarehouseScrollThumbStyle)) {
             lastWarehouseScrollThumbStyle = style;
+            thumb.setAttribute("style", style);
+        }
+    }
+
+    private boolean beginDoctorBackupScroll(MouseEvent mouse, Element targetElement) {
+        if (view != View.DOCTOR || doctorView != DoctorView.BACKUPS || mouse.button != 0) return false;
+        Element rail = targetElement.closest("#findme-doctor-backup-scroll-rail");
+        if (rail == null) return false;
+        updateDoctorBackupScrollThumb();
+        Element thumb = targetElement.closest("#findme-doctor-backup-scroll-thumb");
+        if (thumb != null) {
+            doctorBackupScrollDragging = true;
+            doctorBackupScrollDragOffset = Math.max(0.0, mouse.clientY - Position.of(thumb).y);
+        } else {
+            setDoctorBackupScrollFromPointer(mouse.clientY, Double.NaN);
+        }
+        return true;
+    }
+
+    private void dragDoctorBackupScroll(MouseEvent mouse) {
+        setDoctorBackupScrollFromPointer(mouse.clientY, doctorBackupScrollDragOffset);
+    }
+
+    private void setDoctorBackupScrollFromPointer(double mouseY, double grabOffset) {
+        Document document = getLinkedDocument();
+        if (document == null) return;
+        Element records = document.getElementById("findme-doctor-backup-records");
+        Element rail = document.getElementById("findme-doctor-backup-scroll-rail");
+        if (records == null || rail == null) return;
+
+        double viewportHeight = Math.max(1.0, Box.of(records).innerSize().height());
+        double contentHeight = Math.max(viewportHeight, Size.getContentSize(records).height());
+        double scrollLimit = Math.max(0.0, contentHeight - viewportHeight);
+        double trackHeight = Math.max(1.0, Box.of(rail).innerSize().height());
+        double thumbHeight = scrollLimit <= 0.0 ? trackHeight
+                : Math.max(scaled(12), Math.min(trackHeight, trackHeight * viewportHeight / contentHeight));
+        double travel = Math.max(0.0, trackHeight - thumbHeight);
+        double effectiveOffset = Double.isNaN(grabOffset) ? thumbHeight * 0.5 : grabOffset;
+        double localTop = Math.max(0.0, Math.min(travel, mouseY - Position.of(rail).y - effectiveOffset));
+        double next = travel <= 0.0 ? 0.0 : scrollLimit * localTop / travel;
+        records.setScrollTop(next);
+        doctorBackupScrollTop = records.getTargetScrollTop();
+        updateDoctorBackupScrollThumb();
+    }
+
+    private void updateDoctorBackupScrollThumb() {
+        if (view != View.DOCTOR || doctorView != DoctorView.BACKUPS) return;
+        Document document = getLinkedDocument();
+        if (document == null) return;
+        Element records = document.getElementById("findme-doctor-backup-records");
+        Element rail = document.getElementById("findme-doctor-backup-scroll-rail");
+        Element thumb = document.getElementById("findme-doctor-backup-scroll-thumb");
+        if (records == null || rail == null || thumb == null) return;
+
+        double viewportHeight = Math.max(1.0, Box.of(records).innerSize().height());
+        double contentHeight = Math.max(viewportHeight, Size.getContentSize(records).height());
+        double scrollLimit = Math.max(0.0, contentHeight - viewportHeight);
+        double current = Math.max(0.0, Math.min(scrollLimit, records.getScrollTop()));
+        if (current != records.getScrollTop()) records.setScrollTop(current);
+        doctorBackupScrollTop = current;
+
+        double trackHeight = Math.max(1.0, Box.of(rail).innerSize().height());
+        double thumbHeight = scrollLimit <= 0.0 ? trackHeight
+                : Math.max(scaled(12), Math.min(trackHeight, trackHeight * viewportHeight / contentHeight));
+        double travel = Math.max(0.0, trackHeight - thumbHeight);
+        double ratio = scrollLimit <= 0.0 ? 0.0 : current / scrollLimit;
+        String style = "top:" + (int) Math.round(travel * ratio) + "px;height:" + (int) Math.round(thumbHeight)
+                + "px;visibility:" + (scrollLimit > 0.0 ? "visible" : "hidden");
+        if (!style.equals(lastDoctorBackupScrollThumbStyle)) {
+            lastDoctorBackupScrollThumbStyle = style;
             thumb.setAttribute("style", style);
         }
     }
@@ -2175,11 +2656,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         selectedTeam = teams.isEmpty() ? 0 : Math.max(0, Math.min(selectedTeam, teams.size() - 1));
         if (view == View.SETTINGS) return pageShell("settings", tr("screen.find_me.aui.settings"),
                 tr("screen.find_me.aui.settings.subtitle"), settingsMarkup());
-        if (view == View.DOCTOR) return pageShell("doctor", tr("screen.find_me.aui.doctor"), "FINDME DOCTOR", doctorMarkup());
+        if (view == View.DOCTOR) return pageShell("doctor", tr("screen.find_me.aui.backups"),
+                tr("screen.find_me.doctor.caption.auto_manual"), doctorMarkup());
         if (view == View.DETAIL) return pageShell("detail", tr("screen.find_me.aui.profile.title"), "COMPANION PROFILE", detailPageMarkup());
 
         List<Card> visibleCards = cards();
-        if (view == View.DEAD) {
+        if (view == View.DEAD || view == View.RECOVERY) {
             expandedUuid = null;
             if (selectedUuid == null || visibleCards.stream().noneMatch(card -> card.uuid.equals(selectedUuid))) {
                 selectedUuid = visibleCards.isEmpty() ? null : visibleCards.get(0).uuid;
@@ -2192,16 +2674,20 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 selectedUuid = null;
             }
         }
-        String pageClass = view == View.DEAD ? "death" : view == View.WAREHOUSE ? "warehouse" : "team-view";
-        String title = view == View.DEAD ? tr("screen.find_me.aui.deaths") : view == View.WAREHOUSE ? tr("screen.find_me.warehouse") : tr("screen.find_me.aui.manage_title");
-        String subtitle = view == View.DEAD ? "MEMORIAL ARCHIVE" : view == View.WAREHOUSE ? "COMPANION STORAGE" : "COMPANION ROSTER";
+        String pageClass = view == View.DEAD || view == View.RECOVERY ? "death" : view == View.WAREHOUSE ? "warehouse" : "team-view";
+        String title = view == View.DEAD ? tr("screen.find_me.aui.deaths")
+                : view == View.RECOVERY ? tr("screen.find_me.aui.recovery")
+                : view == View.WAREHOUSE ? tr("screen.find_me.warehouse") : tr("screen.find_me.aui.manage_title");
+        String subtitle = view == View.DEAD ? "MEMORIAL ARCHIVE"
+                : view == View.RECOVERY ? "DATA RECOVERY"
+                : view == View.WAREHOUSE ? "COMPANION STORAGE" : "COMPANION ROSTER";
         StringBuilder html = new StringBuilder("<div class='fm-page ").append(pageClass).append(" ").append(typographyClasses())
                 .append(isPageRevealing() ? " fm-page-reveal" : "")
                 .append("' style='height:").append(Math.max(1, height)).append("px'>")
                 .append(foldDecoration()).append(headerMarkup(title, subtitle, true));
         html.append(sidebarMarkup(teams));
         html.append("<div class='fm-workspace'>").append(workspaceHeader(teams, visibleCards.size()));
-        if (view == View.DEAD) html.append(deathGridMarkup(visibleCards));
+        if (view == View.DEAD || view == View.RECOVERY) html.append(deathGridMarkup(visibleCards));
         else if (view == View.WAREHOUSE) html.append(warehouseMarkup(visibleCards));
         else html.append(rosterMarkup(visibleCards));
         html.append("</div>");
@@ -2222,8 +2708,13 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             }
             html.append("</div>");
             int count = allCards().size();
-            html.append("<div class='ui-button top-link' data-action='view:").append(view == View.WAREHOUSE ? "team" : "warehouse").append("'>")
-                    .append("<span>").append(escape(tr(view == View.WAREHOUSE ? "screen.find_me.teams" : "screen.find_me.warehouse"))).append("</span><b>").append(count).append("</b></div>");
+            String action = view == View.WAREHOUSE
+                    ? (backupWarehousePreview ? "doctor-view-backups" : "view:team") : "view:warehouse";
+            String label = view == View.WAREHOUSE
+                    ? (backupWarehousePreview ? tr("screen.find_me.aui.backups") : tr("screen.find_me.teams"))
+                    : tr("screen.find_me.warehouse");
+            html.append("<div class='ui-button top-link' data-action='").append(action).append("'>")
+                    .append("<span>").append(escape(label)).append("</span><b>").append(count).append("</b></div>");
         }
         return html.append("</div>").toString();
     }
@@ -2244,8 +2735,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private String sidebarMarkup(List<ClientCompanionTeamState.TeamEntry> teams) {
         String sideTitle = view == View.TEAM ? tr("screen.find_me.aui.teams_heading")
-                : view == View.DEAD ? tr("screen.find_me.aui.records") : tr(view.key);
-        StringBuilder html = new StringBuilder("<div class='fm-sidebar'><div class='fm-sidebar-sheet'></div><div class='fm-sidebar-content'><div class='side-heading fm-side-stage-0'><small>").append(view == View.TEAM ? "TEAMS" : view == View.DEAD ? "ARCHIVE" : "STORAGE").append("</small><strong>").append(escape(sideTitle)).append("</strong></div>");
+                : view == View.DEAD ? tr("screen.find_me.aui.records")
+                : view == View.RECOVERY ? tr("screen.find_me.aui.recovery") : tr(view.key);
+        StringBuilder html = new StringBuilder("<div class='fm-sidebar'><div class='fm-sidebar-sheet'></div><div class='fm-sidebar-content'><div class='side-heading fm-side-stage-0'><small>").append(view == View.TEAM ? "TEAMS" : view == View.DEAD ? "ARCHIVE" : view == View.RECOVERY ? "RECOVERY" : "STORAGE").append("</small><strong>").append(escape(sideTitle)).append("</strong></div>");
         if (view == View.TEAM) {
             html.append("<div id='findme-team-list' class='team-list'>");
             for (var team : teams) {
@@ -2266,18 +2758,27 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             }
             html.append(button("create-team", "+", "new-team fm-side-stage-3"));
         } else if (view == View.WAREHOUSE) {
-            Set<UUID> assigned = assignedUuids();
             int all = allCards().size();
-            int assignedCount = (int) allCards().stream().filter(card -> assigned.contains(card.uuid())).count();
-            int unassignedCount = all - assignedCount;
-            html.append(sideCount("fm-side-stage-1 " + (warehouseFilter == WarehouseFilter.ALL ? "active" : ""), all, tr("screen.find_me.all"), "ALL", "warehouse-filter:all"));
-            html.append(sideCount("fm-side-stage-2 " + (warehouseFilter == WarehouseFilter.ASSIGNED ? "active" : ""), assignedCount, tr("screen.find_me.aui.assigned"), "ASSIGNED", "warehouse-filter:assigned"));
-            html.append(sideCount("fm-side-stage-3 " + (warehouseFilter == WarehouseFilter.UNASSIGNED ? "active" : ""), unassignedCount, tr("screen.find_me.aui.unassigned"), "UNASSIGNED", "warehouse-filter:unassigned"));
+            if (backupWarehousePreview) {
+                html.append(sideCount("fm-side-stage-1 active", all, tr("screen.find_me.aui.backups"),
+                        tr("screen.find_me.doctor.caption.snapshot"), "doctor-view-backups"));
+            } else {
+                Set<UUID> assigned = assignedUuids();
+                int assignedCount = (int) allCards().stream().filter(card -> assigned.contains(card.uuid())).count();
+                int unassignedCount = all - assignedCount;
+                html.append(sideCount("fm-side-stage-1 " + (warehouseFilter == WarehouseFilter.ALL ? "active" : ""), all, tr("screen.find_me.all"), "ALL", "warehouse-filter:all"));
+                html.append(sideCount("fm-side-stage-2 " + (warehouseFilter == WarehouseFilter.ASSIGNED ? "active" : ""), assignedCount, tr("screen.find_me.aui.assigned"), "ASSIGNED", "warehouse-filter:assigned"));
+                html.append(sideCount("fm-side-stage-3 " + (warehouseFilter == WarehouseFilter.UNASSIGNED ? "active" : ""), unassignedCount, tr("screen.find_me.aui.unassigned"), "UNASSIGNED", "warehouse-filter:unassigned"));
+            }
             html.append(filterSelectionMarker(warehouseFilter.ordinal()));
-        } else {
+        } else if (view == View.DEAD) {
             int all = deadCards(DeadFilter.ALL).size();
             deadFilter = DeadFilter.ALL;
             html.append(sideCount("fm-side-stage-1 active", all, tr("screen.find_me.aui.deaths"), "ALL RECORDS", "dead-filter:all"));
+            html.append(filterSelectionMarker(0));
+        } else {
+            int all = recoveryCards().size();
+            html.append(sideCount("fm-side-stage-1 active", all, tr("screen.find_me.aui.recovery"), "MISSING DATA", "view:recovery"));
             html.append(filterSelectionMarker(0));
         }
         return html.append("</div></div>").toString();
@@ -2305,13 +2806,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private String workspaceHeader(List<ClientCompanionTeamState.TeamEntry> teams, int count) {
         String label = view == View.TEAM ? teamName(teams, selectedTeam)
-                : view == View.WAREHOUSE ? tr(warehouseFilter.key)
-                : tr(deadFilter.key);
+                : view == View.WAREHOUSE ? (backupWarehousePreview ? tr("screen.find_me.aui.backups") : tr(warehouseFilter.key))
+                : view == View.RECOVERY ? tr("screen.find_me.aui.recovery") : tr(deadFilter.key);
         int number = view == View.TEAM && selectedTeam >= 0 && selectedTeam < teams.size()
                 ? teams.get(selectedTeam).number() : count;
         String subtitle = view == View.TEAM ? "EXPEDITION"
-                : view == View.WAREHOUSE ? warehouseFilter.subtitle
-                : deadFilter.subtitle;
+                : view == View.WAREHOUSE ? (backupWarehousePreview
+                        ? tr("screen.find_me.doctor.caption.snapshot") : warehouseFilter.subtitle)
+                : view == View.RECOVERY ? "QUARANTINED RECORDS" : deadFilter.subtitle;
         StringBuilder html = new StringBuilder("<div class='workspace-head'><b><span class='workspace-number ").append(number >= 100 ? "wide-count" : "").append("'>").append(twoDigits(number)).append("</span></b><span><strong>").append(escape(label)).append("</strong><small>").append(subtitle).append("</small></span>");
         if (view == View.TEAM && !teams.isEmpty()) {
             int innerWidth = Math.max(1, width - scaled(75) - scaled(10) - scaled(9));
@@ -2347,14 +2849,33 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             }
             Card card = visibleCards.get(i);
             String team = teamContaining(card.uuid());
+            boolean snapshot = backupWarehousePreview;
             html.append("<div class='warehouse-card").append(card.uuid().equals(selectedUuid) ? " selected" : "")
-                    .append("' data-action='select-warehouse-card' data-value='").append(card.uuid())
-                    .append("' data-uuid='").append(card.uuid()).append("' style='")
+                    .append(snapshot ? " backup-snapshot-card" : "")
+                    .append(snapshot && !card.alive ? " backup-dead-card" : "")
+                    .append("'");
+            if (!snapshot) {
+                html.append(" data-action='select-warehouse-card' data-value='").append(card.uuid()).append("'");
+            }
+            html.append(" data-uuid='").append(card.uuid()).append("' style='")
                     .append(column < 3 && i < visibleCards.size() - 1 ? "margin-right:" + columnGap + "px" : "")
                     .append("'>")
                     .append("<div class='warehouse-preview-clip'><findme-preview data-uuid='").append(card.uuid())
-                    .append("' data-preview-scale='0.68' data-preview-overlay='warehouse' data-preview-team='")
-                    .append(escape(team)).append("'></findme-preview></div>");
+                    .append("' data-entity-type='").append(escape(card.type)).append("' data-preview-type='").append(escape(card.type)).append("'")
+                    .append(" data-preview-name='").append(escape(card.name)).append("'");
+            if (snapshot && card.previewEntry != null && card.previewEntry.previewTag() != null) {
+                html.append(" data-preview-nbt='").append(escape(card.previewEntry.previewTag().toString())).append("'");
+            }
+            html.append(" data-preview-scale='0.68' data-preview-overlay='warehouse' data-preview-team='")
+                    .append(escape(team));
+            if (snapshot) {
+                html.append("' data-preview-number='").append(twoDigits(i + 1));
+                if (!card.alive) {
+                    html.append("' data-preview-status-tone='death' data-preview-status='")
+                            .append(escape(tr("screen.find_me.aui.death_record")));
+                }
+            }
+            html.append("'></findme-preview></div>");
             if (card.active()) {
                 html.append("<em>").append(escape(tr("screen.find_me.manage.state_deployed"))).append("</em>");
             }
@@ -2364,6 +2885,13 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             }
         }
         html.append("</div>");
+        if (visibleCards.isEmpty()) {
+            html.append("<div class='warehouse-empty'><b>00</b><span>")
+                    .append(escape(tr(backupWarehousePreview
+                            ? "screen.find_me.doctor.message.backup_no_entries"
+                            : "screen.find_me.manage.no_creature")))
+                    .append("</span></div>");
+        }
         if (visibleCards.size() > 8) {
             html.append("<div id='findme-warehouse-scroll-rail' class='warehouse-scroll-rail'><div id='findme-warehouse-scroll-thumb' class='warehouse-scroll-thumb'></div></div>");
         }
@@ -2424,9 +2952,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         int systemWidth = Math.max(1, width - systemLeft - scaled(12));
         int doctorLeft = scaled(84);
         int doctorWidth = Math.max(1, width - doctorLeft - scaled(10));
-        int doctorCompareCenter = scaled(42);
-        int doctorCompareSide = Math.max(1, (doctorWidth - doctorCompareCenter) / 2);
-        int doctorCompareHeight = Math.max(1, height - scaled(43) - scaled(8) - scaled(94));
         int profileLeft = scaled(84);
         int profileRight = scaled(10);
         int profileGap = scaled(8);
@@ -2458,6 +2983,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-selected-copy-right:" + scaled(5) + "px"
                 + ";--fm-selected-copy-bottom:" + scaled(25) + "px"
                 + ";--fm-selected-actions-bottom:" + scaled(6) + "px"
+                + ";--fm-selected-spell-bottom:" + scaled(24) + "px"
+                + ";--fm-selected-spell-width:" + scaled(122) + "px"
                 + ";--fm-compact:" + scaled(36) + "px"
                 + ";--fm-gap:" + scaled(3) + "px"
                 + ";--fm-stripe-top:" + scaled(48) + "px"
@@ -2473,16 +3000,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-setting-card:" + Math.max(1, (systemWidth - scaled(5)) / 2) + "px"
                 + ";--fm-content-top:" + scaled(43) + "px"
                 + ";--fm-content-height:" + Math.max(1, height - scaled(43) - scaled(8)) + "px"
-                + ";--fm-doctor-summary:" + scaled(75) + "px"
                 + ";--fm-doctor-left:" + doctorLeft + "px"
                 + ";--fm-doctor-width:" + doctorWidth + "px"
-                + ";--fm-doctor-compare-side:" + doctorCompareSide + "px"
-                + ";--fm-doctor-compare-center:" + doctorCompareCenter + "px"
-                + ";--fm-doctor-area-cell:" + Math.max(1, (doctorWidth - scaled(2)) / 2) + "px"
-                + ";--fm-doctor-report-height:" + Math.max(1, height - scaled(43) - scaled(8) - scaled(32)) + "px"
-                + ";--fm-doctor-backup-list-height:" + Math.max(1, height - scaled(43) - scaled(8) - scaled(66)) + "px"
-                + ";--fm-doctor-change-list-height:" + doctorCompareHeight + "px"
-                + ";--fm-doctor-compare-list-height:" + Math.max(1, doctorCompareHeight - scaled(23)) + "px"
+                + ";--fm-doctor-backup-list-height:" + Math.max(1, height - scaled(43) - scaled(8) - scaled(39)) + "px"
                 + ";--fm-profile-model-left:" + profileLeft + "px"
                 + ";--fm-profile-model-top:" + scaled(43) + "px"
                 + ";--fm-profile-model-width:" + profileModelWidth + "px"
@@ -2497,9 +3017,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-profile-fact-value-width:" + profileFactValueWidth + "px"
                 + ";--fm-death-list:" + scaled(60) + "px"
                 + ";--fm-memorial-preview:" + scaled(112) + "px"
-                + ";--fm-memorial-copy-left:" + scaled(94) + "px"
-                + ";--fm-doctor-cell:" + Math.max(1, (scaled(75) - scaled(19)) / 2) + "px"
-                + ";--fm-doctor-diff-cell:" + Math.max(1, (doctorWidth - scaled(81)) / 3) + "px";
+                + ";--fm-memorial-copy-left:" + scaled(94) + "px";
     }
 
     private int scaled(int base) {
@@ -2518,6 +3036,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 ? button("add-current-team", tr("screen.find_me.aui.add_to_team"), "primary selected-action").replace("data-action='add-current-team'", "data-action='add-current-team' data-value='" + card.uuid + "'")
                 : button("activate-card", tr(card.active ? "screen.find_me.store" : "screen.find_me.summon"), "primary selected-action").replace("data-action='activate-card'", "data-action='activate-card' data-value='" + card.uuid + "'");
         String deployed = card.active ? tr("screen.find_me.manage.state_deployed") : "";
+        String spellSlot = card.alive && category != Category.VEHICLE && spellUiAvailable(card)
+                ? spellSlotsMarkup(card, card.uuid, "selected-spell-slots") : "";
         return "<div class='member-card " + (selected ? "selected-card " : "compact ") + state
                 + (selected ? "" : accent) + insertion + "' style='" + (selected ? offsetStyle : compactStyle)
                 + themeStyle + "' data-uuid='" + card.uuid + "' data-member-index='" + index
@@ -2528,6 +3048,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "<findme-preview data-uuid='" + card.uuid + "' data-preview-overlay='expanded' data-preview-type='" + escape(card.type)
                 + "' data-preview-team='" + escape(stateLabel(card)) + " &#183; " + escape(tr(category.key))
                 + "' data-preview-number='" + twoDigits(index + 1) + "' data-preview-status='" + escape(deployed) + "'></findme-preview>"
+                + spellSlot
                 + "<div class='selected-actions'>" + primary + button("open-detail", tr("screen.find_me.details"), "selected-action").replace("data-action='open-detail'", "data-action='open-detail' data-value='" + card.uuid + "'") + "</div></div>";
     }
 
@@ -2632,6 +3153,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     private String deathGridMarkup(List<Card> visibleCards) {
+        boolean recovery = view == View.RECOVERY;
         int innerWidth = Math.max(1, width - scaled(75) - scaled(10) - scaled(9));
         int cardWidth = scaled(78);
         int cardHeight = scaled(72);
@@ -2647,14 +3169,17 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 if (row < rowCount - 1) html.append(";margin-bottom:").append(scaled(4)).append("px");
                 html.append("'>");
             }
-            html.append("<div class='death-card ").append(card.uuid.equals(selectedUuid) ? "selected" : "")
+            html.append("<div class='death-card ").append(recovery ? "recovery-card " : "")
+                    .append(card.uuid.equals(selectedUuid) ? "selected" : "")
                     .append("' data-action='select-card' data-value='").append(card.uuid).append("' data-uuid='").append(card.uuid)
                     .append("' style='");
             if (column < 3) html.append("margin-right:").append(columnGap).append("px");
             html.append("'><findme-preview data-uuid='").append(card.uuid)
                     .append("' data-preview-overlay='warehouse' data-preview-team='").append(escape(card.type))
-                    .append("' data-preview-number='").append(twoDigits(i + 1)).append("' data-preview-status='")
-                    .append(escape(tr("screen.find_me.aui.death_record"))).append("'></findme-preview></div>");
+                     .append("' data-preview-number='").append(twoDigits(i + 1)).append("' data-preview-status-tone='")
+                     .append(recovery ? "recovery" : "death").append("' data-preview-status='")
+                    .append(escape(tr(recovery ? "screen.find_me.aui.recovery_record" : "screen.find_me.aui.death_record")))
+                    .append("'></findme-preview></div>");
             if (column == 3 || i == visibleCards.size() - 1) html.append("</div>");
         }
         if (visibleCards.isEmpty()) {
@@ -2669,9 +3194,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         int countLeft = Math.max(0, hintInnerWidth - scaled(28));
         return html.append("</div><div class='hintbar'><div class='hint-actions'><div class='hint-item'><span>")
                 .append(escape(tr("screen.find_me.details"))).append("</span></div><div class='hint-item'><span>")
-                .append(escape(tr("screen.find_me.aui.permanent_records"))).append("</span></div></div><div class='hint-count' style='left:")
+                .append(escape(tr(recovery ? "screen.find_me.aui.recovery_hint" : "screen.find_me.aui.permanent_records"))).append("</span></div></div><div class='hint-count' style='left:")
                 .append(countLeft).append("px'><span>").append(twoDigits(visibleCards.size()))
-                .append("</span><span class='hint-count-total'>/ ").append(twoDigits(deadCards(DeadFilter.ALL).size()))
+                .append("</span><span class='hint-count-total'>/ ").append(twoDigits(recovery ? recoveryCards().size() : deadCards(DeadFilter.ALL).size()))
                 .append("</span></div></div>").toString();
     }
 
@@ -2837,7 +3362,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     new String[]{"0", "4", "screen.find_me.aui.setting.prefer_native_mount_interaction", bool(settings.preferNativeMountInteraction())},
                     new String[]{"0", "5", "screen.find_me.aui.setting.auto_promote_ridden_companions", bool(settings.autoPromoteRiddenCompanions())},
                     new String[]{"0", "6", "screen.find_me.aui.setting.mount_summon_animations", bool(settings.mountSummonAnimations()), "screen.find_me.aui.setting.note.mount_summon_animations"},
-                    new String[]{"0", "7", "screen.find_me.aui.setting.companion_summon_animations", bool(settings.companionSummonAnimations()), "screen.find_me.aui.setting.note.companion_summon_animations"});
+                    new String[]{"0", "7", "screen.find_me.aui.setting.hide_ridden_mount_when_looking_down", bool(settings.hideRiddenMountWhenLookingDown()), "screen.find_me.aui.setting.note.hide_ridden_mount_when_looking_down"});
             case 1 -> List.of(
                     new String[]{"1", "0", "screen.find_me.aui.setting.auto_join", bool(settings.autoJoinTeams())},
                     new String[]{"1", "1", "screen.find_me.aui.setting.auto_create", bool(settings.autoCreateTeams())},
@@ -2865,14 +3390,17 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     .append(bindingHistoryResetMarkup(5)).append("</div>");
             html.append("<div class='settings-pair'>")
                     .append(summonedOutlineSelectorMarkup(6))
-                    .append(settingCardMarkup(visibleRows.get(7), 7)).append("</div>");
+                    .append("<div class='setting-card-spacer'></div></div>");
             html.append("<div class='settings-pair'>")
-                    .append(settingCardMarkup(visibleRows.get(8), 8))
+                    .append(settingCardMarkup(visibleRows.get(7), 7))
+                    .append(settingCardMarkup(visibleRows.get(8), 8)).append("</div>");
+            html.append("<div class='settings-pair'>")
+                    .append(hudVisibilitySettingCardMarkup(9))
                     .append("<div class='setting-card-spacer'></div></div>");
             for (int i = 1; i < visibleRows.size(); i += 2) {
                 if (i >= 7) continue;
-                html.append("<div class='settings-pair'>").append(settingCardMarkup(visibleRows.get(i), i + 8));
-                if (i + 1 < visibleRows.size()) html.append(settingCardMarkup(visibleRows.get(i + 1), i + 9));
+                html.append("<div class='settings-pair'>").append(settingCardMarkup(visibleRows.get(i), i + 9));
+                if (i + 1 < visibleRows.size()) html.append(settingCardMarkup(visibleRows.get(i + 1), i + 10));
                 else html.append("<div class='setting-card-spacer'></div>");
                 html.append("</div>");
             }
@@ -2932,6 +3460,17 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "</small></div><div class='setting-card-control'><em>"
                 + escape(bool(settings.uiAnimations())) + "</em><i class='setting-toggle "
                 + (settings.uiAnimations() ? "on" : "") + "'><u></u></i></div></div>";
+    }
+
+    private String hudVisibilitySettingCardMarkup(int visibleIndex) {
+        boolean visible = ClientFindMeHudLayout.current().visible();
+        return "<div class='setting-card' data-action='settings-hud-toggle'><div class='setting-card-index'>"
+                + twoDigits(visibleIndex + 1) + "</div><div class='setting-card-copy'><b>"
+                + escape(tr("screen.find_me.aui.setting.hud_visibility")) + "</b><small>"
+                + escape(tr("screen.find_me.aui.setting.note.hud_visibility"))
+                + "</small></div><div class='setting-card-control'><em>"
+                + escape(bool(visible)) + "</em><i class='setting-toggle "
+                + (visible ? "on" : "") + "'><u></u></i></div></div>";
     }
 
     private String wheelStyleSelectorMarkup(int visibleIndex) {
@@ -3027,122 +3566,39 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     private String doctorMarkup() {
-        if (doctor == null) return "<div class='doctor-loading'>" + button("doctor-refresh", tr("screen.find_me.aui.refresh_report"), "primary") + "</div>";
-        int passed = (int) doctor.areas().stream().filter(area -> area.severity().equals("OK")).count();
-        StringBuilder html = new StringBuilder("<div class='doctor-summary'><div class='doctor-summary-sheet'></div><div class='doctor-summary-content'>")
-                .append("<div class='doctor-side-heading'><small>DATA DOCTOR</small><strong>")
-                .append(escape(tr("screen.find_me.doctor.title"))).append("</strong></div><div class='doctor-ring'>")
-                .append("<div class='doctor-ring-track'></div><div class='doctor-ring-progress fill-")
-                .append(Math.max(0, Math.min(8, passed))).append("'></div>");
-        html.append("<div class='doctor-ring-core'><b>").append(passed).append("</b><small>/ 8</small><em>")
-                .append(escape(tr("screen.find_me.doctor.passed"))).append("</em></div></div>")
-                .append("<div class='doctor-overall ").append(severityClass(doctor.worst())).append("'><b>")
-                .append(escape(severityLabel(doctor.worst()))).append("</b><small>")
-                .append(escape(tr("screen.find_me.aui.issue_count", doctor.issueCount()))).append("</small></div>")
-                .append("<div class='doctor-nav'>")
-                .append(doctorNav(DoctorView.OVERVIEW, 1, "screen.find_me.doctor.overview", "SYSTEM OVERVIEW"))
-                .append(doctorNav(DoctorView.REPORT, 2, "screen.find_me.doctor.report", "DETAILED REPORT"))
-                .append(doctorNav(DoctorView.BACKUPS, 3, "screen.find_me.doctor.backups", "RECOVERY RECORDS"))
-                .append("</div>").append(button("doctor-refresh", tr("screen.find_me.aui.refresh_report"), "doctor-refresh"))
-                .append("</div></div><div class='doctor-content'>");
-        html.append(switch (doctorView) {
-            case OVERVIEW -> doctorOverviewMarkup();
-            case REPORT -> doctorReportMarkup();
-            case BACKUPS -> doctorBackupsMarkup();
-            case BACKUP_DETAIL -> doctorBackupDetailMarkup();
-        });
+        StringBuilder html = new StringBuilder(doctorSidebarMarkup());
+        if (doctor == null) return html.append("<div class='doctor-loading'>")
+                .append(button("doctor-refresh", tr("screen.find_me.aui.refresh"), "primary"))
+                .append("</div>").toString();
+        html.append("<div class='doctor-content'>");
+        html.append(doctorView == DoctorView.BACKUP_DETAIL ? doctorBackupDetailMarkup() : doctorBackupsMarkup());
         return html.append("</div>").toString();
     }
 
-    private String doctorNav(DoctorView target, int index, String key, String caption) {
-        return "<div class='doctor-nav-row " + (doctorView == target || target == DoctorView.BACKUPS && doctorView == DoctorView.BACKUP_DETAIL ? "active" : "")
-                + "' data-action='doctor-view:" + target.name().toLowerCase(Locale.ROOT) + "'><i></i><b>" + twoDigits(index)
-                + "</b><span><strong>" + escape(tr(key)) + "</strong><small>" + caption + "</small></span></div>";
-    }
-
-    private String doctorOverviewMarkup() {
-        StringBuilder html = new StringBuilder(doctorHeader("01", "screen.find_me.doctor.overview", "SYSTEM OVERVIEW",
-                button("doctor-backup", tr("screen.find_me.aui.create_backup"), "doctor-create-button")))
-                .append("<div class='doctor-count-band'>")
-                .append(doctorCount(doctor.current().mounts(), tr("screen.find_me.mounts")))
-                .append(doctorCount(doctor.current().companions(), tr("screen.find_me.companions")))
-                .append(doctorCount(doctor.current().vehicles(), tr("screen.find_me.vehicles")))
-                .append(doctorCount(doctor.current().dead(), tr("screen.find_me.aui.deaths")))
-                .append(doctorCount(doctor.current().stored(), tr("screen.find_me.aui.stored_snapshots")))
-                .append(doctorCount(doctor.current().teams(), tr("screen.find_me.teams"))).append("</div>")
-                .append("<div class='doctor-area-grid'>");
-        for (int index = 0; index < doctor.areas().size(); index++) {
-            var area = doctor.areas().get(index);
-            html.append("<div class='doctor-area-row ").append(severityClass(area.severity()))
-                    .append("' data-action='doctor-area:").append(area.area().name().toLowerCase(Locale.ROOT)).append("'><b>")
-                    .append(twoDigits(index + 1)).append("</b><i></i><span><strong>")
-                    .append(escape(areaLabel(area.area()))).append("</strong><small>")
-                    .append(escape(areaDescription(area.area()))).append("</small></span><em>")
-                    .append(escape(area.issueCount() == 0 ? tr("screen.find_me.doctor.area_clear")
-                            : tr("screen.find_me.doctor.area_issues", area.issueCount()))).append("</em></div>");
-        }
-        return html.append("</div>").toString();
-    }
-
-    private String doctorReportMarkup() {
-        List<DoctorPagePacket.Issue> filtered = doctor.issues().stream()
-                .filter(issue -> doctorAreaFilter == null || issue.area() == doctorAreaFilter).toList();
-        if (doctorSelectedIssue >= doctor.issues().size()) doctorSelectedIssue = -1;
-        DoctorPagePacket.Issue selected = doctorSelectedIssue < 0 ? null : doctor.issues().get(doctorSelectedIssue);
-        String filterLabel = doctorAreaFilter == null ? tr("screen.find_me.doctor.all_areas") : areaLabel(doctorAreaFilter);
-        StringBuilder html = new StringBuilder(doctorHeader("02", "screen.find_me.doctor.report", "DETAILED REPORT",
-                "<div class='doctor-filter' data-action='doctor-area-all'>" + escape(filterLabel) + "</div>"))
-                .append("<div class='doctor-report-body'><div class='doctor-report-list'>");
-        if (filtered.isEmpty()) {
-            html.append("<div class='doctor-empty-report'><b>OK</b><span>")
-                    .append(escape(tr("screen.find_me.aui.no_integrity_issues"))).append("</span></div>");
-        }
-        for (DoctorPagePacket.Issue issue : filtered) {
-            int sourceIndex = doctor.issues().indexOf(issue);
-            html.append("<div class='doctor-issue-row ").append(severityClass(issue.severity()))
-                    .append(sourceIndex == doctorSelectedIssue ? " active" : "").append("' data-action='doctor-issue' data-value='")
-                    .append(sourceIndex).append("'><i></i><span><strong>").append(escape(issueTitle(issue)))
-                    .append("</strong><small>").append(escape(issueTarget(issue))).append("</small></span><em>")
-                    .append(escape(severityLabel(issue.severity()))).append("</em></div>");
-        }
-        html.append("</div><div class='doctor-issue-detail'>");
-        if (selected == null) {
-            html.append("<div class='doctor-detail-placeholder'><b>02</b><span>")
-                    .append(escape(tr("screen.find_me.doctor.select_issue"))).append("</span></div>");
-        } else {
-            if (selected.uuid() != null || !selected.entityType().isBlank()) {
-                html.append("<div class='doctor-issue-preview'><findme-preview")
-                        .append(selected.uuid() == null ? "" : " data-uuid='" + selected.uuid() + "'")
-                        .append(" data-entity-type='").append(escape(selected.entityType()))
-                        .append("' data-preview-scale='0.82'></findme-preview></div>");
-            }
-            html.append("<div class='doctor-detail-title ").append(severityClass(selected.severity())).append("'><small>")
-                    .append(escape(areaLabel(selected.area()))).append(" / ").append(escape(severityLabel(selected.severity())))
-                    .append("</small><strong>").append(escape(issueTitle(selected))).append("</strong></div>")
-                    .append("<div class='doctor-target'><b>").append(escape(issueTarget(selected))).append("</b><small>")
-                    .append(escape(selected.entityType())).append("</small><code>")
-                    .append(escape(selected.uuid() == null ? "-" : selected.uuid().toString())).append("</code></div>")
-                    .append(doctorDetailBlock("screen.find_me.doctor.evidence", issueDetail(selected)))
-                    .append(doctorDetailBlock("screen.find_me.doctor.impact", severityImpact(selected.severity())))
-                    .append(doctorDetailBlock("screen.find_me.doctor.recommendation", issueRecommendation(selected.code())));
-        }
-        return html.append("</div></div>").toString();
+    private String doctorSidebarMarkup() {
+        return new StringBuilder("<div class='fm-sidebar'><div class='fm-sidebar-sheet'></div><div class='fm-sidebar-content'>")
+                .append("<div class='side-heading fm-side-stage-0'><small>")
+                .append(escape(tr("screen.find_me.doctor.caption.auto_manual"))).append("</small><strong>")
+                .append(escape(tr("screen.find_me.aui.backups"))).append("</strong></div>")
+                .append("<div class='side-row fm-side-stage-1 active' data-action='doctor-view-backups'><b>01</b><span><strong>")
+                .append(escape(tr("screen.find_me.aui.backups"))).append("</strong><small>")
+                .append(escape(tr("screen.find_me.doctor.caption.auto_manual"))).append("</small></span></div><div class='side-spacer'></div>")
+                .append("</div></div>").toString();
     }
 
     private String doctorBackupsMarkup() {
-        StringBuilder html = new StringBuilder(doctorHeader("03", "screen.find_me.doctor.backups", "RECOVERY RECORDS",
+        StringBuilder html = new StringBuilder(doctorHeader("01", "screen.find_me.aui.backups",
+                tr("screen.find_me.doctor.caption.auto_manual"),
                 button("doctor-backup", tr("screen.find_me.aui.create_backup"), "doctor-create-button")))
-                .append("<div class='doctor-backup-intro'><b>").append(escape(tr("screen.find_me.doctor.backup_intro_title")))
-                .append("</b><span>").append(escape(tr("screen.find_me.doctor.backup_intro"))).append("</span></div>")
-                .append("<div class='doctor-backup-records'>");
+                .append("<div id='findme-doctor-backup-records' class='doctor-backup-records'>");
         for (var backup : doctor.backups()) {
             html.append("<div class='doctor-backup-record ").append(backup.checksumValid() ? "valid" : "invalid")
                     .append(backup.manual() ? " manual" : " automatic")
-                    .append("' data-action='doctor-preview' data-value='").append(backup.index())
+                    .append("' data-action='doctor-backup-open-warehouse' data-value='").append(backup.index())
                     .append("' data-backup-index='").append(backup.index()).append("' data-backup-saved-at='")
                     .append(backup.savedAt()).append("' data-backup-manual='").append(backup.manual()).append("'><b>#")
                     .append(twoDigits(backup.index())).append("</b><span><strong>").append(escape(backupDisplayName(backup)))
-                    .append("</strong><small>").append(escape(tr("screen.find_me.doctor.saved_tick", backup.savedAt())))
+                    .append("</strong><small>").append(escape(backupDateLabel(backup)))
                     .append(" / ").append(escape(tr("screen.find_me.doctor.format", backup.formatVersion()))).append("</small></span><em>")
                     .append(escape(tr(backup.checksumValid() ? "screen.find_me.aui.valid" : "screen.find_me.aui.invalid")))
                     .append("</em><i>></i></div>");
@@ -3152,30 +3608,99 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         return html.append("</div>").toString();
     }
 
-    private String doctorBackupDetailMarkup() {
-        DoctorPagePacket.Backup backup = doctor.backups().stream().filter(value -> value.index() == pendingBackup).findFirst().orElse(null);
-        DoctorPagePacket.BackupDetail detail = doctor.backupDetail();
-        if (backup == null || detail == null || detail.backupIndex() != pendingBackup) {
-            return doctorHeader("03", "screen.find_me.doctor.backup_detail", "RECOVERY RECORD", "")
-                    + "<div class='doctor-detail-placeholder'><b>...</b><span>" + escape(tr("screen.find_me.doctor.loading_backup")) + "</span></div>";
+    private int countDoctorBackupRecords(Element records) {
+        if (records == null) return 0;
+        int count = 0;
+        for (Element child : records.getChildren()) {
+            if (child != null && child.hasAttribute("data-backup-index")) count++;
         }
-        StringBuilder html = new StringBuilder(doctorHeader("03", "screen.find_me.doctor.backup_detail", "RECOVERY RECORD",
-                "<div class='doctor-filter' data-action='doctor-view:backups'>" + escape(tr("screen.find_me.aui.back")) + "</div>"))
+        return count;
+    }
+
+    /**
+     * The legacy AUI parser can leave a dynamically inserted subtree visible at the parent level while
+     * dropping some nested elements from the selector/render tree. Build this small, fixed-format list with
+     * the old DOM API when that mismatch is detected.
+     */
+    private boolean ensureDoctorBackupRecordsDom(Document document) {
+        if (document == null || doctor == null || doctorView != DoctorView.BACKUPS) return false;
+        Element records = document.getElementById("findme-doctor-backup-records");
+        if (records == null) return false;
+        int expected = doctor.backups().size();
+        int directRecords = countDoctorBackupRecords(records);
+        int selectorRecords = document.querySelectorAll(".doctor-backup-record").size();
+        int dataRecords = document.querySelectorAll("[data-backup-index]").size();
+        if (directRecords == expected && selectorRecords == expected && dataRecords == expected) return false;
+
+        for (Element child : new ArrayList<>(records.getChildren())) {
+            records.removeChild(child);
+        }
+        for (var backup : doctor.backups()) {
+            Element record = document.createElement("div");
+            record.setClassName("doctor-backup-record " + (backup.checksumValid() ? "valid" : "invalid")
+                    + (backup.manual() ? " manual" : " automatic"));
+            record.setAttribute("data-action", "doctor-backup-open-warehouse");
+            record.setAttribute("data-value", String.valueOf(backup.index()));
+            record.setAttribute("data-backup-index", String.valueOf(backup.index()));
+            record.setAttribute("data-backup-saved-at", String.valueOf(backup.savedAt()));
+            record.setAttribute("data-backup-manual", String.valueOf(backup.manual()));
+
+            Element number = document.createElement("b");
+            number.setTextContent("#" + twoDigits(backup.index()));
+            record.appendChild(number);
+
+            Element copy = document.createElement("span");
+            Element name = document.createElement("strong");
+            name.setTextContent(backupDisplayName(backup));
+            copy.appendChild(name);
+            Element date = document.createElement("small");
+            date.setTextContent(backupDateLabel(backup) + " / "
+                    + tr("screen.find_me.doctor.format", backup.formatVersion()));
+            copy.appendChild(date);
+            record.appendChild(copy);
+
+            Element validity = document.createElement("em");
+            validity.setTextContent(tr(backup.checksumValid()
+                    ? "screen.find_me.aui.valid" : "screen.find_me.aui.invalid"));
+            record.appendChild(validity);
+            Element arrow = document.createElement("i");
+            arrow.setTextContent(">");
+            record.appendChild(arrow);
+            records.appendChild(record);
+        }
+        return true;
+    }
+
+    private String doctorBackupDetailMarkup() {
+        DoctorPagePacket.Backup backup = doctor.backups().stream()
+                .filter(value -> value.index() == pendingBackup)
+                .findFirst()
+                .orElse(null);
+        if (backup == null) {
+            return doctorHeader("01", "screen.find_me.aui.backups",
+                    tr("screen.find_me.doctor.caption.auto_manual"), "")
+                    + "<div class='doctor-detail-placeholder'><b>00</b><span>"
+                    + escape(tr("message.find_me.backup_empty")) + "</span></div>";
+        }
+        StringBuilder html = new StringBuilder(doctorHeader("01", "screen.find_me.aui.backups",
+                tr("screen.find_me.doctor.caption.auto_manual"),
+                button("doctor-view-backups", tr("screen.find_me.aui.back"), "doctor-filter")))
                 .append("<div class='doctor-backup-meta'><b>#").append(twoDigits(backup.index())).append("</b><span><strong>")
                 .append(escape(backupDisplayName(backup))).append("</strong><small>")
-                .append(escape(tr("screen.find_me.doctor.saved_tick", backup.savedAt()))).append(" / ")
-                .append(escape(tr("screen.find_me.doctor.change_count", detail.totalChanges()))).append("</small></span><em class='")
+                .append(escape(backup.manual() ? backupDisplayName(backup) : backupReason(backup.reason())))
+                .append(" / ")
+                .append(escape(backupDateLabel(backup)))
+                .append(" / ").append(escape(tr("screen.find_me.doctor.format", backup.formatVersion())))
+                .append("</small></span><em class='")
                 .append(backup.checksumValid() ? "valid" : "invalid").append("'>")
-                .append(escape(tr(backup.checksumValid() ? "screen.find_me.aui.valid" : "screen.find_me.aui.invalid"))).append("</em></div>")
-                .append(backupCompareMarkup(detail)).append("<div class='doctor-backup-footer'><div class='doctor-page-controls'>")
-                .append(detail.page() > 0 ? button("doctor-backup-page", "＜", "doctor-page-button").replace("data-action='doctor-backup-page'", "data-action='doctor-backup-page' data-value='" + (detail.page() - 1) + "'") : "<div class='doctor-page-button disabled'>＜</div>")
-                .append("<span>").append(detail.page() + 1).append(" / ").append(detail.pageCount()).append("</span>")
-                .append(detail.page() + 1 < detail.pageCount() ? button("doctor-backup-page", "＞", "doctor-page-button").replace("data-action='doctor-backup-page'", "data-action='doctor-backup-page' data-value='" + (detail.page() + 1) + "'") : "<div class='doctor-page-button disabled'>＞</div>")
-                .append("</div>");
+                .append(escape(tr(backup.checksumValid() ? "screen.find_me.aui.valid" : "screen.find_me.aui.invalid"))).append("</em></div>");
         if (doctorRestoreConfirm) {
             html.append("<div class='doctor-restore-confirm'><span>").append(escape(tr("screen.find_me.doctor.restore_warning")))
                     .append("</span>").append(button("doctor-restore-cancel", tr("screen.find_me.cancel"), "doctor-cancel-button"))
                     .append(button("doctor-restore", tr("screen.find_me.confirm"), "doctor-confirm-button")).append("</div>");
+        } else if (!backup.checksumValid()) {
+            html.append("<div class='doctor-restore-unavailable'>")
+                    .append(escape(tr("screen.find_me.doctor.message.backup_unavailable"))).append("</div>");
         } else {
             html.append(button("doctor-restore-arm", tr("screen.find_me.aui.confirm_restore", pendingBackup), "doctor-restore-open"));
         }
@@ -3187,221 +3712,28 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + escape(tr(titleKey)) + "</strong></span>" + action + "</div>";
     }
 
-    private String doctorCount(int value, String label) {
-        return "<span><b>" + value + "</b><small>" + escape(label) + "</small></span>";
-    }
 
-    private String backupCompareMarkup(DoctorPagePacket.BackupDetail detail) {
-        StringBuilder html = new StringBuilder("<div class='doctor-backup-compare'><div class='doctor-compare-head'>")
-                .append("<div class='doctor-compare-head-side backup-side'><b>01</b><span>")
-                .append(escape(tr("screen.find_me.doctor.backup_detail"))).append("</span></div>")
-                .append("<div class='doctor-compare-head-change'>CHANGE</div>")
-                .append("<div class='doctor-compare-head-side current-side'><b>02</b><span>")
-                .append(escape(tr("screen.find_me.doctor.overview"))).append("</span></div></div>")
-                .append("<div class='doctor-compare-list'>");
-        for (var row : detail.rows()) html.append(backupComparisonRow(row));
-        if (detail.rows().isEmpty()) {
-            html.append("<div class='doctor-empty-report'><b>00</b><span>")
-                    .append(escape(tr("screen.find_me.doctor.no_changes"))).append("</span></div>");
-        }
-        return html.append("</div></div>").toString();
-    }
 
-    private String backupComparisonRow(DoctorPagePacket.BackupComparisonRow row) {
-        DoctorPagePacket.BackupRecord identity = row.backup() != null ? row.backup() : row.current();
-        UUID uuid = identity == null ? null : identity.uuid();
-        String kind = row.kind().toLowerCase(Locale.ROOT);
-        boolean changed = !"same".equals(kind);
-        boolean expanded = changed && uuid != null && uuid.equals(doctorSelectedComparison);
-        StringBuilder html = new StringBuilder("<div class='doctor-compare-row ").append(kind)
-                .append(expanded ? " expanded" : "").append("'");
-        if (changed && uuid != null) {
-            html.append(" data-action='doctor-compare-row' data-value='").append(uuid).append("'");
-        }
-        html.append(">").append(backupCompareRecord(row.backup(), "backup", row.kind()))
-                .append("<div class='doctor-compare-change'><b>").append(comparisonSymbol(kind)).append("</b><small>")
-                .append(escape(comparisonLabel(kind))).append("</small></div>")
-                .append(backupCompareRecord(row.current(), "current", row.kind())).append("</div>");
-        if (expanded) html.append(backupComparisonDetails(row));
-        return html.toString();
-    }
 
-    private String backupCompareRecord(DoctorPagePacket.BackupRecord record, String side, String kind) {
-        if (record == null) {
-            String emptyKey = "backup".equals(side) && "REMOVED".equals(kind)
-                    ? "screen.find_me.doctor.previously_not_tamed"
-                    : "current".equals(side) && "ADDED".equals(kind)
-                    ? "screen.find_me.doctor.currently_missing"
-                    : "screen.find_me.doctor.none";
-            return "<div class='doctor-compare-side " + side + " empty'><b>--</b><span>"
-                    + escape(tr(emptyKey)) + "</span></div>";
-        }
-        String name = record.name().isBlank() ? record.entityType() : record.name();
-        String previewNbt = record.previewTag() == null ? "" : record.previewTag().toString();
-        String preview = record.entityType().isBlank() ? "<div class='doctor-compare-preview empty-preview'>?</div>"
-                : "<div class='doctor-compare-preview'><findme-preview data-entity-type='" + escape(record.entityType())
-                + "' data-preview-nbt='" + escape(previewNbt) + "' data-preview-scale='0.72'></findme-preview></div>";
-        return "<div class='doctor-compare-side " + side + "'>" + preview
-                + "<div class='doctor-compare-copy'><b>" + escape(name) + "</b><small>" + escape(record.entityType())
-                + "</small><em>" + escape(backupValue("category", record.category())) + " / "
-                + escape(backupValue("lifecycle", record.lifecycle())) + "</em></div></div>";
-    }
 
-    private String backupComparisonDetails(DoctorPagePacket.BackupComparisonRow row) {
-        DoctorPagePacket.BackupRecord current = row.current();
-        DoctorPagePacket.BackupRecord backup = row.backup();
-        return "<div class='doctor-compare-details'>"
-                + backupField("screen.find_me.doctor.field.name", recordField(current, "name"), recordField(backup, "name"))
-                + backupField("screen.find_me.doctor.field.entity_type", recordField(current, "type"), recordField(backup, "type"))
-                + backupField("screen.find_me.doctor.field.category", recordField(current, "category"), recordField(backup, "category"))
-                + backupField("screen.find_me.doctor.field.lifecycle", recordField(current, "lifecycle"), recordField(backup, "lifecycle"))
-                + backupField("screen.find_me.doctor.field.team", recordField(current, "team"), recordField(backup, "team"))
-                + backupField("screen.find_me.doctor.field.home", recordField(current, "home"), recordField(backup, "home"))
-                + backupField("screen.find_me.doctor.field.snapshot", bool(current != null && current.stored()), bool(backup != null && backup.stored()))
-                + (row.snapshotChanged() ? backupChangedField("screen.find_me.doctor.field.snapshot_content",
-                "screen.find_me.doctor.snapshot_content_changed") : "") + "</div>";
-    }
 
-    private String recordField(DoctorPagePacket.BackupRecord record, String field) {
-        if (record == null) return "";
-        return switch (field) {
-            case "name" -> record.name();
-            case "type" -> record.entityType();
-            case "category" -> record.category();
-            case "lifecycle" -> record.lifecycle();
-            case "team" -> record.team();
-            case "home" -> record.home();
-            default -> "";
-        };
-    }
 
-    private String comparisonSymbol(String kind) {
-        return switch (kind) {
-            case "added" -> "+";
-            case "removed" -> "-";
-            case "changed" -> ">";
-            default -> "=";
-        };
-    }
 
-    private String comparisonLabel(String kind) {
-        return "same".equals(kind) ? tr("screen.find_me.doctor.no_changes")
-                : tr("screen.find_me.doctor.change." + kind);
-    }
 
-    private String backupChangedField(String labelKey, String valueKey) {
-        return "<small><b>" + escape(tr(labelKey)) + "</b><span>" + escape(tr(valueKey)) + "</span></small>";
-    }
 
-    private String backupField(String key, String before, String after) {
-        if (java.util.Objects.equals(before, after)) return "";
-        String oldValue = backupValue(key, before);
-        String newValue = backupValue(key, after);
-        return "<small><b>" + escape(tr(key)) + "</b><span>" + escape(oldValue) + " -> " + escape(newValue) + "</span></small>";
-    }
 
-    private String backupValue(String fieldKey, String value) {
-        if (value == null || value.isBlank()) return tr("screen.find_me.doctor.none");
-        if (fieldKey.endsWith("category")) return doctorEnumValue("category", value);
-        if (fieldKey.endsWith("lifecycle")) return doctorEnumValue("lifecycle", value);
-        if (fieldKey.endsWith("team")) {
-            String[] parts = value.split(":", 3);
-            if (parts.length >= 2) {
-                String category = doctorEnumValue("category", parts[0]);
-                int number = parseInt(parts[1], 0) + 1;
-                String name = parts.length == 3 && !parts[2].isBlank() ? parts[2] : tr("screen.find_me.team_number", number);
-                return category + " / " + name;
-            }
-        }
-        if (fieldKey.endsWith("home")) {
-            if (value.startsWith("HOUSE:")) return tr("screen.find_me.doctor.home.house");
-            if (value.startsWith("NEST:")) return tr("screen.find_me.doctor.home.legacy");
-        }
-        return value;
-    }
 
-    private String doctorDetailBlock(String labelKey, String text) {
-        return "<div class='doctor-detail-block'><b>" + escape(tr(labelKey)) + "</b><span>" + escape(text) + "</span></div>";
-    }
 
-    private String issueTitle(DoctorPagePacket.Issue issue) {
-        return tr("screen.find_me.doctor.issue." + issue.code().name().toLowerCase(Locale.ROOT) + ".title");
-    }
 
-    private String issueDetail(DoctorPagePacket.Issue issue) {
-        Object[] arguments = new Object[issue.arguments().size()];
-        for (int index = 0; index < issue.arguments().size(); index++) {
-            arguments[index] = doctorArgument(issue.arguments().get(index));
-        }
-        return tr("screen.find_me.doctor.issue." + issue.code().name().toLowerCase(Locale.ROOT) + ".detail", arguments);
-    }
 
-    private String doctorArgument(String value) {
-        if (value == null || value.isBlank()) return tr("screen.find_me.doctor.none");
-        String normalized = value.toUpperCase(Locale.ROOT);
-        if (normalized.equals("MOUNT") || normalized.equals("COMPANION") || normalized.equals("VEHICLE")
-                || normalized.equals("DEAD") || normalized.equals("UNKNOWN")) {
-            return doctorEnumValue("category", normalized);
-        }
-        if (value.matches("(?i)(mount|companion|vehicle)\\[\\d+\\]")) {
-            int separator = value.indexOf('[');
-            String category = doctorEnumValue("category", value.substring(0, separator));
-            return category + value.substring(separator);
-        }
-        return value;
-    }
 
-    private String doctorEnumValue(String group, String value) {
-        String normalized = value == null ? "unknown" : value.toLowerCase(Locale.ROOT);
-        String key = "screen.find_me.doctor." + group + "." + normalized;
-        String translated = tr(key);
-        return translated.equals(key) ? value : translated;
-    }
 
-    private String issueTarget(DoctorPagePacket.Issue issue) {
-        if (issue.targetName() != null && !issue.targetName().isBlank()) return issue.targetName();
-        if (issue.entityType() != null && !issue.entityType().isBlank()) return issue.entityType();
-        if (issue.uuid() != null) return issue.uuid().toString().substring(0, 8);
-        return areaLabel(issue.area());
-    }
 
-    private String issueRecommendation(DoctorIssueCode code) {
-        String group = switch (code) {
-            case TEAM_MISSING_RECORD, TEAM_WRONG_CATEGORY, TEAM_DUPLICATE, WHEEL_MISSING_RECORD,
-                    WHEEL_UNKNOWN_UUID, WHEEL_DUPLICATE, VEHICLE_WHEEL_MISSING, VEHICLE_WHEEL_DUPLICATE,
-                    ORPHAN_METADATA, HOME_ORPHAN -> "references";
-            case STORED_AND_LOADED, VEHICLE_STORED_AND_LOADED, LOADED_AND_STORED, DUPLICATE_LOADED_ENTITY,
-                    DEAD_RECORD_DUPLICATE, UUID_MULTIPLE_CATEGORIES -> "duplicates";
-            case DEPLOYED_UNRESOLVED, VEHICLE_DEPLOYED_UNRESOLVED, SERVER_UNAVAILABLE -> "unresolved";
-            case SNAPSHOT_EMPTY, SNAPSHOT_MISSING_TYPE, SNAPSHOT_MISSING_UUID, SNAPSHOT_UUID_MISMATCH,
-                    ORPHAN_SNAPSHOT, VAULT_EMPTY, VAULT_MISSING_TYPE, VAULT_UUID_MISMATCH, VAULT_NULL_UUID -> "snapshot";
-            case BACKUP_EMPTY, BACKUP_CHECKSUM_MISMATCH -> "backup";
-            case OPERATION_OWNER_MISMATCH, ORPHAN_OPERATION, EXPIRED_OPERATION -> "operation";
-            case TEMPORARY_ENTITIES -> "temporary";
-            default -> "review";
-        };
-        return tr("screen.find_me.doctor.recommendation." + group);
-    }
 
-    private String severityImpact(String severity) {
-        return tr("screen.find_me.doctor.impact." + severity.toLowerCase(Locale.ROOT));
-    }
 
-    private String severityLabel(String severity) {
-        return tr("screen.find_me.doctor.severity." + severity.toLowerCase(Locale.ROOT));
-    }
 
-    private String severityClass(String severity) {
-        return severity == null ? "unknown" : severity.toLowerCase(Locale.ROOT);
-    }
 
-    private String areaLabel(DoctorArea area) {
-        return tr("screen.find_me.doctor.area." + area.name().toLowerCase(Locale.ROOT));
-    }
 
-    private String areaDescription(DoctorArea area) {
-        return tr("screen.find_me.doctor.area." + area.name().toLowerCase(Locale.ROOT) + ".desc");
-    }
 
     private String backupReason(String reason) {
         if (reason == null || reason.isBlank()) return tr("screen.find_me.doctor.backup_reason.unknown");
@@ -3417,6 +3749,15 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             return tr("screen.find_me.doctor.manual_backup");
         }
         return backupReason(backup.reason());
+    }
+
+    private String backupDateLabel(DoctorPagePacket.Backup backup) {
+        long timestamp = backup.createdAtEpochMillis();
+        if (timestamp > 0L) {
+            String date = BACKUP_DATE_FORMAT.format(Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()));
+            return tr("screen.find_me.doctor.saved_at", date);
+        }
+        return tr("screen.find_me.doctor.legacy_saved_tick", backup.savedAt());
     }
 
     private String cardActions(Card card) {
@@ -3446,27 +3787,131 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         return "<div class='detail'><div class='detail-name'><span class='menu-title'>" + escape(tr("screen.find_me.select")) + "</span><span class='detail-sub'>" + escape(labelFor(uuid)) + "</span></div>"
                 + "<input id='entity-rename-input' class='detail-input' type='text' value='" + escape(labelFor(uuid)) + "' maxlength='64'>"
+                + (category == Category.VEHICLE || !spellUiAvailable(card)
+                ? "" : spellSlotsMarkup(card, uuid, "detail-spell-slots"))
                 + button("save-entity-name", tr("screen.find_me.config_save"), "ui-button detail-action")
                 + transferButton + "</div>";
+    }
+
+    private String spellSlotsMarkup(Card card, UUID uuid, String extraClass) {
+        List<com.kuzhi.findme.api.CompanionSpellBinding> bindings = card == null || card.previewEntry() == null
+                ? List.of() : card.previewEntry().spellBindings();
+        StringBuilder html = new StringBuilder("<div class='spell-loadout ").append(extraClass)
+                .append("'><div class='spell-slot-strip'>");
+        for (int slotIndex = 0; slotIndex < 3; slotIndex++) {
+            var binding = slotIndex < bindings.size() ? bindings.get(slotIndex) : null;
+            String icon = binding == null
+                    ? "find_me:textures/particle/contract_glyph.png" : binding.iconResource().toString();
+            String label = binding == null ? tr("screen.find_me.spell_slot.empty") : binding.displayName();
+            html.append("<div class='spell-slot-frame")
+                    .append(binding == null ? " empty" : " bound")
+                    .append("' title='").append(escape(label))
+                    .append("' data-action='spell-slot-bind' data-value='").append(uuid).append('|').append(slotIndex)
+                    .append("'><span class='spell-slot-icon' data-spell-icon='").append(escape(icon)).append("'></span></div>");
+        }
+        html.append("</div></div>");
+        return html.toString();
+    }
+
+    private boolean spellUiAvailable(Card card) {
+        return com.kuzhi.findme.api.FindMeApi.hasCompanionSpellProviders()
+                || card != null && card.previewEntry() != null
+                && card.previewEntry().spellBindings().stream().anyMatch(java.util.Objects::nonNull);
+    }
+
+    private void appendSpellPicker(StringBuilder html) {
+        Card card = findCard(spellPickerUuid);
+        String subject = card == null ? "" : card.name;
+        html.append("<span class='menu-title'>").append(escape(tr("screen.find_me.spell_slot.choose"))).append("</span>");
+        if (!subject.isBlank()) {
+            html.append("<div class='spell-picker-subject'>").append(escape(subject)).append("</div>");
+        }
+        if (spellPickerCandidates.isEmpty()) {
+            html.append("<div class='spell-picker-empty'>")
+                    .append(escape(tr("screen.find_me.spell_slot.no_candidates"))).append("</div>")
+                    .append(button("spell-picker-refresh", tr("screen.find_me.spell_slot.refresh"), "ui-button menu-button"));
+        } else {
+            html.append("<div class='spell-picker-list'>");
+            for (CompanionSpellSlotCandidatesPacket.Entry entry : spellPickerCandidates) {
+                boolean selected = entry.inventorySlot() == spellPickerSelectedSlot;
+                String level = entry.spellLevel() > 0
+                        ? tr("screen.find_me.spell_slot.level", entry.spellLevel()) : "";
+                html.append("<div class='ui-button menu-button spell-picker-row")
+                        .append(selected ? " active" : "")
+                        .append("' data-action='spell-picker-select' data-value='").append(entry.inventorySlot())
+                        .append("'><i class='spell-picker-icon' data-spell-icon='").append(escape(entry.iconResource().toString()))
+                        .append("'></i><span><b>").append(escape(entry.displayName()))
+                        .append("</b><small>").append(escape(level))
+                        .append(" / ").append(escape(tr("screen.find_me.spell_slot.role."
+                                + entry.role().name().toLowerCase(Locale.ROOT))))
+                        .append(entry.count() > 1 ? " x" + entry.count() : "")
+                        .append("</small></span></div>");
+            }
+            html.append("</div>");
+            if (spellPickerSelectedSlot >= 0) {
+                html.append(button("spell-picker-confirm", tr("screen.find_me.spell_slot.confirm"),
+                        "ui-button menu-button active"));
+            } else {
+                html.append("<div class='ui-button menu-button disabled'>")
+                        .append(escape(tr("screen.find_me.spell_slot.confirm"))).append("</div>");
+            }
+            html.append(button("spell-picker-refresh", tr("screen.find_me.spell_slot.refresh"), "ui-button menu-button"));
+        }
+        if (card != null && card.previewEntry() != null && spellPickerCompanionSlot >= 0
+                && spellPickerCompanionSlot < card.previewEntry().spellBindings().size()
+                && card.previewEntry().spellBindings().get(spellPickerCompanionSlot) != null) {
+            html.append(button("spell-slot-clear", tr("screen.find_me.spell_slot.clear"), "ui-button menu-button danger")
+                    .replace("data-action='spell-slot-clear'",
+                            "data-action='spell-slot-clear' data-value='" + spellPickerUuid + "|"
+                                    + spellPickerCompanionSlot + "'"));
+        }
     }
 
     private String contextMarkup() {
         StringBuilder html = new StringBuilder("<div id='findme-context-menu' class='context-menu")
                 .append(view == View.WAREHOUSE ? " warehouse-context" : "")
+                .append(spellPickerUuid != null ? " spell-picker-context" : "")
                 .append(" ").append(typographyClasses())
                 .append(!settings.uiAnimations() || contextMotionClass.isBlank() ? "" : " " + contextMotionClass)
                 .append("'>");
-        if (settingsChoiceMenu != SettingsChoiceMenu.NONE) {
+        if (spellPickerUuid != null) {
+            appendSpellPicker(html);
+        } else if (settingsChoiceMenu != SettingsChoiceMenu.NONE) {
             appendSettingsChoiceMenu(html);
         } else if (contextBackupIndex >= 0 && contextBackupSavedAt > 0L) {
             DoctorPagePacket.Backup backup = doctor == null ? null : doctor.backups().stream()
                     .filter(value -> value.index() == contextBackupIndex && value.savedAt() == contextBackupSavedAt
-                            && value.manual()).findFirst().orElse(null);
-            String currentName = backup == null ? "" : backupDisplayName(backup);
-            html.append("<span class='menu-title'>").append(escape(tr("screen.find_me.aui.rename"))).append("</span>")
-                    .append("<input id='doctor-backup-rename-input' class='menu-input' type='text' value='")
-                    .append(escape(currentName)).append("' maxlength='48'>")
-                    .append(button("doctor-backup-rename", tr("screen.find_me.config_save"), "ui-button menu-button"));
+                            ).findFirst().orElse(null);
+            if (pendingDanger.equals("backup")) {
+                html.append("<div class='spell-picker-empty backup-warning'>")
+                        .append(escape(tr("screen.find_me.doctor.delete_backup_confirm"))).append("</div>")
+                        .append(button("doctor-restore-cancel", tr("screen.find_me.cancel"), "ui-button menu-button"))
+                        .append(button("doctor-backup-delete", tr("screen.find_me.aui.delete_backup"), "ui-button menu-button danger"));
+            } else if (doctorRestoreConfirm && pendingBackup == contextBackupIndex
+                    && pendingBackupSavedAt == contextBackupSavedAt && backup != null && backup.checksumValid()) {
+                html.append("<div class='spell-picker-empty backup-warning'>")
+                        .append(escape(tr("screen.find_me.doctor.restore_warning"))).append("</div>")
+                        .append(button("doctor-restore-cancel", tr("screen.find_me.cancel"), "ui-button menu-button"))
+                        .append(button("doctor-restore", tr("screen.find_me.confirm"), "ui-button menu-button danger"));
+            } else {
+                html.append("<span class='menu-title'>")
+                        .append(escape(tr("screen.find_me.aui.backup_actions"))).append("</span>");
+                if (backup != null && backup.checksumValid()) {
+                    html.append(button("doctor-backup-switch", tr("screen.find_me.aui.switch_to_backup"),
+                            "ui-button menu-button danger").replace("data-action='doctor-backup-switch'",
+                            "data-action='doctor-backup-switch' data-value='" + backup.index() + "|" + backup.savedAt() + "'"));
+                }
+                if (backup != null) {
+                    html.append(button("ask-delete-backup", tr("screen.find_me.aui.delete_backup"),
+                            "ui-button menu-button danger"));
+                }
+                if (backup != null && backup.manual()) {
+                    html.append("<span class='menu-title'>").append(escape(tr("screen.find_me.aui.rename"))).append("</span>")
+                            .append("<input id='doctor-backup-rename-input' class='menu-input' type='text' value='")
+                            .append(escape(backupDisplayName(backup))).append("' maxlength='48'>")
+                            .append(button("doctor-backup-rename", tr("screen.find_me.config_save"), "ui-button menu-button"));
+                }
+            }
         } else if (contextTeam >= 0) {
             if (pendingDanger.equals("team")) {
                 html.append("<span class='menu-title'>").append(escape(tr("screen.find_me.aui.delete_team_confirm"))).append("</span>").append(button("confirm-delete-team", tr("screen.find_me.confirm"), "ui-button menu-button danger"));
@@ -3481,13 +3926,32 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 html.append(button("team-menu:rename", tr("screen.find_me.aui.rename"), "ui-button menu-button"));
                 html.append(button("ask-delete-team", tr("screen.find_me.delete"), "ui-button menu-button danger"));
                 html.append(button("view:dead", tr("screen.find_me.aui.deaths"), "ui-button menu-button"));
+                html.append(button("view:recovery", tr("screen.find_me.aui.recovery"), "ui-button menu-button"));
                 html.append(button("view:settings", tr("screen.find_me.aui.settings"), "ui-button menu-button"));
-                html.append(button("view:doctor", tr("screen.find_me.aui.doctor"), "ui-button menu-button"));
+                html.append(button("view:doctor", tr("screen.find_me.aui.backups"), "ui-button menu-button"));
             }
         } else if (selectedUuid != null) {
             Card selected = findCard(selectedUuid);
             if (view == View.WAREHOUSE && selected != null) {
                 html.append(warehouseContextMarkup(selected));
+            } else if (pendingDanger.equals("recovery")) {
+                html.append("<span class='menu-title'>")
+                        .append(escape(tr("screen.find_me.aui.delete_recovery_confirm")))
+                        .append("</span>")
+                        .append(button("confirm-delete-recovery", tr("screen.find_me.aui.confirm_delete"),
+                                "ui-button menu-button danger"));
+            } else if (view == View.RECOVERY && selected != null) {
+                html.append("<span class='menu-title'>")
+                        .append(escape(tr("screen.find_me.aui.recovery_record"))).append("</span>");
+                html.append(button("retry-recovery", tr("screen.find_me.aui.retry_recovery"),
+                        "ui-button menu-button active").replace("data-action='retry-recovery'",
+                        "data-action='retry-recovery' data-value='" + selectedUuid + "'"));
+                html.append(button("move-recovery-to-dead", tr("screen.find_me.aui.move_recovery_to_dead"),
+                        "ui-button menu-button").replace("data-action='move-recovery-to-dead'",
+                        "data-action='move-recovery-to-dead' data-value='" + selectedUuid + "'"));
+                html.append(button("ask-delete-recovery", tr("screen.find_me.aui.delete_permanently"),
+                        "ui-button menu-button danger").replace("data-action='ask-delete-recovery'",
+                        "data-action='ask-delete-recovery' data-value='" + selectedUuid + "'"));
             } else if (pendingDanger.equals("dead")) {
                 html.append("<span class='menu-title'>").append(escape(tr("screen.find_me.aui.delete_death_confirm"))).append("</span>").append(button("confirm-delete-dead", tr("screen.find_me.aui.confirm_delete"), "ui-button menu-button danger"));
             } else if (selected != null && !selected.alive) {
@@ -3656,6 +4120,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             case ANIMATION -> {
                 html.append("<span class='menu-title'>").append(escape(tr("screen.find_me.animation_settings"))).append("</span>");
                 for (CompanionAnimationPurpose purpose : CompanionAnimationPurpose.values()) {
+                    if (category == Category.COMPANION && purpose == CompanionAnimationPurpose.SUMMON) continue;
                     CompanionAnimationStyle currentStyle = animationStyle(selected.uuid(), purpose);
                     html.append("<div class='ui-button menu-button animation-purpose' data-action='warehouse-animation-purpose:").append(purpose.name()).append("'><span>")
                             .append(escape(tr("screen.find_me.animation_purpose_short." + purpose.name().toLowerCase(Locale.ROOT)))).append("</span><small>")
@@ -3794,6 +4259,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (view == View.DEAD) {
             return deadCards(deadFilter);
         }
+        if (view == View.RECOVERY) {
+            return recoveryCards();
+        }
         if (view == View.WAREHOUSE) {
             return switch (warehouseFilter) {
                 case ALL -> allCards().stream().filter(this::matches).toList();
@@ -3841,8 +4309,36 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         return result;
     }
 
+    private List<Card> recoveryCards() {
+        List<Card> result = new ArrayList<>();
+        for (var entry : ClientCompanionState.recoveryEntries()) {
+            if ((category == Category.COMPANION && entry.kind() != CompanionKind.COMPANION)
+                    || (category == Category.MOUNT && entry.kind() != CompanionKind.MOUNT)
+                    || category == Category.VEHICLE) continue;
+            Card card = new Card(entry.uuid(), entry.name(), entry.entityType(), false, false,
+                    entry.moveType(), null);
+            if (matches(card)) result.add(card);
+        }
+        return result;
+    }
+
     private List<Card> allCards() {
         List<Card> result = new ArrayList<>();
+        if (backupWarehousePreview && backupWarehouse != null) {
+            for (BackupWarehousePacket.Entry entry : backupWarehouse.entries()) {
+                CompanionMoveType moveType = entry.vehicle() ? CompanionMoveType.WALK
+                        : entry.kind() == CompanionKind.MOUNT ? CompanionMoveType.WALK : CompanionMoveType.COMPANION;
+                CompanionListPacket.Entry previewEntry = new CompanionListPacket.Entry(entry.uuid(), -1,
+                        entry.entityType(), entry.name(), false, entry.alive(), false, false, false, false, null,
+                        0.0f, 0.0f, 0.0f, moveType,
+                        CompanionAnimationStyle.STANDARD, CompanionAnimationStyle.STANDARD,
+                        CompanionAnimationStyle.STANDARD, CompanionAnimationStyle.STANDARD,
+                        CompanionEffectStyle.NONE, CompanionEffectStyle.NONE, CompanionEffectStyle.NONE,
+                        entry.previewTag());
+                result.add(new Card(entry.uuid(), entry.name(), entry.entityType(), false, entry.alive(), moveType, previewEntry));
+            }
+            return result;
+        }
         if (category == Category.VEHICLE) ClientVehicleState.allEntries().forEach(entry -> result.add(new Card(entry.uuid(), entry.name(), entry.entityType(), entry.loaded() && entry.alive(), entry.alive(), CompanionMoveType.WALK, entry.asPreviewEntry())));
         else {
             ClientCompanionState.allEntries(category == Category.MOUNT ? CompanionKind.MOUNT : CompanionKind.COMPANION)
@@ -3857,6 +4353,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     private Card findCard(UUID uuid) {
+        for (var entry : ClientCompanionState.recoveryEntries()) {
+            if (entry.uuid().equals(uuid)) return new Card(uuid, entry.name(), entry.entityType(), false,
+                    false, entry.moveType(), null);
+        }
         for (var entry : ClientCompanionState.deadEntries()) {
             if (entry.uuid().equals(uuid)) return new Card(uuid, entry.name(), entry.entityType(), false, false);
         }
@@ -3940,14 +4440,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private enum SettingsChoiceMenu { NONE, WHEEL_STYLE, DRAG_HOLD, NAME_LENGTH, TEXT_MODE, FONT_FAMILY, FONT_SIZE, RIDING_CAMERA, BINDING_ANIMATION, SUMMONED_OUTLINE, DEFAULT_TEAM, COMPANION_LIMIT }
     private enum DragKind { NONE, TEAM, MEMBER }
     private enum CardTogglePhase { IDLE, IN }
-    private enum DoctorView { OVERVIEW, REPORT, BACKUPS, BACKUP_DETAIL }
+    private enum DoctorView { BACKUPS, BACKUP_DETAIL }
     private enum Category {
         MOUNT("screen.find_me.mounts"), VEHICLE("screen.find_me.vehicles"), COMPANION("screen.find_me.companions");
         final String key;
         Category(String key) { this.key = key; }
     }
     private enum View {
-        TEAM("screen.find_me.teams"), WAREHOUSE("screen.find_me.warehouse"), DEAD("screen.find_me.aui.deaths"), DETAIL("screen.find_me.details"), SETTINGS("screen.find_me.aui.settings"), DOCTOR("screen.find_me.aui.doctor");
+        TEAM("screen.find_me.teams"), WAREHOUSE("screen.find_me.warehouse"), DEAD("screen.find_me.aui.deaths"), RECOVERY("screen.find_me.aui.recovery"), DETAIL("screen.find_me.details"), SETTINGS("screen.find_me.aui.settings"), DOCTOR("screen.find_me.aui.doctor");
         final String key;
         View(String key) { this.key = key; }
     }

@@ -48,6 +48,12 @@ public final class CompanionOperationLockService {
         return new BeginResult(true, current);
     }
 
+    public static boolean tryBeginExternal(UUID playerUuid, UUID companionId, String source,
+                                           long now, int timeoutTicks) {
+        if (playerUuid == null || companionId == null || source == null || source.isBlank()) return false;
+        return begin(playerUuid, companionId, Operation.EXTERNAL, source, now, timeoutTicks).accepted();
+    }
+
     public static boolean tryBegin(ServerPlayer player, UUID companionId, Operation operation, String source) {
         return tryBegin(player, companionId, operation, source, DEFAULT_TIMEOUT_TICKS);
     }
@@ -65,11 +71,35 @@ public final class CompanionOperationLockService {
                 operation.name(), "-", reason, false, false);
     }
 
+    public static boolean endIfSource(UUID companionId, Operation operation, String source) {
+        ActiveOperation current = get(companionId);
+        if (current == null || current.operation != operation || !current.source.equals(source)) return false;
+        ACTIVE.remove(companionId);
+        return true;
+    }
+
+    public static boolean renew(UUID companionId, Operation operation, String source,
+                                long now, int timeoutTicks) {
+        ActiveOperation current = get(companionId);
+        if (current == null || current.operation != operation || !current.source.equals(source)
+                || current.expiresAt < now) {
+            return false;
+        }
+        ACTIVE.put(companionId, new ActiveOperation(current.playerUuid, current.operation, current.source,
+                current.startedAt, now + Math.max(1, timeoutTicks)));
+        return true;
+    }
+
     public static ActiveOperation get(UUID companionId) {
         if (companionId == null) {
             return null;
         }
         return ACTIVE.get(companionId);
+    }
+
+    public static boolean isFindMeOwned(UUID companionId) {
+        ActiveOperation active = get(companionId);
+        return active != null && active.operation != Operation.EXTERNAL;
     }
 
     public static boolean heldBy(ServerPlayer player, UUID companionId, Operation operation) {
@@ -162,7 +192,8 @@ public final class CompanionOperationLockService {
         STORE,
         SWITCH,
         RECOVER,
-        JOURNEY
+        JOURNEY,
+        EXTERNAL
     }
 
     public record ActiveOperation(UUID playerUuid, Operation operation, String source, long startedAt, long expiresAt) {

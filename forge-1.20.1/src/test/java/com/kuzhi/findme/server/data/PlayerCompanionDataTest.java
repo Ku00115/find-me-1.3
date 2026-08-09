@@ -5,13 +5,51 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.CompanionLifecycleState;
+import com.kuzhi.findme.common.SavedPosition;
 import com.kuzhi.findme.common.CompanionTeamTarget;
+import com.kuzhi.findme.api.CompanionSpellBinding;
+import com.kuzhi.findme.api.CompanionSpellRole;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.Test;
 
 class PlayerCompanionDataTest {
+    private static CompanionSpellBinding binding(int storedCount) {
+        CompoundTag item = new CompoundTag();
+        item.putString("id", "minecraft:paper");
+        item.putByte("Count", (byte)storedCount);
+        return new CompanionSpellBinding(new ResourceLocation("test", "provider"),
+                new ResourceLocation("test", "spell"), null, CompanionSpellRole.UTILITY,
+                "Test", 1, item);
+    }
+
+    @Test
+    void updatingAHouseResidentPositionKeepsTheHouseAssignmentUntilExplicitlyCleared() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID resident = UUID.randomUUID();
+        UUID house = UUID.randomUUID();
+        SavedPosition nest = new SavedPosition(null, 10, 64, 10, 0, 0);
+        SavedPosition first = new SavedPosition(null, 12, 64, 10, 0, 0);
+        SavedPosition moved = new SavedPosition(null, 13, 64, 11, 0, 0);
+        data.add(CompanionKind.COMPANION, resident);
+        data.setHomePosition(resident, first);
+        data.setHomeNestBlock(resident, nest);
+        data.setHomeHouseId(resident, house);
+
+        data.setHouseResidentPosition(resident, moved);
+
+        assertEquals(moved, data.homePosition(resident).orElseThrow());
+        assertEquals(nest, data.homeNestBlock(resident).orElseThrow());
+        assertEquals(house, data.homeHouseId(resident).orElseThrow());
+        data.clearHomePosition(resident);
+        assertTrue(data.homePosition(resident).isEmpty());
+        assertTrue(data.homeNestBlock(resident).isEmpty());
+        assertTrue(data.homeHouseId(resident).isEmpty());
+    }
+
     @Test
     void saveLoadPreservesUuidTeamsSelectionDeploymentAndVehicles() {
         PlayerCompanionData data = new PlayerCompanionData();
@@ -121,6 +159,31 @@ class PlayerCompanionDataTest {
     }
 
     @Test
+    void deleteBackupRequiresTheExpectedSavedAtIdentity() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.createBackup(42L, "manual", 4, true);
+
+        assertFalse(data.deleteBackup(0, 41L));
+        assertEquals(1, data.backupList().size());
+        assertTrue(data.deleteBackup(0, 42L));
+        assertTrue(data.backupList().isEmpty());
+    }
+
+    @Test
+    void restoreSafetyBackupKeepsOneReplaceableSlot() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.createBackup(10L, "before_restore", 6, false);
+        data.createBackup(11L, "auto", 6, false);
+        data.createBackup(12L, "before_restore", 6, false);
+
+        assertEquals(1, data.backupList().stream()
+                .filter(backup -> "before_restore".equals(backup.reason())).count());
+        assertEquals(12L, data.backupList().stream()
+                .filter(backup -> "before_restore".equals(backup.reason()))
+                .findFirst().orElseThrow().savedAt());
+    }
+
+    @Test
     void bindingCinematicHistoryPersistsByExactEntityType() {
         PlayerCompanionData data = new PlayerCompanionData();
         assertTrue(data.markBindingCinematicSeen("minecraft:wolf"));
@@ -155,6 +218,66 @@ class PlayerCompanionDataTest {
     }
 
     @Test
+    void categoryTransferPreservesSpellBindings() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        data.setSpellBinding(companion, 0, binding(64));
+
+        assertTrue(data.transferCategory(companion, CompanionKind.MOUNT));
+
+        assertTrue(data.spellBinding(companion, 0).isPresent());
+        assertFalse(data.hasPendingSpellItemReturns());
+    }
+
+    @Test
+    void convertingCreatureToVehicleQueuesExactlyOneItemPerBindingAndPersistsIt() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.MOUNT, companion);
+        data.setSpellBinding(companion, 0, binding(64));
+
+        assertTrue(data.addVehicle(companion));
+
+        assertTrue(data.spellBindings(companion).isEmpty());
+        assertTrue(data.hasPendingSpellItemReturns());
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+        CompoundTag returned = restored.drainPendingSpellItemReturns().get(0);
+        assertEquals(1, returned.getByte("Count"));
+        assertEquals(1, returned.getInt("count"));
+    }
+
+    @Test
+    void removingCreatureQueuesStoredSpellItems() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        data.setSpellBinding(companion, 2, binding(32));
+
+        data.remove(companion);
+
+        assertEquals(1, data.drainPendingSpellItemReturns().get(0).getByte("Count"));
+    }
+
+    @Test
+    void lifecycleChangesAreBoundedAndDoNotSurvivePersistenceLoad() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        assertEquals(java.util.Set.of(companion), data.lifecycleChanges());
+
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+
+        assertTrue(restored.lifecycleChanges().isEmpty());
+        restored.setUiSettings(restored.uiSettings());
+        assertTrue(restored.lifecycleChanges().isEmpty());
+    }
+
+    @Test
     void categoryTransferCreatesAFallbackTeamWhenMatchingTeamIsFull() {
         PlayerCompanionData data = new PlayerCompanionData();
         for (int index = 0; index < PlayerCompanionData.TEAM_SIZE; index++) {
@@ -167,5 +290,108 @@ class PlayerCompanionDataTest {
 
         assertEquals(2, data.teamCount(CompanionTeamTarget.MOUNT));
         assertEquals(List.of(companion), data.team(CompanionTeamTarget.MOUNT, 1));
+    }
+
+    @Test
+    void companionMagicContributorsIncludeCreaturesButNotVehiclesAndRespectTheCap() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.add(CompanionKind.COMPANION, UUID.randomUUID());
+        data.add(CompanionKind.MOUNT, UUID.randomUUID());
+        data.addVehicle(UUID.randomUUID());
+
+        assertEquals(2, data.companionMagicContributorCount(0));
+        assertEquals(1, data.companionMagicContributorCount(1));
+        assertEquals(2, data.companionMagicContributorCount(10));
+    }
+
+    @Test
+    void sharedCompanionManaSurvivesSaveAndBackupRestore() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.setCompanionMagicMana(73.5F, 420L, 300.0F);
+
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+        assertEquals(73.5F, restored.companionMagicMana());
+        assertEquals(420L, restored.companionMagicManaTick());
+        assertEquals(300.0F, restored.companionMagicCapacity());
+
+        CompoundTag backup = PlayerCompanionDataCodec.createBackupState(data);
+        restored.setCompanionMagicMana(1.0F, 999L, 100.0F);
+        PlayerCompanionDataCodec.restoreBackupState(restored, backup);
+        assertEquals(73.5F, restored.companionMagicMana());
+        assertEquals(420L, restored.companionMagicManaTick());
+        assertEquals(300.0F, restored.companionMagicCapacity());
+    }
+
+    @Test
+    void addingACompanionAddsOneHundredCurrentAndMaximumMana() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.add(CompanionKind.COMPANION, UUID.randomUUID());
+        data.setCompanionMagicMana(20.0F, 100L, 100.0F);
+
+        data.add(CompanionKind.MOUNT, UUID.randomUUID());
+
+        assertEquals(120.0F, data.companionMagicMana());
+        assertEquals(200.0F, data.companionMagicCapacity());
+    }
+
+    @Test
+    void recoveryRecordsRoundTripAndStayOutOfWheelOrder() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        UUID recordId = UUID.randomUUID();
+        data.add(CompanionKind.MOUNT, companion);
+        data.putRecoveryRecord(new RecoveryCompanionRecord(recordId, companion, "Lost mount",
+                "minecraft:horse", CompanionKind.MOUNT, 2, 100L, 120L,
+                "minecraft:overworld", 10.0, 64.0, -3.0, "discarded", "missing snapshot",
+                CompanionLifecycleState.DEPLOYED));
+        data.setLifecycleState(companion, CompanionLifecycleState.RECOVERY);
+
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+
+        RecoveryCompanionRecord record = restored.recoveryRecord(companion).orElseThrow();
+        assertEquals(recordId, record.recordId());
+        assertEquals(CompanionLifecycleState.DEPLOYED, record.sourceState());
+        assertEquals(List.of(), restored.wheelOrder(CompanionKind.MOUNT));
+        assertFalse(restored.allowedInTeam(CompanionTeamTarget.MOUNT, companion));
+    }
+
+    @Test
+    void legacyRecoveryLifecycleSynthesizesARecordOnLoad() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        data.setDisplayName(companion, "Legacy lost companion");
+        data.setLifecycleState(companion, CompanionLifecycleState.RECOVERY);
+
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+
+        assertEquals("Legacy lost companion", restored.recoveryRecord(companion).orElseThrow().customName());
+    }
+
+    @Test
+    void recoveryArchiveSearchContinuesPastAnInvalidVaultSnapshot() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        CompoundTag valid = new CompoundTag();
+        valid.putString("id", "minecraft:wolf");
+        valid.putUUID("UUID", companion);
+        data.storeEntity(companion, valid);
+        data.createBackup(10L, "valid", 6);
+
+        CompoundTag invalid = new CompoundTag();
+        invalid.putString("id", "missing:entity");
+        data.addVaultSnapshot(companion, CompanionKind.COMPANION, "Broken", invalid, 20L,
+                "invalid", 30);
+
+        List<CompoundTag> candidates = data.recoverySnapshotsFromArchives(companion);
+        assertEquals("missing:entity", candidates.get(0).getString("id"));
+        assertTrue(candidates.stream().anyMatch(tag -> "minecraft:wolf".equals(tag.getString("id"))));
     }
 }

@@ -15,7 +15,7 @@ import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 public final class ModNetwork {
-    private static final String PROTOCOL = "79";
+    private static final String PROTOCOL = "91";
     public static SimpleChannel channel;
     private static int nextId;
 
@@ -32,10 +32,12 @@ public final class ModNetwork {
         toServer(MountRosterIntentPacket.class, MountRosterIntentPacket::encode, MountRosterIntentPacket::decode, MountRosterIntentPacket::handle);
         toClient(MountRosterIntentResultPacket.class, MountRosterIntentResultPacket::encode, MountRosterIntentResultPacket::decode, MountRosterIntentResultPacket::handle);
         toServer(CompanionTacticalCommandPacket.class, CompanionTacticalCommandPacket::encode, CompanionTacticalCommandPacket::decode, CompanionTacticalCommandPacket::handle);
+        toServer(CompanionForwardTravelTeleportPacket.class, CompanionForwardTravelTeleportPacket::encode, CompanionForwardTravelTeleportPacket::decode, CompanionForwardTravelTeleportPacket::handle);
         toServer(CompanionTeamTacticalCommandPacket.class, CompanionTeamTacticalCommandPacket::encode, CompanionTeamTacticalCommandPacket::decode, CompanionTeamTacticalCommandPacket::handle);
         toClient(CompanionListPacket.class, CompanionListPacket::encode, CompanionListPacket::decode, CompanionListPacket::handle);
         toClient(ExternalRideHandoffPacket.class, ExternalRideHandoffPacket::encode, ExternalRideHandoffPacket::decode, ExternalRideHandoffPacket::handle);
         toClient(DeadCompanionListPacket.class, DeadCompanionListPacket::encode, DeadCompanionListPacket::decode, DeadCompanionListPacket::handle);
+        toClient(RecoveryCompanionListPacket.class, RecoveryCompanionListPacket::encode, RecoveryCompanionListPacket::decode, RecoveryCompanionListPacket::handle);
         toClient(ContractCameraPacket.class, ContractCameraPacket::encode, ContractCameraPacket::decode, ContractCameraPacket::handle);
         toClient(RideHomeCameraPacket.class, RideHomeCameraPacket::encode, RideHomeCameraPacket::decode, RideHomeCameraPacket::handle);
         toClient(RideHomeDestinationPacket.class, RideHomeDestinationPacket::encode, RideHomeDestinationPacket::decode, RideHomeDestinationPacket::handle);
@@ -53,6 +55,8 @@ public final class ModNetwork {
         toClient(VehicleSealEffectPacket.class, VehicleSealEffectPacket::encode, VehicleSealEffectPacket::decode, VehicleSealEffectPacket::handle);
         toServer(CompanionEffectStylePacket.class, CompanionEffectStylePacket::encode, CompanionEffectStylePacket::decode, CompanionEffectStylePacket::handle);
         toServer(CompanionAnimationStylePacket.class, CompanionAnimationStylePacket::encode, CompanionAnimationStylePacket::decode, CompanionAnimationStylePacket::handle);
+        toServer(CompanionSpellSlotPacket.class, CompanionSpellSlotPacket::encode, CompanionSpellSlotPacket::decode, CompanionSpellSlotPacket::handle);
+        toClient(CompanionSpellSlotCandidatesPacket.class, CompanionSpellSlotCandidatesPacket::encode, CompanionSpellSlotCandidatesPacket::decode, CompanionSpellSlotCandidatesPacket::handle);
         toClient(PackAnimationPresetModePacket.class, PackAnimationPresetModePacket::encode, PackAnimationPresetModePacket::decode, PackAnimationPresetModePacket::handle);
         toClient(PackAnimationPresetListPacket.class, PackAnimationPresetListPacket::encode, PackAnimationPresetListPacket::decode, PackAnimationPresetListPacket::handle);
         toServer(PackAnimationPresetStylePacket.class, PackAnimationPresetStylePacket::encode, PackAnimationPresetStylePacket::decode, PackAnimationPresetStylePacket::handle);
@@ -65,6 +69,7 @@ public final class ModNetwork {
         toServer(HouseCommandPacket.class, HouseCommandPacket::encode, HouseCommandPacket::decode, HouseCommandPacket::handle);
         toServer(DoctorCommandPacket.class, DoctorCommandPacket::encode, DoctorCommandPacket::decode, DoctorCommandPacket::handle);
         toClient(DoctorPagePacket.class, DoctorPagePacket::encode, DoctorPagePacket::decode, DoctorPagePacket::handle);
+        toClient(BackupWarehousePacket.class, BackupWarehousePacket::encode, BackupWarehousePacket::decode, BackupWarehousePacket::handle);
         bidirectional(FindMeSettingsPacket.class, FindMeSettingsPacket::encode, FindMeSettingsPacket::decode, FindMeSettingsPacket::handle);
         toServer(WarehouseEntityCommandPacket.class, WarehouseEntityCommandPacket::encode, WarehouseEntityCommandPacket::decode, WarehouseEntityCommandPacket::handle);
         toClient(WarehouseOperationResultPacket.class, WarehouseOperationResultPacket::encode, WarehouseOperationResultPacket::decode, WarehouseOperationResultPacket::handle);
@@ -72,6 +77,7 @@ public final class ModNetwork {
         toServer(FindMeServerSettingsCommandPacket.class, FindMeServerSettingsCommandPacket::encode, FindMeServerSettingsCommandPacket::decode, FindMeServerSettingsCommandPacket::handle);
         toClient(FindMeModuleStatePacket.class, FindMeModuleStatePacket::encode, FindMeModuleStatePacket::decode, FindMeModuleStatePacket::handle);
         toClient(OpenFindMeManageScreenPacket.class, OpenFindMeManageScreenPacket::encode, OpenFindMeManageScreenPacket::decode, OpenFindMeManageScreenPacket::handle);
+        toClient(OpenFindMeHudEditorPacket.class, OpenFindMeHudEditorPacket::encode, OpenFindMeHudEditorPacket::decode, OpenFindMeHudEditorPacket::handle);
     }
 
     private static <T> void toServer(Class<T> type, BiConsumer<T, FriendlyByteBuf> encoder,

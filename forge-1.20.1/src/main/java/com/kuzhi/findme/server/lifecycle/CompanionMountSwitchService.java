@@ -31,9 +31,6 @@ public final class CompanionMountSwitchService {
         player.invulnerableTime = Math.max(player.invulnerableTime, Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
         mount.invulnerableTime = Math.max(mount.invulnerableTime, Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
         boolean contactLatched = cinematic.contactLatched();
-        // The source may already have been retired before contact. Keep the player at
-        // the handoff height until the destination ride is authoritative; otherwise
-        // the client renders a fall to the ground followed by a sudden mount snap.
         if (mode.isMountSwitch() && !mode.isRescue() && currentVehicle != mount) {
             player.setDeltaMovement(player.getDeltaMovement().x, 0.0, player.getDeltaMovement().z);
         }
@@ -41,8 +38,6 @@ public final class CompanionMountSwitchService {
             CompanionMountCinematicFlowService.finishMountCinematic(cinematic, player, mount, true);
             return;
         }
-        // A verified rescue contact is a handoff barrier. Do not run the wait-point
-        // pursuit again and accidentally pull the mount away before boarding.
         if (contactLatched && tryCompleteMountSwitch(server, cinematic, player, mount)) {
             return;
         }
@@ -58,17 +53,16 @@ public final class CompanionMountSwitchService {
             cinematic.incrementSwitchAge();
             return;
         }
-        if (!cinematic.switched() && mode.isAirToGroundSwitch()) {
+        if (mode.isAirToGroundSwitch() && !cinematic.sourceRetirementStarted()) {
             if (!retireSourceBeforeBoarding(cinematic, player, mount)) {
                 cinematic.incrementSwitchAge();
                 return;
             }
-            cinematic.setSwitched();
             currentVehicle = player.getVehicle();
         }
         if (groundRescue && mode.isRescue()) {
             boolean groundContact;
-            boolean atGroundWaitPoint = cinematic.waitLocked() || mount.position().distanceTo(CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player)) <= 2.25;
+            boolean atGroundWaitPoint = cinematic.waitLocked() || mount.position().distanceTo(CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player, mount)) <= 2.25;
             if (atGroundWaitPoint && !(groundContact = CompanionMountCinematicFlowService.isTouchingMountCollision(player, mount, currentVehicle))) {
                 CompanionCinematicPositionService.lockMountAtGroundWait(cinematic, mount, player);
                 if (CompanionCinematicLandingService.distanceToGround(player) <= 5.0) {
@@ -146,7 +140,7 @@ public final class CompanionMountSwitchService {
             return;
         }
         if (emergencyAirRescue && !cinematic.physicalCatchOnly()) {
-            CompanionCinematicPositionService.stabilizeAirRescueMount(mount, player);
+            CompanionCinematicPositionService.stabilizeAirRescueMount(cinematic, mount, player);
         }
         Entity contactVehicle = !mode.isRescue() ? currentVehicle : (cinematic.age() >= 8 ? currentVehicle : null);
         rescueAtWaitPoint = !mode.isRescue()
@@ -154,7 +148,7 @@ public final class CompanionMountSwitchService {
                 || airRescue && (cinematic.waitLocked()
                 || cinematic.rescueHoverPosition() != null
                 && mount.position().distanceTo(cinematic.rescueHoverPosition()) <= 2.25)
-                || mount.position().distanceTo(CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player)) <= 2.25;
+                || mount.position().distanceTo(CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player, mount)) <= 2.25;
         if (mode.isRescue() && !rescueAtWaitPoint) {
             if (airRescue) {
                 CompanionCinematicPositionService.lockMountAtFlyingWait(cinematic, mount, player);
@@ -214,35 +208,23 @@ public final class CompanionMountSwitchService {
         phaseStartedAt = System.nanoTime();
         Entity previousVehicle = player.getVehicle();
         cinematic.captureRideHandoff(previousVehicle);
-        if (cinematic.rideHandoff().compatibleWith(CompanionMoveType.FLY)
-                && cinematic.moveType() == CompanionMoveType.FLY) {
-            applyCompatibleRideState(cinematic, mount);
-        }
         double handoffMs = elapsedMs(phaseStartedAt);
         phaseStartedAt = System.nanoTime();
-        if (!retireSourceBeforeBoarding(cinematic, player, mount)) {
-            logSwitchPerformance(cinematic, player, mount, "retire_before_failed", totalStartedAt,
-                    snapMs, handoffMs, elapsedMs(phaseStartedAt), 0.0, 0.0, 0.0, 0.0);
-            return false;
-        }
-        double retireBeforeMs = elapsedMs(phaseStartedAt);
-        phaseStartedAt = System.nanoTime();
-        double controllerPrepareMs = elapsedMs(phaseStartedAt);
-        phaseStartedAt = System.nanoTime();
-        if (cinematic.moveType() == CompanionMoveType.FLY) {
-            BookOfDragonsRescueCompatibility.forceAirborne(mount);
-        }
         if (!CompanionMountCinematicFlowService.startRidingAfterContact(player, mount, cinematic.mode())) {
             double rideMs = elapsedMs(phaseStartedAt);
-            if (cinematic.mode().requiresExactRideContact() && !cinematic.contactLatched()) {
-                CompanionCinematicMovementService.moveTowardMountContact(cinematic, mount, player, previousVehicle);
-            }
             logSwitchPerformance(cinematic, player, mount, "ride_failed", totalStartedAt,
-                    snapMs, handoffMs, retireBeforeMs, controllerPrepareMs, rideMs, 0.0, 0.0);
+                    snapMs, handoffMs, 0.0, 0.0, rideMs, 0.0, 0.0);
             return false;
         }
         double rideMs = elapsedMs(phaseStartedAt);
         phaseStartedAt = System.nanoTime();
+        if (cinematic.rideHandoff().compatibleWith(CompanionMoveType.FLY)
+                && cinematic.moveType() == CompanionMoveType.FLY) {
+            applyCompatibleRideState(cinematic, mount);
+        }
+        if (cinematic.moveType() == CompanionMoveType.FLY) {
+            BookOfDragonsRescueCompatibility.forceAirborne(mount);
+        }
         retireSourceAfterBoarding(cinematic, player, mount);
         double retireAfterMs = elapsedMs(phaseStartedAt);
         if (!cinematic.switched()) {
@@ -252,7 +234,7 @@ public final class CompanionMountSwitchService {
         CompanionMountCinematicFlowService.finishMountCinematic(cinematic, player, mount, true);
         double finishMs = elapsedMs(phaseStartedAt);
         logSwitchPerformance(cinematic, player, mount, "completed", totalStartedAt,
-                snapMs, handoffMs, retireBeforeMs, controllerPrepareMs, rideMs,
+                snapMs, handoffMs, 0.0, 0.0, rideMs,
                 retireAfterMs, finishMs);
         return true;
     }
@@ -292,20 +274,6 @@ public final class CompanionMountSwitchService {
             requiresDetachFirst = false;
         }
         return !requiresDetachFirst || startSourceRetirement(cinematic, player, target, true);
-    }
-
-    static void beginSimultaneousAirToGroundRetirement(PendingMountCinematic cinematic, ServerPlayer player,
-                                                        LivingEntity target) {
-        if (!cinematic.mode().isAirToGroundSwitch() || cinematic.sourceRetirementStarted()) {
-            return;
-        }
-        if (!startSourceRetirement(cinematic, player, target, true,
-                "mount-cinematic:simultaneous_air_to_ground")) {
-            FindMeDebugLogger.info("ride-handoff",
-                    "phase=SIMULTANEOUS_RETIREMENT_START_FAILED player={} sourceType={} source={} target={} mode={}",
-                    player.getUUID(), cinematic.rideSource().type(), cinematic.rideSource().uuid(),
-                    target.getUUID(), cinematic.mode());
-        }
     }
 
     static void applyAirToAirFlightState(PendingMountCinematic cinematic, LivingEntity mount) {
@@ -357,12 +325,6 @@ public final class CompanionMountSwitchService {
 
     private static boolean startSourceRetirement(PendingMountCinematic cinematic, ServerPlayer player,
                                                   LivingEntity target, boolean beforeBoarding) {
-        return startSourceRetirement(cinematic, player, target, beforeBoarding,
-                "mount-cinematic:contact_handoff");
-    }
-
-    private static boolean startSourceRetirement(PendingMountCinematic cinematic, ServerPlayer player,
-                                                  LivingEntity target, boolean beforeBoarding, String reason) {
         RideHandoffService.Source source = cinematic.rideSource();
         if (!source.present() || source.uuid().equals(target.getUUID())) {
             cinematic.markSourceRetirementStarted();
@@ -378,7 +340,7 @@ public final class CompanionMountSwitchService {
         com.kuzhi.findme.server.data.PlayerCompanionData data =
                 com.kuzhi.findme.server.data.CompanionDataService.data(player);
         boolean started = RideHandoffService.beginRetirement(player, data, source,
-                target.getUUID(), reason);
+                target.getUUID(), "mount-cinematic:contact_handoff");
         if (!started) {
             return false;
         }

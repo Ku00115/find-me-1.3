@@ -5,5 +5,6 @@ public enum CompanionWheelVisualState {
     PENDING,
     DEPLOYED,
     SWITCHING,
+    CRITICAL,
     DEAD
 }

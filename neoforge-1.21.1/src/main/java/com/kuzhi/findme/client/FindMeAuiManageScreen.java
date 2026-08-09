@@ -8,7 +8,6 @@ import com.sighs.apricityui.style.Position;
 import com.sighs.apricityui.style.Size;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionMoveType;
-import com.kuzhi.findme.common.CobblemonCommandAction;
 import com.kuzhi.findme.common.CompanionEffectPurpose;
 import com.kuzhi.findme.common.CompanionEffectStyle;
 import com.kuzhi.findme.common.CompanionAnimationPurpose;
@@ -31,9 +30,10 @@ import com.kuzhi.findme.common.BindingAnimationPolicy;
 import com.kuzhi.findme.common.SummonedOutlineMode;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.kuzhi.findme.network.CompanionCommandPacket;
-import com.kuzhi.findme.network.CobblemonCommandPacket;
 import com.kuzhi.findme.network.CompanionEffectStylePacket;
 import com.kuzhi.findme.network.CompanionAnimationStylePacket;
+import com.kuzhi.findme.network.CompanionSpellSlotCandidatesPacket;
+import com.kuzhi.findme.network.CompanionSpellSlotPacket;
 import com.kuzhi.findme.network.CompanionTeamCommandPacket;
 import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.network.VehicleCommandPacket;
@@ -56,6 +56,7 @@ import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 import org.lwjgl.glfw.GLFW;
 
@@ -108,6 +109,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private String contextMotionClass = "";
     private FindMeAuiContextMenuPlacement.Bounds contextBounds = FindMeAuiContextMenuPlacement.EMPTY;
     private String pendingDanger = "";
+    private UUID spellPickerUuid;
+    private int spellPickerCompanionSlot = -1;
+    private List<CompanionSpellSlotCandidatesPacket.Entry> spellPickerCandidates = List.of();
+    private int spellPickerSelectedSlot = -1;
     private long lastSignature;
     private FindMeUiSettings settings = FindMeUiSettings.defaults();
     private DoctorPagePacket doctor;
@@ -254,6 +259,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         contextMotionClass = "";
         contextBounds = FindMeAuiContextMenuPlacement.EMPTY;
         pendingDanger = "";
+        clearSpellPicker();
         pendingSyncTicks = -1;
         forcedRefreshTicks = -1;
         refreshDebounceTicks = -1;
@@ -337,6 +343,33 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         current.scheduleRefresh(2);
     }
 
+    public static void openSpellScrollPicker(UUID uuid, List<CompanionSpellSlotCandidatesPacket.Entry> entries) {
+        if (current == null || uuid == null) return;
+        current.spellPickerUuid = uuid;
+        current.spellPickerCandidates = entries == null ? List.of() : List.copyOf(entries);
+        boolean keepSelection = current.spellPickerCandidates.stream()
+                .anyMatch(entry -> entry.inventorySlot() == current.spellPickerSelectedSlot);
+        if (!keepSelection) {
+            current.spellPickerSelectedSlot = current.spellPickerCandidates.isEmpty()
+                    ? -1 : current.spellPickerCandidates.get(0).inventorySlot();
+        }
+        current.contextTeam = -1;
+        current.contextBackupIndex = -1;
+        current.contextBackupSavedAt = 0L;
+        current.settingsChoiceMenu = SettingsChoiceMenu.NONE;
+        current.warehouseMenuPage = WarehouseMenuPage.MAIN;
+        current.teamMenuPage = TeamMenuPage.MAIN;
+        current.warehouseAnimationPurpose = null;
+        current.warehouseEffectPurpose = null;
+        current.pendingDanger = "";
+        current.contextOpen = true;
+        current.contextMotionClass = "fm-context-morph";
+        current.refreshContextOverlay();
+        if (current.spellPickerCandidates.isEmpty()) {
+            current.setStatus(tr("screen.find_me.spell_slot.no_candidates"), 70);
+        }
+    }
+
     @Override
     protected void init() {
         super.init();
@@ -399,6 +432,47 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     @Override
+    protected void renderMainDocumentOverlay(GuiGraphics graphics) {
+        if (expandedUuid == null || cardTogglePhase != CardTogglePhase.IDLE || isTransitionRunning()) return;
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0f, 0.0f, 450.0f);
+        renderSpellIcons(graphics, getLinkedDocument(),
+                ".member-card.selected-card .selected-spell-slots .spell-slot-icon[data-spell-icon]", false);
+        graphics.pose().popPose();
+    }
+
+    @Override
+    protected void renderContextDocumentOverlay(GuiGraphics graphics) {
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0f, 0.0f, 50.0f);
+        renderSpellIcons(graphics, getOverlayDocument(), ".spell-picker-icon[data-spell-icon]", true);
+        graphics.pose().popPose();
+    }
+
+    private void renderSpellIcons(GuiGraphics graphics, Document document, String selector, boolean clipToPicker) {
+        if (document == null) return;
+        Element clip = clipToPicker ? document.querySelector(".spell-picker-list") : null;
+        if (clip != null) {
+            Position position = Position.of(clip);
+            Size size = Size.of(clip);
+            graphics.enableScissor((int) Math.floor(position.x), (int) Math.floor(position.y),
+                    (int) Math.ceil(position.x + size.width()), (int) Math.ceil(position.y + size.height()));
+        }
+        for (Element element : document.querySelectorAll(selector)) {
+            ResourceLocation texture = ResourceLocation.tryParse(element.getAttribute("data-spell-icon"));
+            if (texture == null) continue;
+            Position position = Position.of(element);
+            Size size = Size.of(element);
+            int x = (int) Math.round(position.x);
+            int y = (int) Math.round(position.y);
+            int width = Math.max(1, (int) Math.round(size.width()));
+            int height = Math.max(1, (int) Math.round(size.height()));
+            graphics.blit(texture, x, y, 0.0f, 0.0f, width, height, width, height);
+        }
+        if (clip != null) graphics.disableScissor();
+    }
+
+    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (contextOpen && !contextBounds.overlaps(mouseX, mouseY, 1.0, 1.0)) {
             dismissContextMenu();
@@ -408,6 +482,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             Element directAction = expandedCardActionAt(mouseX, mouseY);
             if (directAction != null) {
                 settleCardToggleForDirectAction();
+                if ("spell-slot-bind".equals(directAction.getAttribute("data-action"))) {
+                    rememberContextAnchor(mouseX, mouseY);
+                }
                 handleAction(directAction.getAttribute("data-action"), directAction.getAttribute("data-value"));
                 return true;
             }
@@ -418,7 +495,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private Element expandedCardActionAt(double mouseX, double mouseY) {
         Document document = getLinkedDocument();
         if (document == null || view != View.TEAM || expandedUuid == null) return null;
-        for (Element element : document.querySelectorAll(".selected-action")) {
+        List<Element> directActions = new ArrayList<>();
+        directActions.addAll(document.querySelectorAll(".selected-action"));
+        directActions.addAll(document.querySelectorAll(".selected-spell-slots .spell-slot-frame"));
+        for (Element element : directActions) {
             Position position = Position.of(element);
             Size size = Size.of(element);
             if (size.width() <= 0.0 || size.height() <= 0.0) continue;
@@ -448,8 +528,16 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         warehouseAnimationPurpose = null;
         warehouseEffectPurpose = null;
         pendingDanger = "";
+        clearSpellPicker();
         contextBounds = FindMeAuiContextMenuPlacement.EMPTY;
         clearOverlayMarkup();
+    }
+
+    private void clearSpellPicker() {
+        spellPickerUuid = null;
+        spellPickerCompanionSlot = -1;
+        spellPickerCandidates = List.of();
+        spellPickerSelectedSlot = -1;
     }
 
     @Override
@@ -467,7 +555,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         ModNetwork.sendToServer(new CompanionCommandPacket(CompanionKind.COMPANION, CompanionAction.SYNC, -1));
         ModNetwork.sendToServer(new CompanionCommandPacket(CompanionKind.COMPANION, CompanionAction.DEAD_SYNC, -1));
         ModNetwork.sendToServer(new VehicleCommandPacket(VehicleCommandAction.SYNC, null, -1));
-        ModNetwork.sendToServer(new CobblemonCommandPacket(CobblemonCommandAction.SYNC, -1, new UUID(0L, 0L)));
         ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SYNC, settings, true, ""));
         ModNetwork.sendToServer(new CompanionTeamCommandPacket(CompanionTeamAction.SYNC, CompanionTeamTarget.MOUNT, -1, -1, "", List.of()));
     }
@@ -499,7 +586,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 FindMeAuiSound.click();
                 if (event instanceof MouseEvent mouse) {
                     String actionName = action.getAttribute("data-action");
-                    if ("open-team-menu".equals(actionName) || "open-settings-choice".equals(actionName)) {
+                    if ("open-team-menu".equals(actionName) || "open-settings-choice".equals(actionName)
+                            || "spell-slot-bind".equals(actionName)) {
                         rememberContextAnchor(mouse.clientX, mouse.clientY);
                     }
                 }
@@ -688,6 +776,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 warehouseAnimationPurpose = null;
                 warehouseEffectPurpose = null;
                 pendingDanger = "";
+                clearSpellPicker();
                 refreshContextOverlay();
                 event.preventDefault();
             }
@@ -701,12 +790,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             warehouseAnimationPurpose = null;
             warehouseEffectPurpose = null;
             pendingDanger = "";
+            clearSpellPicker();
             refreshContextOverlay();
             event.preventDefault();
         });
         root.addEventListener("wheel", event -> {
             if (!(event instanceof MouseEvent mouse) || !(event.target instanceof Element targetElement)) return;
-            Element list = targetElement.closest(".warehouse-team-menu");
+            Element list = targetElement.closest(".spell-picker-list");
+            if (list == null) list = targetElement.closest(".warehouse-team-menu");
             if (list == null) list = targetElement.closest(".warehouse-style-menu");
             if (list == null) list = targetElement.closest(".context-menu");
             if (list != null) {
@@ -1063,7 +1154,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (card == null) {
             selectedUuid = uuid;
             expandedUuid = expanding ? uuid : null;
-            refreshDocument();
+            refreshRosterCards();
             return;
         }
         clearDrag();
@@ -1209,6 +1300,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         expandedUuid = null;
         contextOpen = false;
         pendingDanger = "";
+        clearSpellPicker();
         if (view == View.TEAM) search = "";
         if (view == View.SETTINGS) {
             ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SYNC, settings, true, ""));
@@ -1331,6 +1423,73 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (action.equals("activate-card")) {
             UUID uuid = parseUuid(value);
             if (uuid != null) activateCard(uuid);
+            return;
+        }
+        if (action.equals("spell-slot-bind")) {
+            String[] parts = value == null ? new String[0] : value.split("\\|", 2);
+            UUID uuid = parts.length > 0 ? parseUuid(parts[0]) : null;
+            int companionSlot = parts.length > 1 ? parseInt(parts[1], -1) : -1;
+            if (uuid != null && companionSlot >= 0 && companionSlot < 3) {
+                spellPickerUuid = uuid;
+                spellPickerCompanionSlot = companionSlot;
+                spellPickerCandidates = List.of();
+                spellPickerSelectedSlot = -1;
+                contextTeam = -1;
+                contextBackupIndex = -1;
+                contextBackupSavedAt = 0L;
+                settingsChoiceMenu = SettingsChoiceMenu.NONE;
+                warehouseMenuPage = WarehouseMenuPage.MAIN;
+                teamMenuPage = TeamMenuPage.MAIN;
+                warehouseAnimationPurpose = null;
+                warehouseEffectPurpose = null;
+                pendingDanger = "";
+                contextOpen = true;
+                contextMotionClass = "fm-context-open";
+                refreshContextOverlay();
+                ModNetwork.sendToServer(new CompanionSpellSlotPacket(uuid,
+                        CompanionSpellSlotPacket.Action.REQUEST_CANDIDATES, companionSlot));
+                setStatus(tr("screen.find_me.spell_slot.scanning"), 50);
+            }
+            return;
+        }
+        if (action.equals("spell-picker-select")) {
+            spellPickerSelectedSlot = parseInt(value, -1);
+            contextMotionClass = "";
+            refreshContextOverlay();
+            return;
+        }
+        if (action.equals("spell-picker-confirm")) {
+            if (spellPickerUuid != null && spellPickerSelectedSlot >= 0) {
+                ModNetwork.sendToServer(new CompanionSpellSlotPacket(spellPickerUuid,
+                        CompanionSpellSlotPacket.Action.BIND_INVENTORY_SLOT,
+                        spellPickerCompanionSlot, spellPickerSelectedSlot));
+                setStatus(tr("screen.find_me.spell_slot.binding"), 50);
+                contextOpen = false;
+                clearSpellPicker();
+                clearOverlayMarkup();
+            }
+            return;
+        }
+        if (action.equals("spell-picker-refresh")) {
+            if (spellPickerUuid != null) {
+                ModNetwork.sendToServer(new CompanionSpellSlotPacket(spellPickerUuid,
+                        CompanionSpellSlotPacket.Action.REQUEST_CANDIDATES, spellPickerCompanionSlot));
+                setStatus(tr("screen.find_me.spell_slot.scanning"), 50);
+            }
+            return;
+        }
+        if (action.equals("spell-slot-clear")) {
+            String[] parts = value == null ? new String[0] : value.split("\\|", 2);
+            UUID uuid = parts.length > 0 ? parseUuid(parts[0]) : null;
+            int companionSlot = parts.length > 1 ? parseInt(parts[1], -1) : -1;
+            if (uuid != null && companionSlot >= 0 && companionSlot < 3) {
+                ModNetwork.sendToServer(new CompanionSpellSlotPacket(uuid,
+                        CompanionSpellSlotPacket.Action.CLEAR, companionSlot));
+                setStatus(tr("screen.find_me.spell_slot.clearing"), 50);
+                contextOpen = false;
+                clearSpellPicker();
+                clearOverlayMarkup();
+            }
             return;
         }
         if (action.equals("add-current-team")) {
@@ -1818,15 +1977,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private void activateCard(UUID uuid) {
         Card card = findCard(uuid);
         if (card == null || !card.alive || view == View.DEAD) return;
-        if (card.pokemon) {
-            ClientMountRosterState.select(MountRosterSource.COBBLEMON, card.uuid);
-            ClientMountRosterTransactionState.send(card.active ? MountRosterAction.RECALL
-                            : MountRosterAction.ACTIVATE,
-                    MountRosterSource.COBBLEMON, card.uuid, card.pokemonSlot, -1);
-            contextOpen = false;
-            clearOverlayMarkup();
-            return;
-        }
         if (view == View.WAREHOUSE) return;
         int memberIndex = ClientCompanionTeamState.members(target(), selectedTeam).indexOf(uuid);
         if (memberIndex < 0) return;
@@ -1870,7 +2020,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private void assignToTeam(UUID uuid, int teamIndex, boolean returnToTeam) {
         Card card = findCard(uuid);
-        if (card != null && card.pokemon) return;
         CompanionTeamTarget currentTarget = target();
         List<UUID> members = new ArrayList<>(ClientCompanionTeamState.members(currentTarget, teamIndex));
         if (members.contains(uuid) || members.size() >= com.kuzhi.findme.common.FindMeUiSettings.TEAM_CAPACITY) return;
@@ -2044,9 +2193,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         setOverlayMarkup("<div class='findme-context-dismiss' data-context-dismiss='1'></div>" + contextMarkup());
         contextMotionClass = "";
+        double fallbackWidth = spellPickerUuid != null ? 100.0 : view == View.WAREHOUSE ? 100.0 : 91.0;
         contextBounds = FindMeAuiContextMenuPlacement.place(getOverlayDocument(), "findme-context-menu", ".findme-context-overlay-root",
-                contextAnchorX, contextAnchorY, width - (view == View.WAREHOUSE ? 108.0 : 99.0), 4.0,
-                view == View.WAREHOUSE ? 100.0 : 91.0, 24.0);
+                contextAnchorX, contextAnchorY, width - fallbackWidth - 8.0, 4.0, fallbackWidth, 24.0);
     }
 
     private void updateTeamScrollThumb() {
@@ -2471,6 +2620,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-selected-copy-right:" + scaled(5) + "px"
                 + ";--fm-selected-copy-bottom:" + scaled(25) + "px"
                 + ";--fm-selected-actions-bottom:" + scaled(6) + "px"
+                + ";--fm-selected-spell-bottom:" + scaled(24) + "px"
+                + ";--fm-selected-spell-width:" + scaled(122) + "px"
                 + ";--fm-compact:" + scaled(36) + "px"
                 + ";--fm-gap:" + scaled(3) + "px"
                 + ";--fm-stripe-top:" + scaled(48) + "px"
@@ -2531,6 +2682,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 ? button("add-current-team", tr("screen.find_me.aui.add_to_team"), "primary selected-action").replace("data-action='add-current-team'", "data-action='add-current-team' data-value='" + card.uuid + "'")
                 : button("activate-card", tr(card.active ? "screen.find_me.store" : "screen.find_me.summon"), "primary selected-action").replace("data-action='activate-card'", "data-action='activate-card' data-value='" + card.uuid + "'");
         String deployed = card.active ? tr("screen.find_me.manage.state_deployed") : "";
+        String spellSlot = card.alive && category != Category.VEHICLE && spellUiAvailable(card)
+                ? spellSlotsMarkup(card, card.uuid, "selected-spell-slots") : "";
         return "<div class='member-card " + (selected ? "selected-card " : "compact ") + state
                 + (selected ? "" : accent) + insertion + "' style='" + (selected ? offsetStyle : compactStyle)
                 + themeStyle + "' data-uuid='" + card.uuid + "' data-member-index='" + index
@@ -2541,6 +2694,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "<findme-preview data-uuid='" + card.uuid + "' data-preview-overlay='expanded' data-preview-type='" + escape(card.type)
                 + "' data-preview-team='" + escape(stateLabel(card)) + " &#183; " + escape(tr(category.key))
                 + "' data-preview-number='" + twoDigits(index + 1) + "' data-preview-status='" + escape(deployed) + "'></findme-preview>"
+                + spellSlot
                 + "<div class='selected-actions'>" + primary + button("open-detail", tr("screen.find_me.details"), "selected-action").replace("data-action='open-detail'", "data-action='open-detail' data-value='" + card.uuid + "'") + "</div></div>";
     }
 
@@ -2733,7 +2887,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private boolean canAssignToTeam(UUID uuid, int teamIndex) {
         if (uuid == null || teamIndex < 0) return false;
         Card card = findCard(uuid);
-        if (card != null && card.pokemon) return false;
         List<UUID> members = ClientCompanionTeamState.members(target(), teamIndex);
         return !members.contains(uuid) && members.size() < com.kuzhi.findme.common.FindMeUiSettings.TEAM_CAPACITY;
     }
@@ -2869,7 +3022,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (settingsSection == 0) {
             html.append("<div class='settings-pair'>")
                     .append(animationSettingCardMarkup(0))
-                    .append(settingCardMarkup(visibleRows.getFirst(), 1))
+                    .append(settingCardMarkup(visibleRows.get(0), 1))
                     .append("</div>");
             html.append("<div class='settings-pair'>")
                     .append(wheelStyleSelectorMarkup(2))
@@ -2877,7 +3030,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             html.append("<div class='settings-pair'>")
                     .append(bindingAnimationSelectorMarkup(4))
                     .append(bindingHistoryResetMarkup(5)).append("</div>");
-            html.append("<div class='settings-pair'>").append(summonedOutlineSelectorMarkup(6))
+            html.append("<div class='settings-pair'>")
+                    .append(summonedOutlineSelectorMarkup(6))
                     .append(settingCardMarkup(visibleRows.get(7), 7)).append("</div>");
             html.append("<div class='settings-pair'>")
                     .append(settingCardMarkup(visibleRows.get(8), 8))
@@ -2992,14 +3146,17 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "</small></div><div class='setting-card-control choice'><em>"
                 + escape(tr("screen.find_me.config_reset")) + "</em><i>></i></div></div>";
     }
+
     private String summonedOutlineSelectorMarkup(int visibleIndex) {
         SummonedOutlineMode mode = settings.summonedOutlineMode();
-        return "<div class='setting-card' data-action='open-settings-choice' data-value='SUMMONED_OUTLINE'><div class='setting-card-index'>"
-                + twoDigits(visibleIndex + 1) + "</div><div class='setting-card-copy'><b>"
-                + escape(tr("screen.find_me.aui.setting.summoned_outline")) + "</b><small>"
-                + escape(tr("screen.find_me.aui.setting.note.summoned_outline"))
+        return "<div class='setting-card' data-action='open-settings-choice' data-value='SUMMONED_OUTLINE'"
+                + "><div class='setting-card-index'>" + twoDigits(visibleIndex + 1)
+                + "</div><div class='setting-card-copy'><b>"
+                + escape(tr("screen.find_me.aui.setting.summoned_outline"))
+                + "</b><small>" + escape(tr("screen.find_me.aui.setting.note.summoned_outline"))
                 + "</small></div><div class='setting-card-control choice'><em>"
-                + escape(tr("screen.find_me.aui.summoned_outline." + mode.name().toLowerCase(Locale.ROOT)))
+                + escape(tr("screen.find_me.aui.summoned_outline."
+                + mode.name().toLowerCase(Locale.ROOT)))
                 + "</em><i>></i></div></div>";
     }
 
@@ -3447,26 +3604,105 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     + button("ask-delete-dead", tr("screen.find_me.aui.delete_record"), "ui-button detail-action danger").replace("data-action='ask-delete-dead'", "data-action='ask-delete-dead' data-value='" + uuid + "'") + "</div>";
         }
         String transferButton = "";
-        if (card != null && !card.pokemon && category == Category.MOUNT) {
+        if (card != null && category == Category.MOUNT) {
             transferButton = button("move-companion", tr("screen.find_me.aui.convert_to_companion"), "ui-button detail-action")
                     .replace("data-action='move-companion'", "data-action='move-companion' data-value='" + uuid + "'");
-        } else if (card != null && !card.pokemon && category == Category.COMPANION) {
+        } else if (card != null && category == Category.COMPANION) {
             transferButton = button("move-mount", tr("screen.find_me.aui.convert_to_mount"), "ui-button detail-action")
                     .replace("data-action='move-mount'", "data-action='move-mount' data-value='" + uuid + "'");
         }
         return "<div class='detail'><div class='detail-name'><span class='menu-title'>" + escape(tr("screen.find_me.select")) + "</span><span class='detail-sub'>" + escape(labelFor(uuid)) + "</span></div>"
                 + "<input id='entity-rename-input' class='detail-input' type='text' value='" + escape(labelFor(uuid)) + "' maxlength='64'>"
+                + (category == Category.VEHICLE || !spellUiAvailable(card)
+                ? "" : spellSlotsMarkup(card, uuid, "detail-spell-slots"))
                 + button("save-entity-name", tr("screen.find_me.config_save"), "ui-button detail-action")
                 + transferButton + "</div>";
+    }
+
+    private String spellSlotsMarkup(Card card, UUID uuid, String extraClass) {
+        List<com.kuzhi.findme.api.CompanionSpellBinding> bindings = card == null || card.previewEntry() == null
+                ? List.of() : card.previewEntry().spellBindings();
+        StringBuilder html = new StringBuilder("<div class='spell-loadout ").append(extraClass)
+                .append("'><div class='spell-slot-strip'>");
+        for (int slotIndex = 0; slotIndex < 3; slotIndex++) {
+            var binding = slotIndex < bindings.size() ? bindings.get(slotIndex) : null;
+            String icon = binding == null
+                    ? "find_me:textures/particle/contract_glyph.png" : binding.iconResource().toString();
+            String label = binding == null ? tr("screen.find_me.spell_slot.empty") : binding.displayName();
+            html.append("<div class='spell-slot-frame")
+                    .append(binding == null ? " empty" : " bound")
+                    .append("' title='").append(escape(label))
+                    .append("' data-action='spell-slot-bind' data-value='").append(uuid).append('|').append(slotIndex)
+                    .append("'><span class='spell-slot-icon' data-spell-icon='").append(escape(icon)).append("'></span></div>");
+        }
+        html.append("</div></div>");
+        return html.toString();
+    }
+
+    private boolean spellUiAvailable(Card card) {
+        return com.kuzhi.findme.api.FindMeApi.hasCompanionSpellProviders()
+                || card != null && card.previewEntry() != null
+                && card.previewEntry().spellBindings().stream().anyMatch(java.util.Objects::nonNull);
+    }
+
+    private void appendSpellPicker(StringBuilder html) {
+        Card card = findCard(spellPickerUuid);
+        String subject = card == null ? "" : card.name;
+        html.append("<span class='menu-title'>").append(escape(tr("screen.find_me.spell_slot.choose"))).append("</span>");
+        if (!subject.isBlank()) {
+            html.append("<div class='spell-picker-subject'>").append(escape(subject)).append("</div>");
+        }
+        if (spellPickerCandidates.isEmpty()) {
+            html.append("<div class='spell-picker-empty'>")
+                    .append(escape(tr("screen.find_me.spell_slot.no_candidates"))).append("</div>")
+                    .append(button("spell-picker-refresh", tr("screen.find_me.spell_slot.refresh"), "ui-button menu-button"));
+        } else {
+            html.append("<div class='spell-picker-list'>");
+            for (CompanionSpellSlotCandidatesPacket.Entry entry : spellPickerCandidates) {
+                boolean selected = entry.inventorySlot() == spellPickerSelectedSlot;
+                String level = entry.spellLevel() > 0
+                        ? tr("screen.find_me.spell_slot.level", entry.spellLevel()) : "";
+                html.append("<div class='ui-button menu-button spell-picker-row")
+                        .append(selected ? " active" : "")
+                        .append("' data-action='spell-picker-select' data-value='").append(entry.inventorySlot())
+                        .append("'><i class='spell-picker-icon' data-spell-icon='").append(escape(entry.iconResource().toString()))
+                        .append("'></i><span><b>").append(escape(entry.displayName()))
+                        .append("</b><small>").append(escape(level))
+                        .append(" / ").append(escape(tr("screen.find_me.spell_slot.role."
+                                + entry.role().name().toLowerCase(Locale.ROOT))))
+                        .append(entry.count() > 1 ? " x" + entry.count() : "")
+                        .append("</small></span></div>");
+            }
+            html.append("</div>");
+            if (spellPickerSelectedSlot >= 0) {
+                html.append(button("spell-picker-confirm", tr("screen.find_me.spell_slot.confirm"),
+                        "ui-button menu-button active"));
+            } else {
+                html.append("<div class='ui-button menu-button disabled'>")
+                        .append(escape(tr("screen.find_me.spell_slot.confirm"))).append("</div>");
+            }
+            html.append(button("spell-picker-refresh", tr("screen.find_me.spell_slot.refresh"), "ui-button menu-button"));
+        }
+        if (card != null && card.previewEntry() != null && spellPickerCompanionSlot >= 0
+                && spellPickerCompanionSlot < card.previewEntry().spellBindings().size()
+                && card.previewEntry().spellBindings().get(spellPickerCompanionSlot) != null) {
+            html.append(button("spell-slot-clear", tr("screen.find_me.spell_slot.clear"), "ui-button menu-button danger")
+                    .replace("data-action='spell-slot-clear'",
+                            "data-action='spell-slot-clear' data-value='" + spellPickerUuid + "|"
+                                    + spellPickerCompanionSlot + "'"));
+        }
     }
 
     private String contextMarkup() {
         StringBuilder html = new StringBuilder("<div id='findme-context-menu' class='context-menu")
                 .append(view == View.WAREHOUSE ? " warehouse-context" : "")
+                .append(spellPickerUuid != null ? " spell-picker-context" : "")
                 .append(" ").append(typographyClasses())
                 .append(!settings.uiAnimations() || contextMotionClass.isBlank() ? "" : " " + contextMotionClass)
                 .append("'>");
-        if (settingsChoiceMenu != SettingsChoiceMenu.NONE) {
+        if (spellPickerUuid != null) {
+            appendSpellPicker(html);
+        } else if (settingsChoiceMenu != SettingsChoiceMenu.NONE) {
             appendSettingsChoiceMenu(html);
         } else if (contextBackupIndex >= 0 && contextBackupSavedAt > 0L) {
             DoctorPagePacket.Backup backup = doctor == null ? null : doctor.backups().stream()
@@ -3512,10 +3748,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             } else {
                 html.append("<span class='menu-title'>").append(escape(tr("screen.find_me.aui.card_actions"))).append("</span>");
                 html.append(button("warehouse-menu:rename", tr("screen.find_me.aui.rename"), "ui-button menu-button"));
-                if (selected != null && !selected.pokemon && category == Category.MOUNT) {
+                if (selected != null && category == Category.MOUNT) {
                     html.append(button("move-companion", tr("screen.find_me.aui.convert_to_companion"), "ui-button menu-button")
                             .replace("data-action='move-companion'", "data-action='move-companion' data-value='" + selectedUuid + "'"));
-                } else if (selected != null && !selected.pokemon && category == Category.COMPANION) {
+                } else if (selected != null && category == Category.COMPANION) {
                     html.append(button("move-mount", tr("screen.find_me.aui.convert_to_mount"), "ui-button menu-button")
                             .replace("data-action='move-mount'", "data-action='move-mount' data-value='" + selectedUuid + "'"));
                 }
@@ -3600,10 +3836,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 }
             }
             case SUMMONED_OUTLINE -> {
-                for (SummonedOutlineMode mode : SummonedOutlineMode.values())
+                for (SummonedOutlineMode mode : SummonedOutlineMode.values()) {
                     appendSettingsChoiceOption(html,
-                            tr("screen.find_me.aui.summoned_outline." + mode.name().toLowerCase(Locale.ROOT)),
+                            tr("screen.find_me.aui.summoned_outline."
+                                    + mode.name().toLowerCase(Locale.ROOT)),
                             mode.name(), settings.summonedOutlineMode() == mode);
+                }
             }
             case DEFAULT_TEAM -> {
                 for (var team : ClientCompanionTeamState.entries(com.kuzhi.findme.common.CompanionTeamTarget.MOUNT)) {
@@ -3630,12 +3868,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private String warehouseContextMarkup(Card selected) {
         StringBuilder html = new StringBuilder();
-        if (selected.pokemon) {
-            return html.append("<span class='menu-title'>").append(escape(selected.name())).append("</span>")
-                    .append(button("activate-card", tr("screen.find_me.cobblemon_send_out"), "ui-button menu-button")
-                            .replace("data-action='activate-card'", "data-action='activate-card' data-value='" + selected.uuid() + "'"))
-                    .toString();
-        }
         if (warehouseMenuPage == WarehouseMenuPage.ANIMATION_STYLE && warehouseAnimationPurpose == null) {
             warehouseMenuPage = WarehouseMenuPage.ANIMATION;
         }
@@ -3859,13 +4091,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         List<Card> result = new ArrayList<>();
         if (category == Category.VEHICLE) ClientVehicleState.allEntries().forEach(entry -> result.add(new Card(entry.uuid(), entry.name(), entry.entityType(), entry.loaded() && entry.alive(), entry.alive(), CompanionMoveType.WALK, entry.asPreviewEntry())));
         else {
-            if (category == Category.MOUNT) {
-                if (ClientFindMeModuleState.enabled(FindMeModule.COBBLEMON_INTEGRATION)) {
-                    ClientCobblemonState.entries().stream().sorted(java.util.Comparator.comparingInt(com.kuzhi.findme.network.CobblemonPartyPacket.Entry::slot))
-                            .forEach(entry -> result.add(new Card(entry.uuid(), entry.name(), "cobblemon:pokemon",
-                                    entry.deployed() || entry.ridden(), !entry.fainted(), true, entry.slot(), entry.moveType(), entry.asPreviewEntry())));
-                }
-            }
             ClientCompanionState.allEntries(category == Category.MOUNT ? CompanionKind.MOUNT : CompanionKind.COMPANION)
                     .forEach(entry -> result.add(new Card(entry.uuid(), entry.name(), entry.entityType(), entry.loaded() && entry.alive(), entry.alive(), entry.moveType(), entry)));
         }
@@ -3884,12 +4109,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (category == Category.VEHICLE) {
             for (var entry : ClientVehicleState.allEntries()) if (entry.uuid().equals(uuid)) return new Card(uuid, entry.name(), entry.entityType(), entry.loaded() && entry.alive(), entry.alive(), CompanionMoveType.WALK, entry.asPreviewEntry());
         } else {
-            if (category == Category.MOUNT) {
-                for (var entry : ClientCobblemonState.entries()) {
-                    if (entry.uuid().equals(uuid)) return new Card(uuid, entry.name(), "cobblemon:pokemon",
-                            entry.deployed() || entry.ridden(), !entry.fainted(), true, entry.slot(), entry.moveType(), entry.asPreviewEntry());
-                }
-            }
             CompanionKind kind = category == Category.MOUNT ? CompanionKind.MOUNT : CompanionKind.COMPANION;
             for (var entry : ClientCompanionState.allEntries(kind)) if (entry.uuid().equals(uuid)) return new Card(uuid, entry.name(), entry.entityType(), entry.loaded() && entry.alive(), entry.alive(), entry.moveType(), entry);
         }
@@ -3913,7 +4132,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private long stateSignature() {
         long signature = ClientCompanionState.revision();
         signature = signature * 31L + ClientVehicleState.revision();
-        signature = signature * 31L + ClientCobblemonState.revision();
         signature = signature * 31L + ClientCompanionTeamState.revision();
         return signature;
     }
@@ -3958,14 +4176,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         return tr(value ? "screen.find_me.aui.enabled" : "screen.find_me.aui.disabled");
     }
 
-    private record Card(UUID uuid, String name, String type, boolean active, boolean alive, boolean pokemon, int pokemonSlot,
+    private record Card(UUID uuid, String name, String type, boolean active, boolean alive,
                         CompanionMoveType moveType, CompanionListPacket.Entry previewEntry) {
         private Card(UUID uuid, String name, String type, boolean active, boolean alive) {
-            this(uuid, name, type, active, alive, false, -1, CompanionMoveType.WALK, null);
-        }
-        private Card(UUID uuid, String name, String type, boolean active, boolean alive,
-                     CompanionMoveType moveType, CompanionListPacket.Entry previewEntry) {
-            this(uuid, name, type, active, alive, false, -1, moveType, previewEntry);
+            this(uuid, name, type, active, alive, CompanionMoveType.WALK, null);
         }
     }
     private record PendingDrop(DragKind kind, int from, int to, List<UUID> members, UUID moved) {}

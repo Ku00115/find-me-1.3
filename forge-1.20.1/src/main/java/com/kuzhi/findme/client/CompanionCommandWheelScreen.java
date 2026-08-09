@@ -2,6 +2,7 @@ package com.kuzhi.findme.client;
 
 import com.kuzhi.findme.api.client.CompanionCommandTarget;
 import com.kuzhi.findme.api.client.FindMeClientAbilityActionRegistry;
+import com.kuzhi.findme.api.client.FindMeClientCommandActionRegistry;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionTacticalAction;
 import com.kuzhi.findme.common.CompanionTeamCommandAction;
@@ -151,6 +152,12 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                 ? Component.translatable("screen.find_me.command.team_subject", this.teamIndex + 1)
                 : Component.literal(this.target.entry().name());
         FindMeWheelRenderer.drawCommandHeader(graphics, this.title, subject.getString(), fade);
+        com.kuzhi.findme.api.CompanionMagicState magicState = displayedMagicState();
+        if (magicState.available()) {
+            String mana = Component.translatable("screen.find_me.spell_slot.mana").getString() + "  "
+                    + Math.round(magicState.mana()) + " / " + Math.round(magicState.maxMana());
+            FindMeWheelRenderer.drawManaBar(graphics, mana, magicState.mana() / magicState.maxMana(), fade);
+        }
         graphics.pose().pushPose();
         graphics.pose().translate(0.0f, 0.0f, 280.0f);
         for (int i = pageState.start(); i < pageState.end(); ++i) {
@@ -167,6 +174,18 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                     centerX, centerY + 54, FindMeWheelRenderer.guiColor(0xFFFFD166, fade));
         }
         super.render(graphics, mouseX, mouseY, partialTick);
+    }
+
+    private com.kuzhi.findme.api.CompanionMagicState displayedMagicState() {
+        if (this.target != null) return this.target.entry().magicState();
+        if (this.teamTarget == null) return com.kuzhi.findme.api.CompanionMagicState.EMPTY;
+        List<UUID> members = ClientCompanionTeamState.members(this.teamTarget, this.teamIndex);
+        CompanionKind kind = this.teamTarget == CompanionTeamTarget.MOUNT
+                ? CompanionKind.MOUNT : CompanionKind.COMPANION;
+        return ClientCompanionState.allEntries(kind).stream()
+                .filter(entry -> members.contains(entry.uuid()) && entry.magicState().available())
+                .map(com.kuzhi.findme.network.CompanionListPacket.Entry::magicState)
+                .findFirst().orElse(com.kuzhi.findme.api.CompanionMagicState.EMPTY);
     }
 
     void confirmSelection() {
@@ -189,7 +208,7 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
             List<ActionView> actions = actions();
             if (this.hoveredAction >= 0 && this.hoveredAction < actions.size()) {
                 if (activate(actions.get(this.hoveredAction))) {
-                    Minecraft.getInstance().setScreen(null);
+                    if (Minecraft.getInstance().screen == this) Minecraft.getInstance().setScreen(null);
                 }
                 return true;
             }
@@ -229,7 +248,7 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
         if (slot >= 0 && slot < pageState.visibleSize() && actionIndex < actions.size()) {
             if (actions.get(actionIndex).available()) {
                 if (activate(actions.get(actionIndex))) {
-                    Minecraft.getInstance().setScreen(null);
+                    if (Minecraft.getInstance().screen == this) Minecraft.getInstance().setScreen(null);
                 }
             }
             return true;
@@ -258,6 +277,22 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                 protecting ? "screen.find_me.command.cancel_protect" : "screen.find_me.command.team_protect_owner",
                 protecting ? CompanionTeamCommandAction.CANCEL_PROTECT : CompanionTeamCommandAction.PROTECT_OWNER,
                 null, -1));
+        if (teamHasSpellRole(com.kuzhi.findme.api.CompanionSpellRole.DEFENSE)) {
+            boolean magicProtecting = hasActiveTeamAction(CompanionTacticalAction.MAGIC_PROTECT);
+            actions.add(teamAction(magicProtecting ? "team_cancel_magic_protect" : "team_magic_protect",
+                    magicProtecting ? "screen.find_me.command.cancel_magic_protect"
+                            : "screen.find_me.command.team_magic_protect",
+                    magicProtecting ? CompanionTeamCommandAction.CANCEL_MAGIC_PROTECT
+                            : CompanionTeamCommandAction.MAGIC_PROTECT, null, -1));
+        }
+        if (teamHasSpellRole(com.kuzhi.findme.api.CompanionSpellRole.HEAL)) {
+            boolean supporting = hasActiveTeamAction(CompanionTacticalAction.MAGIC_SUPPORT);
+            actions.add(teamAction(supporting ? "team_cancel_magic_support" : "team_magic_support",
+                    supporting ? "screen.find_me.command.cancel_magic_support"
+                            : "screen.find_me.command.team_magic_support",
+                    supporting ? CompanionTeamCommandAction.CANCEL_MAGIC_SUPPORT
+                            : CompanionTeamCommandAction.MAGIC_SUPPORT, null, -1));
+        }
         actions.add(teamAction("team_follow", "screen.find_me.command.team_follow", CompanionTeamCommandAction.FOLLOW,
                 null, -1));
         boolean guarding = hasActiveTeamAction(CompanionTacticalAction.GUARD_HERE);
@@ -267,6 +302,10 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                 guarding || Minecraft.getInstance().player == null ? null
                         : Minecraft.getInstance().player.blockPosition(), -1));
         if (this.aimedEntityId >= 0) {
+            if (teamHasSpellRole(com.kuzhi.findme.api.CompanionSpellRole.ATTACK)) {
+                actions.add(teamAction("team_magic_attack", "screen.find_me.command.team_magic_attack",
+                        CompanionTeamCommandAction.MAGIC_ATTACK, null, this.aimedEntityId));
+            }
             actions.add(teamAction("team_attack_target", "screen.find_me.command.team_attack_target",
                     CompanionTeamCommandAction.ATTACK_TARGET, null, this.aimedEntityId));
         }
@@ -353,15 +392,65 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                 () -> protecting ? ClientCompanionCommandTarget.stopCurrent(this.target)
                         : ClientCompanionCommandTarget.protectOwner(this.target)));
 
+        for (FindMeClientCommandActionRegistry.Entry entry : FindMeClientCommandActionRegistry.entries()) {
+            actions.add(new ActionView(entry.id(), () -> entry.label(this.target),
+                    () -> entry.available(this.target), () -> entry.activate(this.target)));
+        }
+
+        if (hasSpellRole(this.target.entry(), com.kuzhi.findme.api.CompanionSpellRole.DEFENSE)) {
+            boolean magicProtecting = ClientCompanionCommandTarget.hasAction(this.target,
+                    com.kuzhi.findme.common.CompanionTacticalAction.MAGIC_PROTECT);
+            actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me",
+                    magicProtecting ? "cancel_magic_protect" : "magic_protect"),
+                    () -> Component.translatable(magicProtecting
+                            ? "screen.find_me.command.cancel_magic_protect"
+                            : "screen.find_me.command.magic_protect"),
+                    () -> ClientCompanionCommandTarget.canIssueTacticalOrder(this.target),
+                    () -> magicProtecting ? ClientCompanionCommandTarget.stopCurrent(this.target)
+                            : ClientCompanionCommandTarget.magicProtect(this.target)));
+        }
+        if (hasSpellRole(this.target.entry(), com.kuzhi.findme.api.CompanionSpellRole.HEAL)) {
+            boolean supporting = ClientCompanionCommandTarget.hasAction(this.target,
+                    com.kuzhi.findme.common.CompanionTacticalAction.MAGIC_SUPPORT);
+            actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me",
+                    supporting ? "cancel_magic_support" : "magic_support"),
+                    () -> Component.translatable(supporting
+                            ? "screen.find_me.command.cancel_magic_support"
+                            : "screen.find_me.command.magic_support"),
+                    () -> ClientCompanionCommandTarget.canIssueTacticalOrder(this.target),
+                     () -> supporting ? ClientCompanionCommandTarget.stopCurrent(this.target)
+                         : ClientCompanionCommandTarget.magicSupport(this.target)));
+        }
+
+        boolean movingForward = ClientCompanionCommandTarget.hasAction(this.target,
+                com.kuzhi.findme.common.CompanionTacticalAction.MOVE_FORWARD);
+        actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me",
+                movingForward ? "cancel_move_forward" : "move_forward"),
+                () -> Component.translatable(movingForward
+                        ? "screen.find_me.command.cancel_move_forward"
+                        : "screen.find_me.command.move_forward"),
+                () -> ClientCompanionCommandTarget.canIssueTacticalOrder(this.target),
+                () -> movingForward ? ClientCompanionCommandTarget.stopCurrent(this.target)
+                        : ClientCompanionCommandTarget.moveForward(this.target)));
+
         com.kuzhi.findme.common.CompanionTacticalAction current = this.target.entry().tacticalAction();
         if (current != null && current != com.kuzhi.findme.common.CompanionTacticalAction.FOLLOW
                 && current != com.kuzhi.findme.common.CompanionTacticalAction.GUARD_HERE
-                && current != com.kuzhi.findme.common.CompanionTacticalAction.PROTECT_OWNER) {
+                && current != com.kuzhi.findme.common.CompanionTacticalAction.PROTECT_OWNER
+                && current != com.kuzhi.findme.common.CompanionTacticalAction.MAGIC_PROTECT
+                && current != com.kuzhi.findme.common.CompanionTacticalAction.MAGIC_SUPPORT
+                && current != com.kuzhi.findme.common.CompanionTacticalAction.MOVE_FORWARD) {
             actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me", "stop_current"),
                     () -> Component.translatable("screen.find_me.command.stop_current"),
                     () -> true, () -> ClientCompanionCommandTarget.stopCurrent(this.target)));
         }
         if (this.aimedEntityId >= 0) {
+            if (hasSpellRole(this.target.entry(), com.kuzhi.findme.api.CompanionSpellRole.ATTACK)) {
+                actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me", "magic_attack"),
+                        () -> Component.translatable("screen.find_me.command.magic_attack"),
+                        () -> ClientCompanionCommandTarget.canAttackCrosshair(this.target, this.aimedEntityId),
+                        () -> ClientCompanionCommandTarget.magicAttackCrosshair(this.target, this.aimedEntityId)));
+            }
             actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me", "attack_target"),
                     () -> Component.translatable("screen.find_me.command.attack_target"),
                     () -> ClientCompanionCommandTarget.canAttackCrosshair(this.target, this.aimedEntityId),
@@ -384,6 +473,19 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                     () -> true, () -> ClientCompanionCommandTarget.openWaystones(this.target)));
         }
         return actions;
+    }
+
+    private boolean teamHasSpellRole(com.kuzhi.findme.api.CompanionSpellRole role) {
+        java.util.Set<UUID> members = new java.util.HashSet<>(
+                ClientCompanionTeamState.members(this.teamTarget, this.teamIndex));
+        return ClientCompanionState.allEntries(CompanionKind.COMPANION).stream()
+                .anyMatch(entry -> members.contains(entry.uuid()) && hasSpellRole(entry, role));
+    }
+
+    private static boolean hasSpellRole(com.kuzhi.findme.network.CompanionListPacket.Entry entry,
+                                        com.kuzhi.findme.api.CompanionSpellRole role) {
+        return entry != null && entry.spellBindings().stream()
+                .anyMatch(binding -> binding != null && binding.role() == role);
     }
 
     static AimSnapshot captureAim(CompanionCommandTarget commandTarget) {
@@ -443,9 +545,7 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
     }
 
     private static void playHoverSound() {
-        if (!ClientWheelPresentationState.operationSounds()) return;
-        Minecraft.getInstance().getSoundManager().play(
-                SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.45f, 0.22f));
+        FindMeAuiSound.wheelHover();
     }
 
     private static void playConfirmSound() {

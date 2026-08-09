@@ -60,12 +60,14 @@ public final class CompanionBindingService {
             event.setCancellationResult(InteractionResult.FAIL);
             return true;
         }
-        boolean started = CompanionContractService.start(serverPlayer, target);
-        if (started) {
+        CompanionContractService.StartResult result = CompanionContractService.start(serverPlayer, target, event.getHand());
+        if (result.accepted()) {
             player.getCooldowns().addCooldown(stack.getItem(), 80);
+        }
+        if (result.consumePaperNow()) {
             NamePaperItem.consumeOne(stack, player);
         }
-        event.setCancellationResult(started ? InteractionResult.CONSUME : InteractionResult.FAIL);
+        event.setCancellationResult(result.accepted() ? InteractionResult.CONSUME : InteractionResult.FAIL);
         return true;
     }
 

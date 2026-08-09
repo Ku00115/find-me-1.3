@@ -77,4 +77,22 @@ class CompanionOperationLockServiceTest {
         assertEquals(ownerA, replaced.previous().playerUuid());
         assertEquals(ownerB, CompanionOperationLockService.get(companion).playerUuid());
     }
+
+    @Test
+    void renewalAndSourceCheckedEndCannotAffectAnotherLease() {
+        ownerA = UUID.randomUUID();
+        UUID companion = UUID.randomUUID();
+        assertTrue(CompanionOperationLockService.tryBeginExternal(ownerA, companion,
+                "external:first", 100L, 20));
+        assertFalse(CompanionOperationLockService.renew(companion,
+                CompanionOperationLockService.Operation.EXTERNAL, "external:other", 110L, 40));
+        assertTrue(CompanionOperationLockService.renew(companion,
+                CompanionOperationLockService.Operation.EXTERNAL, "external:first", 110L, 40));
+        assertEquals(150L, CompanionOperationLockService.get(companion).expiresAt());
+        assertFalse(CompanionOperationLockService.endIfSource(companion,
+                CompanionOperationLockService.Operation.EXTERNAL, "external:other"));
+        assertTrue(CompanionOperationLockService.endIfSource(companion,
+                CompanionOperationLockService.Operation.EXTERNAL, "external:first"));
+        assertNull(CompanionOperationLockService.get(companion));
+    }
 }

@@ -30,8 +30,9 @@ public static void encode(CompanionTeamCommandPacket packet, FriendlyByteBuf buf
         int teamIndex = buffer.readVarInt();
         int secondaryIndex = buffer.readVarInt();
         String value = buffer.readUtf(64);
-        int size = buffer.readVarInt();
-        ArrayList<UUID> uuids = new ArrayList<>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_TEAM_MEMBERS,
+                "team command member");
+        ArrayList<UUID> uuids = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; ++i) {
             uuids.add(buffer.readUUID());
         }

@@ -75,11 +75,6 @@ public final class VehicleCompatibilityService {
         if (previousRide == null || previousRide.isRemoved() || isRiding(player, previousRide)) {
             return previousRide != null && !previousRide.isRemoved();
         }
-        if (MachineMaxVehicleCompatibility.findForEntity(previousRide)
-                .map(handle -> MachineMaxVehicleCompatibility.tryBoard(player, handle))
-                .orElse(false)) {
-            return true;
-        }
         return tryForcedRide(player, previousRide, "restore_previous");
     }
 

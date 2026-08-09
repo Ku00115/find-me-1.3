@@ -18,6 +18,11 @@ public interface FindMeTemporaryActionController {
         return false;
     }
 
+    /** True while this controller fully replaces FindMe's native tactical combat for the entity. */
+    default boolean ownsTacticalCombat(Entity entity) {
+        return false;
+    }
+
     default void cleanupTemporaryPerformers(MinecraftServer server) {
     }
 }

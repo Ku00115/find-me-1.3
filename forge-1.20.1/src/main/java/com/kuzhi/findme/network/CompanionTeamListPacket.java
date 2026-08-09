@@ -29,16 +29,18 @@ public static void encode(CompanionTeamListPacket packet, FriendlyByteBuf buffer
 
     public static CompanionTeamListPacket decode(FriendlyByteBuf buffer) {
         long serverRevision = buffer.readLong();
-        int size = buffer.readVarInt();
-        ArrayList<Entry> entries = new ArrayList<>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_TEAM_ENTRIES,
+                "team entry");
+        ArrayList<Entry> entries = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; ++i) {
             CompanionTeamTarget target = buffer.readEnum(CompanionTeamTarget.class);
             int index = buffer.readVarInt();
             int number = buffer.readVarInt();
             boolean autoJoin = buffer.readBoolean();
             String name = buffer.readUtf(64);
-            int uuidCount = buffer.readVarInt();
-            ArrayList<UUID> uuids = new ArrayList<>(uuidCount);
+            int uuidCount = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_TEAM_MEMBERS,
+                    "team member");
+            ArrayList<UUID> uuids = new ArrayList<>(PacketDecodeLimits.initialCapacity(uuidCount));
             for (int u = 0; u < uuidCount; ++u) {
                 uuids.add(buffer.readUUID());
             }

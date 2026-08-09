@@ -307,7 +307,7 @@ public final class CompanionSummonLineService {
     }
 
     private static boolean immersive(ServerPlayer player) {
-        return Config.enableDialogue && textMode(player) == FindMeTextMode.IMMERSIVE;
+        return textMode(player) == FindMeTextMode.IMMERSIVE;
     }
 
     private static String defaultCall() {

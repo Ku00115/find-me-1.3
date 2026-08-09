@@ -1,6 +1,7 @@
 package com.kuzhi.findme.client;
 
 import com.kuzhi.findme.network.ContractCameraPacket;
+import com.kuzhi.findme.common.ContractCeremonyTimeline;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
 
@@ -37,7 +38,7 @@ public final class ClientContractRenderState {
     public static void finish(ContractCameraPacket packet, Outcome finishOutcome) {
         targetEntityId = packet.targetEntityId();
         if (durationTicks <= 0) {
-            durationTicks = 120;
+            durationTicks = ContractCeremonyTimeline.DURATION_TICKS;
         }
         ticksRemaining = 0;
         endingDurationTicks = Math.max(packet.durationTicks(), 12);
@@ -72,6 +73,10 @@ public final class ClientContractRenderState {
 
     public static boolean active() {
         return ticksRemaining > 0 || endingTicksRemaining > 0;
+    }
+
+    public static boolean locksInput() {
+        return ticksRemaining > 0 && outcome == Outcome.NONE;
     }
 
     public static int targetEntityId() {
@@ -134,33 +139,20 @@ public final class ClientContractRenderState {
         if (outcome == Outcome.CANCEL) {
             return Component.translatable("message.find_me.contract_broken");
         }
-        if (age >= 92) {
+        if (age >= ContractCeremonyTimeline.RESPONSE_END_TICK) {
             return Component.translatable("message.find_me.contract_vow", targetName);
         }
-        if (age >= 54) {
+        if (age >= ContractCeremonyTimeline.NAME_END_TICK) {
             return Component.translatable("message.find_me.contract_answer", targetName);
         }
-        if (age >= 18) {
+        if (age >= ContractCeremonyTimeline.FOCUS_END_TICK) {
             return Component.translatable("message.find_me.contract_name", targetName);
         }
         return Component.empty();
     }
 
-    public static Phase phase() {
-        int age = age(0.0f);
-        if (age >= 92) {
-            return Phase.VOW;
-        }
-        if (age >= 54) {
-            return Phase.RESPONSE;
-        }
-        return Phase.NAME;
-    }
-
-    public enum Phase {
-        NAME,
-        RESPONSE,
-        VOW
+    public static ContractCeremonyTimeline.Stage phase() {
+        return ContractCeremonyTimeline.stage(age(0.0f));
     }
 
     public enum Outcome {

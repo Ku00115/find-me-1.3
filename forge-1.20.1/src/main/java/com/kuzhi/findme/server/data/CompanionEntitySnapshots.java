@@ -15,6 +15,14 @@ public final class CompanionEntitySnapshots {
         entity.saveWithoutId(tag);
         tag.putString("id", entityType);
         writePreviewBounds(entity, tag);
+        return sanitizePreviewTag(tag);
+    }
+
+    public static CompoundTag previewStoredEntityTag(CompoundTag source) {
+        return sanitizePreviewTag(source == null ? new CompoundTag() : source.copy());
+    }
+
+    private static CompoundTag sanitizePreviewTag(CompoundTag tag) {
         tag.remove("UUID");
         tag.remove("Pos");
         tag.remove("Motion");

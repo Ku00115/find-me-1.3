@@ -160,6 +160,14 @@ final class ClientCompanionCommandTarget {
         return sendTactical(target, CompanionTacticalAction.ATTACK_TARGET, null, targetEntityId);
     }
 
+    static boolean magicAttackCrosshair(CompanionCommandTarget target, int targetEntityId) {
+        if (targetEntityId < 0) {
+            showUnavailable();
+            return false;
+        }
+        return sendTactical(target, CompanionTacticalAction.MAGIC_ATTACK, null, targetEntityId);
+    }
+
     static boolean land(CompanionCommandTarget target) {
         return sendTactical(target, CompanionTacticalAction.LAND, null, -1);
     }
@@ -179,6 +187,18 @@ final class ClientCompanionCommandTarget {
 
     static boolean protectOwner(CompanionCommandTarget target) {
         return sendTactical(target, CompanionTacticalAction.PROTECT_OWNER, null, -1);
+    }
+
+    static boolean healOwner(CompanionCommandTarget target) {
+        return sendTactical(target, CompanionTacticalAction.HEAL_OWNER, null, -1);
+    }
+
+    static boolean magicProtect(CompanionCommandTarget target) {
+        return sendTactical(target, CompanionTacticalAction.MAGIC_PROTECT, null, -1);
+    }
+
+    static boolean magicSupport(CompanionCommandTarget target) {
+        return sendTactical(target, CompanionTacticalAction.MAGIC_SUPPORT, null, -1);
     }
 
     static boolean hasAction(CompanionCommandTarget target, CompanionTacticalAction action) {
@@ -290,7 +310,7 @@ final class ClientCompanionCommandTarget {
     static boolean canUseWaystones(CompanionCommandTarget target) {
         return target != null && target.kind() == CompanionKind.MOUNT && target.entry().alive()
                 && ClientFindMeModuleState.enabled(FindMeModule.RIDING)
-                && net.neoforged.fml.ModList.get().isLoaded("waystones");
+                && com.kuzhi.findme.compat.waystones.WaystonesIntegration.available();
     }
 
 }

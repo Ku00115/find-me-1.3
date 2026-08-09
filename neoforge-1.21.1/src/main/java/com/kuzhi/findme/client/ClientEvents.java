@@ -39,6 +39,7 @@ import net.neoforged.neoforge.client.event.RenderLivingEvent;
 import net.neoforged.neoforge.client.event.RenderPlayerEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
+import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
@@ -566,7 +567,7 @@ public final class ClientEvents {
 
         @SubscribeEvent
         public static void onMovementInput(MovementInputUpdateEvent event) {
-            if (ClientContractCamera.active()) {
+            if (ClientContractRenderState.locksInput()) {
                 event.getInput().up = false;
                 event.getInput().down = false;
                 event.getInput().left = false;
@@ -581,6 +582,13 @@ public final class ClientEvents {
                     || Minecraft.getInstance().screen instanceof VehicleWheelScreen
                     || Minecraft.getInstance().screen instanceof CompanionCommandWheelScreen) {
                 CompanionWheelScreen.syncMovementKeys();
+            }
+        }
+
+        @SubscribeEvent
+        public static void onInteractionInput(InputEvent.InteractionKeyMappingTriggered event) {
+            if (ClientContractRenderState.locksInput()) {
+                event.setCanceled(true);
             }
         }
 
@@ -666,9 +674,20 @@ public final class ClientEvents {
 
         @SubscribeEvent
         public static void onRenderGuiLayer(RenderGuiLayerEvent.Pre event) {
+            if (ClientContractSkyStage.active()) {
+                event.setCanceled(true);
+                return;
+            }
             Screen screen = Minecraft.getInstance().screen;
             if ((screen instanceof CompanionWheelScreen || screen instanceof VehicleWheelScreen || screen instanceof CompanionCommandWheelScreen)
                     && event.getName().equals(VanillaGuiLayers.CROSSHAIR)) {
+                event.setCanceled(true);
+            }
+        }
+
+        @SubscribeEvent
+        public static void onRenderHand(RenderHandEvent event) {
+            if (ClientContractSkyStage.active()) {
                 event.setCanceled(true);
             }
         }

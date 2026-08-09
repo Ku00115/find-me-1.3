@@ -8,6 +8,7 @@ import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.server.data.DeadCompanionRecord;
 import com.kuzhi.findme.server.ui.CompanionSyncService;
 import com.kuzhi.findme.server.safety.CompanionSafetyService;
+import com.kuzhi.findme.server.safety.CompanionRecoveryService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.kuzhi.findme.network.ModNetwork;
@@ -32,7 +33,10 @@ public final class WarehouseEntityService {
         String busyReason = CompanionLifecycleFacade.busyReason(player, data, uuid);
         boolean categoryTransfer = action == WarehouseEntityAction.MOVE_TO_COMPANION
                 || action == WarehouseEntityAction.MOVE_TO_MOUNT;
-        if (action != WarehouseEntityAction.RENAME && !categoryTransfer && busyReason != null) {
+        boolean recoveryAction = action == WarehouseEntityAction.RETRY_RECOVERY
+                || action == WarehouseEntityAction.DELETE_RECOVERY
+                || action == WarehouseEntityAction.MOVE_RECOVERY_TO_DEAD;
+        if (action != WarehouseEntityAction.RENAME && !categoryTransfer && !recoveryAction && busyReason != null) {
             FindMeDebugLogger.lifecycle("WAREHOUSE_REJECTED_LOCKED", player, uuid, null,
                     busyReason, "WAREHOUSE", "warehouse:" + action.name().toLowerCase(), data.storedEntity(uuid).isPresent(), false);
             result(player, false, "This target is busy. Try again later.", uuid);
@@ -45,6 +49,9 @@ public final class WarehouseEntityService {
             case REMOVE_FROM_TEAM -> removeFromTeam(player, data, uuid);
             case RELEASE -> release(player, data, uuid);
             case DELETE_DEAD -> deleteDead(player, data, uuid);
+            case RETRY_RECOVERY -> retryRecovery(player, uuid);
+            case DELETE_RECOVERY -> deleteRecovery(player, uuid);
+            case MOVE_RECOVERY_TO_DEAD -> moveRecoveryToDead(player, uuid);
         }
     }
 
@@ -90,7 +97,7 @@ public final class WarehouseEntityService {
     private static void move(ServerPlayer player, PlayerCompanionData data, UUID uuid, CompanionKind target) {
         CompanionCategoryTransferService.Result transfer =
                 CompanionCategoryTransferService.transfer(player, data, uuid, target);
-        result(player, transfer.success(), transfer.message(), uuid);
+        result(player, transfer.success(), transfer.success() ? "" : transfer.message(), uuid);
     }
 
     private static void removeFromTeam(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
@@ -147,12 +154,37 @@ public final class WarehouseEntityService {
         result(player, true, "Death record deleted. It will not revive.", uuid);
     }
 
+    private static void retryRecovery(ServerPlayer player, UUID uuid) {
+        CompanionRecoveryService.Result recovery = CompanionRecoveryService.retry(player, uuid);
+        result(player, recovery == CompanionRecoveryService.Result.RECOVERED,
+                switch (recovery) {
+                    case RECOVERED -> "Entity data recovered and returned to storage.";
+                    case STILL_MISSING -> "No valid entity data was found yet.";
+                    case NOT_FOUND -> "Recovery record no longer exists.";
+                }, uuid);
+    }
+
+    private static void deleteRecovery(ServerPlayer player, UUID uuid) {
+        boolean deleted = CompanionRecoveryService.delete(player, uuid);
+        result(player, deleted, deleted
+                ? "Recovery record permanently deleted."
+                : "Recovery record could not be deleted.", uuid);
+    }
+
+    private static void moveRecoveryToDead(ServerPlayer player, UUID uuid) {
+        boolean moved = CompanionRecoveryService.moveToDead(player, uuid);
+        result(player, moved, moved
+                ? "Recovery record moved to the death warehouse."
+                : "Recovery record could not be moved to the death warehouse.", uuid);
+    }
+
     private static void saveAndSync(ServerPlayer player, PlayerCompanionData data) {
         CompanionDataService.save(player, data);
         CompanionSyncService.syncToClient(player, CompanionKind.MOUNT);
         CompanionSyncService.syncToClient(player, CompanionKind.COMPANION);
         VehicleManager.syncToClient(player);
         CompanionSyncService.syncDeadToClient(player);
+        CompanionRecoveryService.syncToClient(player);
         CompanionTeamService.syncToClient(player);
     }
 

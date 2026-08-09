@@ -6,12 +6,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionTeamTarget;
+import com.kuzhi.findme.api.CompanionSpellBinding;
+import com.kuzhi.findme.api.CompanionSpellRole;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.Test;
 
 class PlayerCompanionDataTest {
+    private static CompanionSpellBinding binding(int storedCount) {
+        CompoundTag item = new CompoundTag();
+        item.putString("id", "minecraft:paper");
+        item.putByte("Count", (byte)storedCount);
+        return new CompanionSpellBinding(ResourceLocation.fromNamespaceAndPath("test", "provider"),
+                ResourceLocation.fromNamespaceAndPath("test", "spell"), null, CompanionSpellRole.UTILITY,
+                "Test", 1, item);
+    }
+
     @Test
     void saveLoadPreservesUuidTeamsSelectionDeploymentAndVehicles() {
         PlayerCompanionData data = new PlayerCompanionData();
@@ -117,7 +129,7 @@ class PlayerCompanionDataTest {
         PlayerCompanionData restored = PlayerCompanionData.load(root);
 
         assertEquals(1, restored.backupList().size());
-        assertTrue(restored.backupList().getFirst().manual());
+        assertTrue(restored.backupList().get(0).manual());
     }
 
     @Test
@@ -155,6 +167,66 @@ class PlayerCompanionDataTest {
     }
 
     @Test
+    void categoryTransferPreservesSpellBindings() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        data.setSpellBinding(companion, 0, binding(64));
+
+        assertTrue(data.transferCategory(companion, CompanionKind.MOUNT));
+
+        assertTrue(data.spellBinding(companion, 0).isPresent());
+        assertFalse(data.hasPendingSpellItemReturns());
+    }
+
+    @Test
+    void convertingCreatureToVehicleQueuesExactlyOneItemPerBindingAndPersistsIt() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.MOUNT, companion);
+        data.setSpellBinding(companion, 0, binding(64));
+
+        assertTrue(data.addVehicle(companion));
+
+        assertTrue(data.spellBindings(companion).isEmpty());
+        assertTrue(data.hasPendingSpellItemReturns());
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+        CompoundTag returned = restored.drainPendingSpellItemReturns().get(0);
+        assertEquals(1, returned.getByte("Count"));
+        assertEquals(1, returned.getInt("count"));
+    }
+
+    @Test
+    void removingCreatureQueuesStoredSpellItems() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        data.setSpellBinding(companion, 2, binding(32));
+
+        data.remove(companion);
+
+        assertEquals(1, data.drainPendingSpellItemReturns().get(0).getByte("Count"));
+    }
+
+    @Test
+    void lifecycleChangesAreBoundedAndDoNotSurvivePersistenceLoad() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        assertEquals(java.util.Set.of(companion), data.lifecycleChanges());
+
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+
+        assertTrue(restored.lifecycleChanges().isEmpty());
+        restored.setUiSettings(restored.uiSettings());
+        assertTrue(restored.lifecycleChanges().isEmpty());
+    }
+
+    @Test
     void categoryTransferCreatesAFallbackTeamWhenMatchingTeamIsFull() {
         PlayerCompanionData data = new PlayerCompanionData();
         for (int index = 0; index < PlayerCompanionData.TEAM_SIZE; index++) {
@@ -167,5 +239,49 @@ class PlayerCompanionDataTest {
 
         assertEquals(2, data.teamCount(CompanionTeamTarget.MOUNT));
         assertEquals(List.of(companion), data.team(CompanionTeamTarget.MOUNT, 1));
+    }
+
+    @Test
+    void companionMagicContributorsIncludeCreaturesButNotVehiclesAndRespectTheCap() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.add(CompanionKind.COMPANION, UUID.randomUUID());
+        data.add(CompanionKind.MOUNT, UUID.randomUUID());
+        data.addVehicle(UUID.randomUUID());
+
+        assertEquals(2, data.companionMagicContributorCount(0));
+        assertEquals(1, data.companionMagicContributorCount(1));
+        assertEquals(2, data.companionMagicContributorCount(10));
+    }
+
+    @Test
+    void sharedCompanionManaSurvivesSaveAndBackupRestore() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.setCompanionMagicMana(73.5F, 420L, 300.0F);
+
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+        assertEquals(73.5F, restored.companionMagicMana());
+        assertEquals(420L, restored.companionMagicManaTick());
+        assertEquals(300.0F, restored.companionMagicCapacity());
+
+        CompoundTag backup = PlayerCompanionDataCodec.createBackupState(data);
+        restored.setCompanionMagicMana(1.0F, 999L, 100.0F);
+        PlayerCompanionDataCodec.restoreBackupState(restored, backup);
+        assertEquals(73.5F, restored.companionMagicMana());
+        assertEquals(420L, restored.companionMagicManaTick());
+        assertEquals(300.0F, restored.companionMagicCapacity());
+    }
+
+    @Test
+    void addingACompanionAddsOneHundredCurrentAndMaximumMana() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.add(CompanionKind.COMPANION, UUID.randomUUID());
+        data.setCompanionMagicMana(20.0F, 100L, 100.0F);
+
+        data.add(CompanionKind.MOUNT, UUID.randomUUID());
+
+        assertEquals(120.0F, data.companionMagicMana());
+        assertEquals(200.0F, data.companionMagicCapacity());
     }
 }

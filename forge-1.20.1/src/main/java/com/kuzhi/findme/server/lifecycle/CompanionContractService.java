@@ -2,13 +2,15 @@ package com.kuzhi.findme.server.lifecycle;
 
 import com.kuzhi.findme.server.ui.CompanionMessageService;
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
-import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.profile.CompanionEntityVisualBoundsService;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
 import com.kuzhi.findme.Config;
 import com.kuzhi.findme.common.BindingAnimationPolicy;
 import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.ContractCeremonyTimeline;
 import com.kuzhi.findme.common.FindMeModule;
+import com.kuzhi.findme.common.ModItems;
+import com.kuzhi.findme.common.ModParticles;
 import com.kuzhi.findme.server.module.FindMeModuleService;
 import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
@@ -18,12 +20,10 @@ import com.kuzhi.findme.network.ModNetwork;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.server.MinecraftServer;
@@ -35,41 +35,40 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.Pose;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public final class CompanionContractService {
-    private static final int DURATION_TICKS = 120;
-    private static final int ENDING_TICKS = 36;
-    private static final double MIN_WARD_RADIUS = 7.5;
     private static final Map<UUID, PendingContract> CONTRACTS = new HashMap<>();
     private static final Map<UUID, UUID> TARGET_TO_PLAYER = new HashMap<>();
 
     private CompanionContractService() {
     }
 
-    public static boolean start(ServerPlayer player, LivingEntity target) {
+    public static StartResult start(ServerPlayer player, LivingEntity target, InteractionHand hand) {
         if (target == player || !target.isAlive() || player.level() != target.level()) {
             CompanionMessageService.tell(player, "message.find_me.contract_invalid_target", ChatFormatting.RED);
-            return false;
+            return StartResult.REJECTED;
         }
         if (CONTRACTS.containsKey(player.getUUID()) || TARGET_TO_PLAYER.containsKey(target.getUUID())) {
             CompanionMessageService.tell(player, "message.find_me.contract_busy", ChatFormatting.RED);
-            return false;
+            return StartResult.REJECTED;
         }
         CompanionBindingService.BindingCheck binding = CompanionBindingService.checkManualBinding(player, target);
         if (!binding.allowed()) {
             CompanionMessageService.tell(player, binding.messageKey(), binding.color(), binding.args());
-            return false;
+            return StartResult.REJECTED;
         }
         CompanionKind kind = binding.kind();
         if (!shouldPlayAnimation(player, target)) {
-            return bindImmediately(player, target, kind);
+            return bindImmediately(player, target, kind) ? StartResult.COMPLETED : StartResult.REJECTED;
         }
         float targetRadius = visualRadius(target);
-        ContractPose pose = arrangePose(player, target, kind, targetRadius);
-        PendingContract contract = PendingContract.create(player, target, kind, pose, targetRadius);
+        ContractPose pose = arrangePose(player, target);
+        PendingContract contract = PendingContract.create(player, target, kind, hand, pose, targetRadius);
         CONTRACTS.put(player.getUUID(), contract);
         TARGET_TO_PLAYER.put(target.getUUID(), player.getUUID());
         if (target instanceof Mob mob) {
@@ -77,11 +76,11 @@ public final class CompanionContractService {
             mob.setTarget(null);
         }
         applyOpeningPose(player, target, contract);
-        ModNetwork.sendToPlayer(player, new ContractCameraPacket(true, target.getId(), DURATION_TICKS, pose.playerYaw, 8.0f, pose.playerPos.x, pose.playerPos.y, pose.playerPos.z, pose.targetPos.x, pose.targetPos.y, pose.targetPos.z, 1.55f, targetRadius, target.getDisplayName().getString(), ContractCameraPacket.Mode.START, Config.enableContractCinematicCamera));
+        ModNetwork.sendToPlayer(player, new ContractCameraPacket(true, target.getId(), ContractCeremonyTimeline.DURATION_TICKS, pose.playerYaw, 8.0f, pose.playerPos.x, pose.playerPos.y, pose.playerPos.z, pose.targetPos.x, pose.targetPos.y, pose.targetPos.z, 1.55f, targetRadius, target.getDisplayName().getString(), ContractCameraPacket.Mode.START, Config.enableContractCinematicCamera));
         Vec3 center = player.position().add(target.position()).scale(0.5);
-        playCeremonySound(player, center, SoundEvents.ENCHANTMENT_TABLE_USE, 0.82f, 0.85f);
-        playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_RESONATE, 0.46f, 1.25f);
-        return true;
+        playCeremonySound(player, center, SoundEvents.BOOK_PAGE_TURN, 0.72f, 0.92f);
+        playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_RESONATE, 0.32f, 1.18f);
+        return StartResult.STARTED;
     }
 
     public static void tick(MinecraftServer server) {
@@ -89,8 +88,9 @@ public final class CompanionContractService {
         while (iterator.hasNext()) {
             PendingContract contract = iterator.next();
             ServerPlayer player = server.getPlayerList().getPlayer(contract.playerUuid);
-            Optional<Entity> located = CompanionEntityLookup.findEntity(server, contract.targetUuid);
-            if (located.isEmpty() || !(located.get() instanceof LivingEntity target)) {
+            ServerLevel contractLevel = server.getLevel(contract.dimension);
+            Entity located = contractLevel == null ? null : contractLevel.getEntity(contract.targetUuid);
+            if (!(located instanceof LivingEntity target)) {
                 if (player != null) {
                     ModNetwork.sendToPlayer(player, endingPacket(contract, -1, ContractCameraPacket.Mode.CANCEL));
                 }
@@ -116,10 +116,9 @@ public final class CompanionContractService {
             }
             contract.ticks++;
             holdStill(player, target, contract);
-            repelOthers(player.serverLevel(), player, target, contract);
             spawnAtmosphereParticles(player.serverLevel(), contract, target);
             playStageSounds(player, contract);
-            if (contract.ticks >= DURATION_TICKS) {
+            if (contract.ticks >= ContractCeremonyTimeline.DURATION_TICKS) {
                 complete(iterator, player, target, contract);
             }
         }
@@ -129,7 +128,11 @@ public final class CompanionContractService {
         return target.isAlive()
                 && player.isAlive()
                 && player.level().dimension().equals(contract.dimension)
-                && target.level().dimension().equals(contract.dimension);
+                && target.level().dimension().equals(contract.dimension)
+                && player.position().distanceToSqr(contract.startPlayerPos) <= 2.25
+                && target.position().distanceToSqr(contract.startTargetPos) <= 6.25
+                && player.getHealth() + 0.01f >= contract.playerStartHealth
+                && target.getHealth() + 0.01f >= contract.targetStartHealth;
     }
 
     private static void cancel(Iterator<PendingContract> iterator, ServerPlayer player, LivingEntity target, PendingContract contract) {
@@ -149,7 +152,11 @@ public final class CompanionContractService {
 
     private static void complete(Iterator<PendingContract> iterator, ServerPlayer player, LivingEntity target, PendingContract contract) {
         restoreTargetAi(target, contract);
-        if (CompanionBindingService.bindAndStore(player, target, contract.kind)) {
+        if (!hasNamePaper(player, contract.hand)) {
+            ModNetwork.sendToPlayer(player, endingPacket(contract, target.getId(), ContractCameraPacket.Mode.CANCEL));
+            CompanionMessageService.tell(player, "message.find_me.contract_cancelled", ChatFormatting.YELLOW, target.getDisplayName());
+        } else if (CompanionBindingService.bindAndStore(player, target, contract.kind)) {
+            consumeNamePaper(player, contract.hand);
             markBindingTypeSeen(player, target);
             ModNetwork.sendToPlayer(player, endingPacket(contract, target.getId(), ContractCameraPacket.Mode.COMPLETE));
             playCeremonySound(player, contract.playerPos.add(contract.targetPos).scale(0.5), SoundEvents.ENDERMAN_TELEPORT, 0.44f, 1.55f);
@@ -164,23 +171,17 @@ public final class CompanionContractService {
 
     private static void playStageSounds(ServerPlayer player, PendingContract contract) {
         Vec3 center = contract.playerPos.add(contract.targetPos).scale(0.5);
-        if (contract.ticks == 8) {
-            playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_RESONATE, 0.52f, 1.32f);
-        } else if (contract.ticks == 18) {
-            playCeremonySound(player, center, SoundEvents.ENCHANTMENT_TABLE_USE, 0.92f, 1.12f);
-            playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_CHIME, 0.58f, 1.26f);
-        } else if (contract.ticks == 36) {
-            playCeremonySound(player, center, SoundEvents.ILLUSIONER_CAST_SPELL, 0.44f, 1.18f);
-        } else if (contract.ticks == 54) {
-            playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_CHIME, 1.02f, 0.92f);
-            playCeremonySound(player, center, SoundEvents.EVOKER_CAST_SPELL, 0.40f, 0.96f);
-        } else if (contract.ticks == 74) {
-            playCeremonySound(player, center, SoundEvents.ENCHANTMENT_TABLE_USE, 0.70f, 1.34f);
-        } else if (contract.ticks == 92) {
-            playCeremonySound(player, center, SoundEvents.BEACON_ACTIVATE, 1.0f, 1.42f);
-            playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_CHIME, 0.96f, 1.35f);
-        } else if (contract.ticks == 110) {
-            playCeremonySound(player, center, SoundEvents.BEACON_POWER_SELECT, 0.58f, 1.62f);
+        if (contract.ticks == ContractCeremonyTimeline.FOCUS_END_TICK) {
+            playCeremonySound(player, center, SoundEvents.ENCHANTMENT_TABLE_USE, 0.68f, 1.16f);
+            playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_CHIME, 0.42f, 1.34f);
+        } else if (contract.ticks == ContractCeremonyTimeline.NAME_END_TICK) {
+            playCeremonySound(player, center, SoundEvents.ILLUSIONER_CAST_SPELL, 0.40f, 1.22f);
+        } else if (contract.ticks == ContractCeremonyTimeline.RESPONSE_END_TICK) {
+            playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_CHIME, 0.82f, 1.02f);
+            playCeremonySound(player, center, SoundEvents.EVOKER_CAST_SPELL, 0.34f, 1.08f);
+        } else if (contract.ticks == 68) {
+            playCeremonySound(player, center, SoundEvents.BEACON_ACTIVATE, 0.74f, 1.42f);
+            playCeremonySound(player, center, SoundEvents.BEACON_POWER_SELECT, 0.48f, 1.58f);
         }
     }
 
@@ -216,19 +217,16 @@ public final class CompanionContractService {
     }
 
     private static ContractCameraPacket endingPacket(PendingContract contract, int targetEntityId, ContractCameraPacket.Mode mode) {
-        return new ContractCameraPacket(false, targetEntityId, ENDING_TICKS, contract.playerYaw, 8.0f, contract.playerPos.x, contract.playerPos.y, contract.playerPos.z, contract.targetPos.x, contract.targetPos.y, contract.targetPos.z, 1.55f, contract.targetRadius, contract.targetName, mode, false);
+        return new ContractCameraPacket(false, targetEntityId, ContractCeremonyTimeline.ENDING_TICKS, contract.playerYaw, 8.0f, contract.playerPos.x, contract.playerPos.y, contract.playerPos.z, contract.targetPos.x, contract.targetPos.y, contract.targetPos.z, 1.55f, contract.targetRadius, contract.targetName, mode, false);
     }
 
     private static void holdStill(ServerPlayer player, LivingEntity target, PendingContract contract) {
         player.setDeltaMovement(Vec3.ZERO);
         target.setDeltaMovement(Vec3.ZERO);
-        player.connection.teleport(contract.playerPos.x, contract.playerPos.y, contract.playerPos.z, contract.playerYaw, 8.0f);
-        target.moveTo(contract.targetEntityPos.x, contract.targetEntityPos.y, contract.targetEntityPos.z, contract.targetYaw, target.getXRot());
         target.setNoGravity(contract.targetShouldFly || contract.targetHadNoGravity);
         if (contract.targetShouldFly) {
             CompanionAnimationHelper.forceFlyingAnimationPose(target);
         }
-        faceParticipants(player, target, contract);
         if (target instanceof Mob mob) {
             mob.setNoAi(true);
             mob.setTarget(null);
@@ -236,33 +234,13 @@ public final class CompanionContractService {
     }
 
     private static void faceParticipants(ServerPlayer player, LivingEntity target, PendingContract contract) {
-        float playerYaw = yawToward(player.position(), target.position());
         float targetYaw = yawToward(target.position(), player.position());
-        player.setYRot(playerYaw);
-        player.setYHeadRot(playerYaw);
-        player.yRotO = playerYaw;
-        player.yHeadRot = playerYaw;
-        player.yHeadRotO = playerYaw;
         CompanionCinematicOrientationHelper.faceYaw(target, targetYaw);
         Vec3 targetEye = target.position().add(0.0, target.getBbHeight() * 0.62, 0.0);
         Vec3 playerEye = player.position().add(0.0, player.getEyeHeight(), 0.0);
         float pitch = CompanionCinematicOrientationHelper.pitchToward(playerEye.subtract(targetEye));
         target.setXRot(pitch);
         target.xRotO = pitch;
-    }
-
-    private static void repelOthers(ServerLevel level, ServerPlayer player, LivingEntity target, PendingContract contract) {
-        Vec3 center = contract.playerPos.add(contract.targetPos).scale(0.5);
-        AABB ward = new AABB(center, center).inflate(contract.wardRadius, 4.2, contract.wardRadius);
-        for (LivingEntity living : level.getEntitiesOfClass(LivingEntity.class, ward, entity -> entity != player && entity != target && entity.isAlive())) {
-            Vec3 away = living.position().subtract(center);
-            if (away.lengthSqr() < 0.01) {
-                away = new Vec3(level.random.nextDouble() - 0.5, 0.0, level.random.nextDouble() - 0.5);
-            }
-            Vec3 push = away.normalize().scale(0.55).add(0.0, 0.06, 0.0);
-            living.setDeltaMovement(living.getDeltaMovement().add(push));
-            living.hurtMarked = true;
-        }
     }
 
     private static void spawnCompletionBurst(ServerLevel level, ServerPlayer player, LivingEntity target) {
@@ -278,129 +256,31 @@ public final class CompanionContractService {
     }
 
     private static void spawnAtmosphereParticles(ServerLevel level, PendingContract contract, LivingEntity target) {
-        if (contract.ticks % 12 != 0) {
+        if (contract.ticks % 4 != 0) {
             return;
         }
         Vec3 center = contract.playerPos.add(contract.targetPos).scale(0.5);
         double radius = Math.max(2.0, contract.targetRadius);
-        level.sendParticles((ParticleOptions)ParticleTypes.ENCHANT, contract.playerPos.x, contract.playerPos.y + 0.12, contract.playerPos.z, 3, 0.35, 0.02, 0.35, 0.01);
-        level.sendParticles((ParticleOptions)ParticleTypes.ENCHANT, contract.targetPos.x, contract.targetPos.y + 0.12, contract.targetPos.z, 3, radius * 0.18, 0.02, radius * 0.18, 0.01);
-        if (contract.ticks >= 90) {
-            level.sendParticles((ParticleOptions)ParticleTypes.END_ROD, center.x, center.y + 0.22, center.z, 2, radius * 0.18, 0.05, radius * 0.18, 0.02);
+        ContractCeremonyTimeline.Stage stage = ContractCeremonyTimeline.stage(contract.ticks);
+        if (stage == ContractCeremonyTimeline.Stage.FOCUS || stage == ContractCeremonyTimeline.Stage.NAME) {
+            level.sendParticles(ModParticles.CONTRACT_GLYPH.get(), contract.playerPos.x, contract.playerPos.y + 1.2, contract.playerPos.z, 1, 0.18, 0.16, 0.18, 0.0);
+        } else if (stage == ContractCeremonyTimeline.Stage.RESPONSE) {
+            level.sendParticles(ModParticles.CONTRACT_GLYPH_RESPONSE.get(), contract.targetPos.x, contract.targetPos.y + Math.max(0.8, target.getBbHeight() * 0.55), contract.targetPos.z, 2, radius * 0.18, target.getBbHeight() * 0.12, radius * 0.18, 0.0);
+        } else {
+            level.sendParticles(ModParticles.CONTRACT_GLYPH_VOW.get(), center.x, center.y + 0.85, center.z, 2, radius * 0.14, 0.16, radius * 0.14, 0.0);
+            level.sendParticles((ParticleOptions)ParticleTypes.END_ROD, center.x, center.y + 0.25, center.z, 1, radius * 0.12, 0.03, radius * 0.12, 0.01);
         }
     }
 
-    private static ContractPose arrangePose(ServerPlayer player, LivingEntity target, CompanionKind kind, float targetRadius) {
+    private static ContractPose arrangePose(ServerPlayer player, LivingEntity target) {
         Vec3 playerPos = player.position();
         Vec3 targetPos = target.position();
-        Vec3 direction = horizontal(targetPos.subtract(playerPos));
-        if (direction.lengthSqr() < 0.01) {
-            direction = horizontal(player.getLookAngle());
-        }
-        if (direction.lengthSqr() < 0.01) {
-            direction = new Vec3(1.0, 0.0, 0.0);
-        }
-        direction = direction.normalize();
-        Vec3 midpoint = bestRitualCenter(player.serverLevel(), player, target, playerPos.add(targetPos).scale(0.5), direction, targetRadius);
-        double separation = Mth.clamp(targetRadius * 1.62 + 6.2, 9.5, 28.0);
-        Vec3 arrangedPlayer = new Vec3(midpoint.x - direction.x * separation * 0.5, player.getY(), midpoint.z - direction.z * separation * 0.5);
-        Vec3 arrangedTarget = new Vec3(midpoint.x + direction.x * separation * 0.5, player.getY(), midpoint.z + direction.z * separation * 0.5);
-        Vec3 arrangedTargetEntity = flyingBindingTarget(player.serverLevel(), target, kind, arrangedTarget, targetRadius);
-        float playerYaw = yawToward(arrangedPlayer, arrangedTargetEntity);
-        float targetYaw = yawToward(arrangedTargetEntity, arrangedPlayer);
-        double wardRadius = Mth.clamp(separation * 0.5 + targetRadius * 1.25 + 4.0, MIN_WARD_RADIUS, 28.0);
-        return new ContractPose(arrangedPlayer, arrangedTarget, arrangedTargetEntity, playerYaw, targetYaw, wardRadius, arrangedTargetEntity.y > arrangedTarget.y + 0.15);
-    }
-
-    private static Vec3 flyingBindingTarget(ServerLevel level, LivingEntity target, CompanionKind kind, Vec3 circlePos, float targetRadius) {
-        if (CompanionEntityClassifier.summonMoveType(target, kind) != com.kuzhi.findme.common.CompanionMoveType.FLY) {
-            return circlePos;
-        }
-        double maxLift = Mth.clamp(targetRadius * 0.45 + target.getBbHeight() * 0.30 + 1.3, 1.6, 5.2);
-        for (double lift = maxLift; lift >= 1.0; lift -= 0.5) {
-            Vec3 candidate = circlePos.add(0.0, lift, 0.0);
-            if (CompanionPlacementFinder.hasOpenBox(level, entityBoxAt(target, candidate, targetRadius))) {
-                return candidate;
-            }
-        }
-        return circlePos;
-    }
-
-    private static Vec3 bestRitualCenter(ServerLevel level, ServerPlayer player, LivingEntity target, Vec3 midpoint, Vec3 direction, float targetRadius) {
-        Vec3 side = new Vec3(-direction.z, 0.0, direction.x);
-        double separation = Mth.clamp(targetRadius * 1.62 + 6.2, 9.5, 28.0);
-        Vec3 best = midpoint;
-        double bestScore = ritualSpaceScore(level, player, target, midpoint, direction, separation, targetRadius);
-        for (int r = 2; r <= 12; r += 2) {
-            Vec3[] candidates = {
-                    midpoint.add(side.scale(r)),
-                    midpoint.add(side.scale(-r)),
-                    midpoint.add(direction.scale(r)),
-                    midpoint.add(direction.scale(-r)),
-                    midpoint.add(side.add(direction).normalize().scale(r)),
-                    midpoint.add(side.subtract(direction).normalize().scale(r)),
-                    midpoint.add(side.scale(-1.0).add(direction).normalize().scale(r)),
-                    midpoint.add(side.scale(-1.0).subtract(direction).normalize().scale(r))
-            };
-            for (Vec3 candidate : candidates) {
-                double score = ritualSpaceScore(level, player, target, candidate, direction, separation, targetRadius);
-                if (score > bestScore) {
-                    bestScore = score;
-                    best = candidate;
-                    if (score >= 7.0) {
-                        return best;
-                    }
-                }
-            }
-        }
-        return best;
-    }
-
-    private static double ritualSpaceScore(ServerLevel level, ServerPlayer player, LivingEntity target, Vec3 center, Vec3 direction, double separation, float targetRadius) {
-        Vec3 playerPos = new Vec3(center.x - direction.x * separation * 0.5, player.getY(), center.z - direction.z * separation * 0.5);
-        Vec3 targetPos = new Vec3(center.x + direction.x * separation * 0.5, player.getY(), center.z + direction.z * separation * 0.5);
-        double score = 0.0;
-        score += openBoxScore(level, entityBoxAt(player, playerPos, 1.15f));
-        score += openBoxScore(level, entityBoxAt(target, targetPos, targetRadius));
-        double wardRadius = Mth.clamp(separation * 0.5 + targetRadius * 1.25 + 4.0, MIN_WARD_RADIUS, 28.0);
-        score += openBoxScore(level, new AABB(center.x - wardRadius, center.y + 0.35, center.z - wardRadius, center.x + wardRadius, center.y + 3.2, center.z + wardRadius));
-        score += distanceToWallScore(level, playerPos, 1.8);
-        score += distanceToWallScore(level, targetPos, Math.min(5.5, Math.max(2.2, targetRadius * 0.55)));
-        return score;
-    }
-
-    private static double openBoxScore(ServerLevel level, AABB box) {
-        return CompanionPlacementFinder.hasOpenBox(level, box) ? 2.0 : 0.0;
-    }
-
-    private static AABB entityBoxAt(LivingEntity entity, Vec3 pos, float radius) {
-        AABB box = entity == null ? new AABB(pos.x - radius, pos.y, pos.z - radius, pos.x + radius, pos.y + 2.0, pos.z + radius) : CompanionEntityVisualBoundsService.visualBounds(entity);
-        Vec3 current = entity == null ? box.getCenter() : entity.position();
-        return box.move(pos.subtract(current)).inflate(0.35, 0.15, 0.35);
-    }
-
-    private static double distanceToWallScore(ServerLevel level, Vec3 pos, double radius) {
-        int clear = 0;
-        for (int i = 0; i < 8; i++) {
-            double angle = Math.PI * 2.0 * i / 8.0;
-            Vec3 sample = pos.add(Math.cos(angle) * radius, 0.0, Math.sin(angle) * radius);
-            AABB box = new AABB(sample.x - 0.35, sample.y + 0.1, sample.z - 0.35, sample.x + 0.35, sample.y + 1.9, sample.z + 0.35);
-            if (CompanionPlacementFinder.hasOpenBox(level, box)) {
-                clear++;
-            }
-        }
-        return clear / 8.0;
-    }
-
-    private static Vec3 horizontal(Vec3 vector) {
-        return new Vec3(vector.x, 0.0, vector.z);
+        return new ContractPose(playerPos, targetPos, yawToward(playerPos, targetPos));
     }
 
     private static void applyOpeningPose(ServerPlayer player, LivingEntity target, PendingContract contract) {
         player.setDeltaMovement(Vec3.ZERO);
         target.setDeltaMovement(Vec3.ZERO);
-        player.connection.teleport(contract.playerPos.x, contract.playerPos.y, contract.playerPos.z, contract.playerYaw, 8.0f);
-        target.moveTo(contract.targetEntityPos.x, contract.targetEntityPos.y, contract.targetEntityPos.z, contract.targetYaw, target.getXRot());
         target.setNoGravity(contract.targetShouldFly || contract.targetHadNoGravity);
         if (contract.targetShouldFly) {
             CompanionAnimationHelper.forceFlyingAnimationPose(target);
@@ -425,12 +305,51 @@ public final class CompanionContractService {
         if (target instanceof Mob mob) {
             mob.setNoAi(contract.targetHadNoAi);
         }
+        CompanionCinematicOrientationHelper.faceYaw(target, contract.targetStartYaw);
+        target.setXRot(contract.targetStartPitch);
+        target.xRotO = contract.targetStartPitch;
         target.setNoGravity(contract.targetHadNoGravity);
         target.noPhysics = contract.targetHadNoPhysics;
     }
 
-    private static void chat(ServerPlayer player, String key, ChatFormatting color, Object ... args) {
-        player.sendSystemMessage(Component.translatable(key, args).withStyle(color));
+    private static boolean hasNamePaper(ServerPlayer player, InteractionHand hand) {
+        return player.getAbilities().instabuild || !findNamePaper(player, hand).isEmpty();
+    }
+
+    private static void consumeNamePaper(ServerPlayer player, InteractionHand hand) {
+        if (player.getAbilities().instabuild) {
+            return;
+        }
+        ItemStack paper = findNamePaper(player, hand);
+        if (!paper.isEmpty()) {
+            paper.shrink(1);
+        }
+    }
+
+    private static ItemStack findNamePaper(ServerPlayer player, InteractionHand hand) {
+        ItemStack preferred = player.getItemInHand(hand);
+        if (preferred.is(ModItems.NAME_PAPER.get())) {
+            return preferred;
+        }
+        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+            ItemStack candidate = player.getInventory().getItem(slot);
+            if (candidate.is(ModItems.NAME_PAPER.get())) {
+                return candidate;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    public static void resetServerState(MinecraftServer server) {
+        for (PendingContract contract : CONTRACTS.values()) {
+            ServerLevel level = server.getLevel(contract.dimension);
+            Entity entity = level == null ? null : level.getEntity(contract.targetUuid);
+            if (entity instanceof LivingEntity target) {
+                restoreTargetAi(target, contract);
+            }
+        }
+        CONTRACTS.clear();
+        TARGET_TO_PLAYER.clear();
     }
 
     private static final class PendingContract {
@@ -441,20 +360,22 @@ public final class CompanionContractService {
         final Vec3 startTargetPos;
         final Vec3 playerPos;
         final Vec3 targetPos;
-        final Vec3 targetEntityPos;
         final float playerYaw;
-        final float targetYaw;
         final boolean targetHadNoAi;
         final boolean targetHadNoGravity;
         final boolean targetShouldFly;
         final boolean targetHadNoPhysics;
+        final float targetStartYaw;
+        final float targetStartPitch;
+        final float playerStartHealth;
+        final float targetStartHealth;
         final CompanionKind kind;
+        final InteractionHand hand;
         final String targetName;
         final float targetRadius;
-        final double wardRadius;
         int ticks;
 
-        private PendingContract(ServerPlayer player, LivingEntity target, CompanionKind kind, boolean targetHadNoAi, ContractPose pose, float targetRadius) {
+        private PendingContract(ServerPlayer player, LivingEntity target, CompanionKind kind, InteractionHand hand, boolean targetHadNoAi, ContractPose pose, float targetRadius) {
             this.playerUuid = player.getUUID();
             this.targetUuid = target.getUUID();
             this.dimension = player.level().dimension();
@@ -462,22 +383,24 @@ public final class CompanionContractService {
             this.startTargetPos = target.position();
             this.playerPos = pose.playerPos;
             this.targetPos = pose.targetPos;
-            this.targetEntityPos = pose.targetEntityPos;
             this.playerYaw = pose.playerYaw;
-            this.targetYaw = pose.targetYaw;
             this.kind = kind;
+            this.hand = hand;
             this.targetHadNoAi = targetHadNoAi;
             this.targetHadNoGravity = target.isNoGravity();
             this.targetHadNoPhysics = target.noPhysics;
-            this.targetShouldFly = pose.targetShouldHover || isControlledFlight(target, kind);
+            this.targetStartYaw = target.getYRot();
+            this.targetStartPitch = target.getXRot();
+            this.playerStartHealth = player.getHealth();
+            this.targetStartHealth = target.getHealth();
+            this.targetShouldFly = isControlledFlight(target, kind);
             this.targetName = target.getDisplayName().getString();
             this.targetRadius = targetRadius;
-            this.wardRadius = pose.wardRadius;
         }
 
-        static PendingContract create(ServerPlayer player, LivingEntity target, CompanionKind kind, ContractPose pose, float targetRadius) {
+        static PendingContract create(ServerPlayer player, LivingEntity target, CompanionKind kind, InteractionHand hand, ContractPose pose, float targetRadius) {
             boolean targetHadNoAi = target instanceof Mob mob && mob.isNoAi();
-            return new PendingContract(player, target, kind, targetHadNoAi, pose, targetRadius);
+            return new PendingContract(player, target, kind, hand, targetHadNoAi, pose, targetRadius);
         }
 
         private static boolean isControlledFlight(LivingEntity target, CompanionKind kind) {
@@ -488,6 +411,28 @@ public final class CompanionContractService {
         }
     }
 
-    private record ContractPose(Vec3 playerPos, Vec3 targetPos, Vec3 targetEntityPos, float playerYaw, float targetYaw, double wardRadius, boolean targetShouldHover) {
+    private record ContractPose(Vec3 playerPos, Vec3 targetPos, float playerYaw) {
+    }
+
+    public enum StartResult {
+        REJECTED(false, false),
+        STARTED(true, false),
+        COMPLETED(true, true);
+
+        private final boolean accepted;
+        private final boolean consumePaperNow;
+
+        StartResult(boolean accepted, boolean consumePaperNow) {
+            this.accepted = accepted;
+            this.consumePaperNow = consumePaperNow;
+        }
+
+        public boolean accepted() {
+            return accepted;
+        }
+
+        public boolean consumePaperNow() {
+            return consumePaperNow;
+        }
     }
 }

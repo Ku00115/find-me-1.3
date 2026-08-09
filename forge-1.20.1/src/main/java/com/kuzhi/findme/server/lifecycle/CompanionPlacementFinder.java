@@ -6,6 +6,7 @@ import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
@@ -82,7 +83,8 @@ public final class CompanionPlacementFinder {
     }
 
     public static boolean isSafe(ServerLevel level, BlockPos pos) {
-        return isLandingSurface(level, pos.below())
+        return level.hasChunkAt(pos)
+                && isLandingSurface(level, pos.below())
                 && isOpenForLanding(level, pos)
                 && level.getBlockState(pos.above()).isAir()
                 && !isDangerous(level, pos)
@@ -105,6 +107,7 @@ public final class CompanionPlacementFinder {
     }
 
     public static boolean hasOpenBox(ServerLevel level, AABB box) {
+        if (!hasLoadedChunks(level, box)) return false;
         BlockPos min = BlockPos.containing(box.minX, box.minY, box.minZ);
         BlockPos max = BlockPos.containing(box.maxX, box.maxY, box.maxZ);
         for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
@@ -113,6 +116,21 @@ public final class CompanionPlacementFinder {
             for (AABB blockBox : shape.toAabbs()) {
                 if (!blockBox.move(pos).intersects(box)) continue;
                 return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean hasLoadedChunks(ServerLevel level, AABB box) {
+        if (level == null || box == null) return false;
+        int minChunkX = Mth.floor(box.minX) >> 4;
+        int maxChunkX = Mth.floor(Math.nextDown(box.maxX)) >> 4;
+        int minChunkZ = Mth.floor(box.minZ) >> 4;
+        int maxChunkZ = Mth.floor(Math.nextDown(box.maxZ)) >> 4;
+        int y = level.getMinBuildHeight();
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                if (!level.hasChunkAt(new BlockPos(chunkX << 4, y, chunkZ << 4))) return false;
             }
         }
         return true;

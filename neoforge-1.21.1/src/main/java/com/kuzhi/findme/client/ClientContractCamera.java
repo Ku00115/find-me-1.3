@@ -7,6 +7,8 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 public final class ClientContractCamera {
@@ -22,6 +24,11 @@ public final class ClientContractCamera {
     private static double sideSign = 1.0;
     private static Vec3 smoothedCameraPosition;
     private static Vec3 smoothedLookAt;
+    private static Vec3 entryCameraOffset = Vec3.ZERO;
+    private static Vec3 entryLookDirection = new Vec3(0.0, 0.0, 1.0);
+    private static boolean finishing;
+    private static int finishTicksRemaining;
+    private static int finishTotalTicks;
     private static boolean renderLocalRider;
     private static boolean rideHomeCamera;
     private static float desiredHeadingYaw;
@@ -70,9 +77,17 @@ public final class ClientContractCamera {
         targetRadius = packet.targetRadius();
         renderLocalRider = rideHome;
         rideHomeCamera = rideHome;
+        Vec3 entryPosition = minecraft.gameRenderer.getMainCamera().getPosition();
+        entryCameraOffset = entryPosition.subtract(minecraft.player.position());
+        entryLookDirection = Vec3.directionFromRotation(
+                minecraft.gameRenderer.getMainCamera().getXRot(),
+                minecraft.gameRenderer.getMainCamera().getYRot());
         sideSign = chooseSideSign(minecraft);
-        smoothedCameraPosition = null;
-        smoothedLookAt = null;
+        smoothedCameraPosition = entryPosition;
+        smoothedLookAt = entryPosition.add(entryLookDirection.scale(4.0));
+        finishing = false;
+        finishTicksRemaining = 0;
+        finishTotalTicks = 0;
         cameraEntity = new ArmorStand(minecraft.level, minecraft.player.getX(), minecraft.player.getY() + 2.0, minecraft.player.getZ());
         cameraEntity.setInvisible(true);
         cameraEntity.setNoGravity(true);
@@ -84,7 +99,14 @@ public final class ClientContractCamera {
     }
 
     public static void finish(int durationTicks) {
-        stop();
+        if (cameraEntity == null) {
+            stop();
+            return;
+        }
+        finishing = true;
+        ticksRemaining = 0;
+        finishTotalTicks = Math.max(durationTicks, 8);
+        finishTicksRemaining = finishTotalTicks;
     }
 
     public static void stop() {
@@ -108,6 +130,11 @@ public final class ClientContractCamera {
         sideSign = 1.0;
         smoothedCameraPosition = null;
         smoothedLookAt = null;
+        entryCameraOffset = Vec3.ZERO;
+        entryLookDirection = new Vec3(0.0, 0.0, 1.0);
+        finishing = false;
+        finishTicksRemaining = 0;
+        finishTotalTicks = 0;
         renderLocalRider = false;
         rideHomeCamera = false;
         desiredHeadingYaw = 0.0f;
@@ -125,7 +152,7 @@ public final class ClientContractCamera {
     }
 
     public static void tick() {
-        if (ticksRemaining <= 0) {
+        if (ticksRemaining <= 0 && !finishing) {
             if (cameraEntity != null) {
                 stop();
             }
@@ -137,7 +164,9 @@ public final class ClientContractCamera {
             stop();
             return;
         }
-        updateCamera(minecraft, 1.0f - (float)ticksRemaining / (float)Math.max(totalTicks, 1));
+        float progress = finishing ? 1.0f
+                : 1.0f - (float)ticksRemaining / (float)Math.max(totalTicks, 1);
+        updateCamera(minecraft, progress);
         if (minecraft.getCameraEntity() != cameraEntity) {
             minecraft.setCameraEntity(cameraEntity);
         }
@@ -145,11 +174,18 @@ public final class ClientContractCamera {
             minecraft.options.setCameraType(CameraType.FIRST_PERSON);
         }
         minecraft.gameRenderer.setRenderHand(false);
-        ticksRemaining--;
+        if (finishing) {
+            finishTicksRemaining--;
+            if (finishTicksRemaining <= 0) {
+                stop();
+            }
+        } else {
+            ticksRemaining--;
+        }
     }
 
     public static boolean active() {
-        return ticksRemaining > 0 && cameraEntity != null;
+        return cameraEntity != null && (ticksRemaining > 0 || finishing);
     }
 
     public static boolean renderLocalRider() {
@@ -216,14 +252,31 @@ public final class ClientContractCamera {
                 ? Mth.clamp(Math.max(minecraft.player.getBbHeight(), targetHeight) * 0.18 + 2.7, 3.0, 7.5)
                 : Mth.clamp(Math.max(minecraft.player.getBbHeight(), targetHeight) * 0.30 + 2.25, 2.8, 8.2);
         Vec3 cameraAnchor = rideHomeCamera ? playerCenter : midpoint;
-        Vec3 desiredCameraPos = cameraAnchor.add(side.scale(distance)).add(0.0, height, 0.0);
-        Vec3 desiredLookAt = ridingTarget ? targetCenter : midpoint.add(0.0, Math.max(0.8, targetHeight * 0.12), 0.0);
+        Vec3 cinematicCameraPos = cameraAnchor.add(side.scale(distance)).add(0.0, height, 0.0);
+        Vec3 cinematicLookAt = ridingTarget ? targetCenter : midpoint.add(0.0, Math.max(0.8, targetHeight * 0.12), 0.0);
+        cinematicCameraPos = clipCamera(level, cinematicLookAt, cinematicCameraPos, minecraft.player);
+        Vec3 desiredCameraPos;
+        Vec3 desiredLookAt;
+        if (finishing) {
+            float exit = smooth(1.0f - (float)finishTicksRemaining / (float)Math.max(finishTotalTicks, 1));
+            Vec3 exitCameraPos = playerBase.add(entryCameraOffset);
+            Vec3 exitLookAt = exitCameraPos.add(entryLookDirection.scale(4.0));
+            desiredCameraPos = cinematicCameraPos.lerp(exitCameraPos, exit);
+            desiredLookAt = cinematicLookAt.lerp(exitLookAt, exit);
+        } else {
+            float ageTicks = progress * Math.max(totalTicks, 1);
+            float enter = smooth(Mth.clamp(ageTicks / 10.0f, 0.0f, 1.0f));
+            Vec3 entryCameraPos = playerBase.add(entryCameraOffset);
+            Vec3 entryLookAt = entryCameraPos.add(entryLookDirection.scale(4.0));
+            desiredCameraPos = entryCameraPos.lerp(cinematicCameraPos, enter);
+            desiredLookAt = entryLookAt.lerp(cinematicLookAt, enter);
+        }
         if (smoothedCameraPosition == null || smoothedLookAt == null) {
             smoothedCameraPosition = desiredCameraPos;
             smoothedLookAt = desiredLookAt;
         } else {
-            double positionSmoothing = ridingTarget ? 0.12 : 0.24;
-            double lookSmoothing = ridingTarget ? 0.10 : 0.24;
+            double positionSmoothing = finishing ? 0.48 : ridingTarget ? 0.12 : 0.34;
+            double lookSmoothing = finishing ? 0.48 : ridingTarget ? 0.10 : 0.34;
             smoothedCameraPosition = smoothedCameraPosition.lerp(desiredCameraPos, positionSmoothing);
             smoothedLookAt = smoothedLookAt.lerp(desiredLookAt, lookSmoothing);
         }
@@ -255,7 +308,45 @@ public final class ClientContractCamera {
             axis = new Vec3(1.0, 0.0, 0.0);
         }
         Vec3 side = new Vec3(-axis.normalize().z, 0.0, axis.normalize().x);
+        Vec3 lookAt = playerCenter.add(targetCenter).scale(0.5)
+                .add(0.0, Math.max(0.8, targetRadius * 0.18), 0.0);
+        double separation = Math.sqrt(horizontal(targetCenter.subtract(playerCenter)).lengthSqr());
+        double distance = Mth.clamp(separation * 0.58 + targetRadius * 1.9 + 4.4, 6.5, 19.0);
+        double height = Mth.clamp(targetRadius * 0.55 + 2.25, 2.8, 8.2);
+        Vec3 midpoint = playerCenter.add(targetCenter).scale(0.5);
+        double positiveClearance = cameraClearance(minecraft, lookAt, midpoint.add(side.scale(distance)).add(0.0, height, 0.0));
+        double negativeClearance = cameraClearance(minecraft, lookAt, midpoint.add(side.scale(-distance)).add(0.0, height, 0.0));
+        if (Math.abs(positiveClearance - negativeClearance) > 0.75) {
+            return positiveClearance > negativeClearance ? 1.0 : -1.0;
+        }
         return horizontal(minecraft.player.getLookAngle()).dot(side) < 0.0 ? -1.0 : 1.0;
+    }
+
+    private static double cameraClearance(Minecraft minecraft, Vec3 from, Vec3 to) {
+        if (minecraft.level == null || minecraft.player == null) {
+            return from.distanceTo(to);
+        }
+        HitResult hit = minecraft.level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE, minecraft.player));
+        return hit.getType() == HitResult.Type.MISS ? from.distanceTo(to) : from.distanceTo(hit.getLocation());
+    }
+
+    private static Vec3 clipCamera(ClientLevel level, Vec3 from, Vec3 to, Entity cameraOwner) {
+        HitResult hit = level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE, cameraOwner));
+        if (hit.getType() == HitResult.Type.MISS) {
+            return to;
+        }
+        Vec3 direction = to.subtract(from);
+        if (direction.lengthSqr() < 1.0E-5) {
+            return from;
+        }
+        return hit.getLocation().subtract(direction.normalize().scale(0.28));
+    }
+
+    private static float smooth(float value) {
+        float clamped = Mth.clamp(value, 0.0f, 1.0f);
+        return clamped * clamped * (3.0f - 2.0f * clamped);
     }
 
     private static Vec3 horizontal(Vec3 vector) {

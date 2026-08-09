@@ -23,6 +23,7 @@ public final class ClientRideHomeTransitionState {
         if (phase == Phase.NONE) {
             return;
         }
+        ClientContractCamera.snapRideHomePresentation();
         phase = Phase.FADING_OUT;
         age = 0;
         duration = Math.max(1, fadeTicks);

@@ -5,11 +5,11 @@ import com.kuzhi.findme.common.ModBlocks;
 import com.kuzhi.findme.common.ModBlockEntities;
 import com.kuzhi.findme.common.ModItems;
 import com.kuzhi.findme.common.ModParticles;
+import com.kuzhi.findme.common.ModCreativeTabs;
 import com.kuzhi.findme.client.ClientEvents;
 import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.server.core.CompanionEvents;
 import com.kuzhi.findme.server.integration.SalvationCompatibilityService;
-import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.mojang.logging.LogUtils;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
@@ -34,6 +34,7 @@ public class FindMeMod {
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModItems.register(modEventBus);
+        ModCreativeTabs.register(modEventBus);
         ModParticles.register(modEventBus);
         Config.register(modEventBus);
         if (FMLEnvironment.dist == Dist.CLIENT) {
@@ -47,7 +48,6 @@ public class FindMeMod {
     private void commonSetup(FMLCommonSetupEvent event) {
         event.enqueueWork(() -> {
             ModNetwork.register();
-            VehicleManager.bootstrap();
             SalvationCompatibilityService.bootstrap();
         });
         LOGGER.info("Find me core loaded");

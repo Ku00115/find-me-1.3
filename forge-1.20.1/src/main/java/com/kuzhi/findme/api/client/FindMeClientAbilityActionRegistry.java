@@ -1,5 +1,6 @@
 package com.kuzhi.findme.api.client;
 
+import com.kuzhi.findme.FindMeMod;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -40,15 +41,37 @@ public final class FindMeClientAbilityActionRegistry {
                         Predicate<CompanionCommandTarget> available,
                         Predicate<CompanionCommandTarget> activate) {
         public Component label(CompanionCommandTarget target) {
-            return this.label.apply(target);
+            try {
+                Component value = this.label.apply(target);
+                return value == null ? Component.literal(this.id.toString()) : value;
+            } catch (RuntimeException exception) {
+                quarantine(this.id, "label", exception);
+                return Component.literal(this.id.toString());
+            }
         }
 
         public boolean available(CompanionCommandTarget target) {
-            return this.available.test(target);
+            try {
+                return this.available.test(target);
+            } catch (RuntimeException exception) {
+                quarantine(this.id, "available", exception);
+                return false;
+            }
         }
 
         public boolean activate(CompanionCommandTarget target) {
-            return this.activate.test(target);
+            try {
+                return this.activate.test(target);
+            } catch (RuntimeException exception) {
+                quarantine(this.id, "activate", exception);
+                return false;
+            }
         }
+    }
+
+    private static void quarantine(ResourceLocation id, String operation, RuntimeException exception) {
+        ENTRIES.removeIf(entry -> entry.id.equals(id));
+        FindMeMod.LOGGER.error("FindMe removed failing client ability action id={} operation={}",
+                id, operation, exception);
     }
 }

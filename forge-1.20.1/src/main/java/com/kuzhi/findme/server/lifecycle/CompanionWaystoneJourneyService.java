@@ -33,6 +33,7 @@ public final class CompanionWaystoneJourneyService {
     private static final int BLACKOUT_TICKS = 8;
     private static final int TELEPORT_DELAY_TICKS = 10;
     private static final int TELEPORT_TIMEOUT_TICKS = 20 * 30;
+    private static final int ARRIVAL_PRESENTATION_HOLD_TICKS = 4;
     private static final int ARRIVAL_TICKS = 34;
     private static final int TOTAL_TIMEOUT_TICKS = 20 * 60;
     private static final Map<UUID, Journey> JOURNEYS = new HashMap<>();
@@ -220,13 +221,14 @@ public final class CompanionWaystoneJourneyService {
         }
         journey.teleportCompleted = true;
         journey.moveType = CompanionEntityClassifier.moveType(mount, CompanionKind.MOUNT);
-        journey.arrivalTarget = RideHomeJourneySupport.departureTarget(mount,
-                RideHomeJourneySupport.departureDirection(player, mount), journey.moveType);
+        journey.arrivalTarget = mount.position();
         RideHomeJourneySupport.prepareCinematic(mount, journey.moveType);
         ModNetwork.sendToPlayer(player, RideHomeJourneySupport.camera(player, mount, journey.arrivalTarget,
                 RideHomeCameraPacket.Mode.DESTINATION, TOTAL_TIMEOUT_TICKS - journey.totalAge, mount.getYRot()));
-        ModNetwork.sendToPlayer(player, RideHomeJourneySupport.camera(player, mount,
-                RideHomeCameraPacket.Mode.REVEAL, 10, mount.getYRot()));
+        FindMeMod.LOGGER.info("[FindMe waystones] destination accepted player={} mount={} dimension={} playerPos={} mountPos={}",
+                player.getUUID(), journey.mountUuid, player.level().dimension().location(),
+                player.position(), mount.position());
+        journey.arrivalRevealSent = false;
         enter(journey, Stage.ARRIVING, player, mount);
     }
 
@@ -242,9 +244,23 @@ public final class CompanionWaystoneJourneyService {
             finishAtDestination(player, journey, mount, "arrival_ride_lost");
             return;
         }
+        if (!journey.arrivalRevealSent) {
+            RideHomeJourneySupport.holdRide(player, mount, journey.mountUuid, mount.position(),
+                    journey.headingYaw, journey.moveType);
+            if (journey.stageAge < ARRIVAL_PRESENTATION_HOLD_TICKS) {
+                WaystonesIntegration.syncMountedState(player, mount);
+                return;
+            }
+            ModNetwork.sendToPlayer(player, RideHomeJourneySupport.camera(player, mount,
+                    RideHomeCameraPacket.Mode.REVEAL, 10, mount.getYRot()));
+            journey.arrivalRevealSent = true;
+            FindMeMod.LOGGER.info("[FindMe waystones] arrival presentation released player={} mount={} age={}",
+                    player.getUUID(), journey.mountUuid, journey.stageAge);
+        }
         CompanionCinematicMovementService.moveMountedRideHome(mount, player, journey.moveType,
                 journey.arrivalTarget, journey.stageAge, true);
         RideHomeJourneySupport.stabilize(player, mount);
+        WaystonesIntegration.syncMountedState(player, mount);
         if (journey.stageAge >= ARRIVAL_TICKS) finishAtDestination(player, journey, mount, "complete");
     }
 
@@ -322,6 +338,7 @@ public final class CompanionWaystoneJourneyService {
         boolean cameraTracking;
         boolean teleportInFlight;
         boolean teleportCompleted;
+        boolean arrivalRevealSent;
         boolean lockHeld;
         int totalAge;
         int stageAge;

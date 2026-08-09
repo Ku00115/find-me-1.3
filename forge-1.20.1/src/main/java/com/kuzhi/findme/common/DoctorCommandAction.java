@@ -3,8 +3,8 @@ package com.kuzhi.findme.common;
 public enum DoctorCommandAction {
     SYNC,
     CREATE_BACKUP,
-    PREVIEW_BACKUP,
-    BACKUP_PAGE,
+    OPEN_BACKUP_WAREHOUSE,
     RENAME_BACKUP,
-    RESTORE_BACKUP
+    RESTORE_BACKUP,
+    DELETE_BACKUP
 }

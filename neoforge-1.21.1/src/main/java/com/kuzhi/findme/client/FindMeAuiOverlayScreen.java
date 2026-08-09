@@ -104,6 +104,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         root.setInnerHTML(next);
         overlayDocument.rebuildSelectorIndex();
         overlayDocument.reapplyStylesFromCache();
+        overlayDocument.commitStyleRecalc();
         contextOverlayMarkup = next;
     }
 
@@ -186,6 +187,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
             long previewsStartedAt = FindMeAuiPerformanceMonitor.start();
             FindMePreviewElement.renderQueuedOverlays(graphics);
             FindMeAuiPerformanceMonitor.record(this, "render.previews", previewsStartedAt, 8.0);
+            renderMainDocumentOverlay(graphics);
         }
         boolean needsOverlay = contextOverlayMarkup != null && !contextOverlayMarkup.isBlank()
                 || previewCopyMarkup != null && !previewCopyMarkup.isBlank()
@@ -195,12 +197,19 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
             graphics.pose().pushPose();
             graphics.pose().translate(0.0f, 0.0f, 500.0f);
             Base.drawScreenDocument(graphics.pose(), overlayDocument);
+            renderContextDocumentOverlay(graphics);
             graphics.pose().popPose();
             FindMeAuiPerformanceMonitor.record(this, "render.overlay_document", overlayStartedAt, 5.0);
         }
         Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
         Cursor.drawPseudoCursor(graphics);
         FindMeAuiPerformanceMonitor.record(this, "render.total", totalStartedAt, 16.0);
+    }
+
+    protected void renderMainDocumentOverlay(GuiGraphics graphics) {
+    }
+
+    protected void renderContextDocumentOverlay(GuiGraphics graphics) {
     }
 
     @Override

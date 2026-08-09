@@ -9,6 +9,8 @@ import com.kuzhi.findme.server.safety.CompanionSafetyService;
 import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.server.safety.CompanionDeathService;
 import com.kuzhi.findme.server.safety.CompanionThreatMemoryService;
+import com.kuzhi.findme.server.api.ExternalActionLeaseService;
+import com.kuzhi.findme.server.api.CompanionActionRequestService;
 
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.commands.CommandSourceStack;
@@ -24,6 +26,7 @@ import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
 import net.neoforged.neoforge.event.entity.living.LivingFallEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.neoforged.neoforge.event.entity.living.LivingChangeTargetEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerWakeUpEvent;
@@ -43,10 +46,13 @@ public class CompanionEvents {
 
     @SubscribeEvent
     public void onServerStopped(ServerStoppedEvent event) {
+        com.kuzhi.findme.server.lifecycle.CompanionContractService.resetServerState(event.getServer());
         com.kuzhi.findme.server.lifecycle.CompanionWaystoneJourneyService.resetServerState(event.getServer());
         CompanionWheelTransactionService.resetServerState();
         MountRosterTransactionService.resetServerState();
         CompanionOperationLockService.resetServerState();
+        ExternalActionLeaseService.resetServerState(event.getServer());
+        CompanionActionRequestService.resetServerState(event.getServer());
         com.kuzhi.findme.server.lifecycle.CompanionTeamOrderService.resetServerState();
         CompanionTacticalOrderService.resetServerState();
         CompanionSafetyService.resetRuntimeState();
@@ -120,6 +126,13 @@ public class CompanionEvents {
     @SubscribeEvent
     public void onLivingHurt(LivingIncomingDamageEvent event) {
         CompanionThreatMemoryService.handleIncomingDamage(event);
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = false)
+    public void onLivingChangeTarget(LivingChangeTargetEvent event) {
+        if (event.getNewAboutToBeSetTarget() instanceof net.minecraft.server.level.ServerPlayer owner) {
+            CompanionTacticalOrderService.onOwnerTargeted(owner, event.getEntity());
+        }
     }
 
     @SubscribeEvent

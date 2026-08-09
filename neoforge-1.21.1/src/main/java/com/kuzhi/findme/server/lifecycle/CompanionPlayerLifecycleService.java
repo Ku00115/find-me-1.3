@@ -16,7 +16,6 @@ import com.kuzhi.findme.server.safety.CompanionSafetyService;
 import com.kuzhi.findme.server.data.FindMeWorldMigrationService;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.kuzhi.findme.server.vehicle.VehicleSeatService;
-import com.kuzhi.findme.compat.cobblemon.CobblemonCompat;
 import com.kuzhi.findme.server.command.CompanionWheelTransactionService;
 import com.kuzhi.findme.server.command.MountRosterTransactionService;
 import net.minecraft.world.entity.Entity;
@@ -97,7 +96,6 @@ public final class CompanionPlayerLifecycleService {
             CompanionRegistrationService.forgetPlayer(player);
             CompanionSyncService.forgetPlayer(player);
             PackAnimationPresetService.forgetEditor(player);
-            CobblemonCompat.forgetPlayer(player);
         }
     }
 
@@ -111,6 +109,10 @@ public final class CompanionPlayerLifecycleService {
     public static void handleLogin(ServerPlayer player) {
         VehicleSeatService.cleanup(player);
         FindMeWorldMigrationService.ensureMigrated(player);
+        PlayerCompanionData pendingReturns = CompanionDataService.data(player);
+        if (pendingReturns.hasPendingSpellItemReturns()) {
+            CompanionDataService.save(player, pendingReturns);
+        }
         CompanionSafetyService.ensureLoginSafetyBackup(player);
         FindMeModuleService.reconcilePlayer(player);
         CompanionIntegrityService.checkOnLogin(player);

@@ -9,6 +9,8 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 
 import com.kuzhi.findme.FindMeMod;
+import com.kuzhi.findme.api.CompanionMagicState;
+import com.kuzhi.findme.api.CompanionSpellBinding;
 
 import com.kuzhi.findme.client.ClientCompanionState;
 import com.kuzhi.findme.common.CompanionKind;
@@ -23,6 +25,7 @@ import java.util.function.Supplier;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import com.kuzhi.findme.network.FindMeNetworkContext;
+import io.netty.handler.codec.DecoderException;
 
 public record CompanionListPacket(CompanionKind kind, long revision, int activeIndex,
                                   List<Entry> entries, List<Entry> allEntries) implements CustomPacketPayload {
@@ -63,6 +66,14 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
             buffer.writeEnum(entry.summonAnimation); buffer.writeEnum(entry.rescueAnimation);
             buffer.writeEnum(entry.storageAnimation); buffer.writeEnum(entry.switchAnimation);
             buffer.writeEnum(entry.summonStyle); buffer.writeEnum(entry.rescueStyle); buffer.writeEnum(entry.storageStyle);
+            int bindingCount = Math.min(3, entry.spellBindings.size());
+            buffer.writeVarInt(bindingCount);
+            for (int slot = 0; slot < bindingCount; slot++) {
+                CompanionSpellBinding binding = entry.spellBindings.get(slot);
+                buffer.writeNbt(binding == null ? null : binding.save());
+            }
+            buffer.writeFloat(entry.magicState.mana());
+            buffer.writeFloat(entry.magicState.maxMana());
             buffer.writeNbt(entry.previewTag);
         }
     }
@@ -96,11 +107,27 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
             float maxHealth = buffer.readFloat();
             float armor = buffer.readFloat();
             CompanionMoveType moveType = buffer.readEnum(CompanionMoveType.class);
-            entries.add(new Entry(uuid, entityId, entityType, name, loaded, alive, deployed, ridden, hasHome, homeResident, tacticalAction,
-                    health, maxHealth, armor, moveType, buffer.readEnum(CompanionAnimationStyle.class),
-                    buffer.readEnum(CompanionAnimationStyle.class), buffer.readEnum(CompanionAnimationStyle.class),
-                    buffer.readEnum(CompanionAnimationStyle.class), buffer.readEnum(CompanionEffectStyle.class),
-                    buffer.readEnum(CompanionEffectStyle.class), buffer.readEnum(CompanionEffectStyle.class), buffer.readNbt()));
+            CompanionAnimationStyle summonAnimation = buffer.readEnum(CompanionAnimationStyle.class);
+            CompanionAnimationStyle rescueAnimation = buffer.readEnum(CompanionAnimationStyle.class);
+            CompanionAnimationStyle storageAnimation = buffer.readEnum(CompanionAnimationStyle.class);
+            CompanionAnimationStyle switchAnimation = buffer.readEnum(CompanionAnimationStyle.class);
+            CompanionEffectStyle summonStyle = buffer.readEnum(CompanionEffectStyle.class);
+            CompanionEffectStyle rescueStyle = buffer.readEnum(CompanionEffectStyle.class);
+            CompanionEffectStyle storageStyle = buffer.readEnum(CompanionEffectStyle.class);
+            int declaredBindingCount = buffer.readVarInt();
+            if (declaredBindingCount < 0 || declaredBindingCount > 64) {
+                throw new DecoderException("Invalid FindMe companion spell binding count: " + declaredBindingCount);
+            }
+            List<CompanionSpellBinding> spellBindings = new ArrayList<>();
+            for (int slot = 0; slot < declaredBindingCount; slot++) {
+                CompanionSpellBinding binding = CompanionSpellBinding.load(buffer.readNbt());
+                if (slot < 3) spellBindings.add(binding);
+            }
+            CompanionMagicState magicState = new CompanionMagicState(buffer.readFloat(), buffer.readFloat());
+            entries.add(new Entry(uuid, entityId, entityType, name, loaded, alive, deployed, ridden, hasHome,
+                    homeResident, tacticalAction, health, maxHealth, armor, moveType, summonAnimation,
+                    rescueAnimation, storageAnimation, switchAnimation, summonStyle, rescueStyle, storageStyle,
+                    spellBindings, magicState, buffer.readNbt()));
         }
         return entries;
     }
@@ -119,6 +146,26 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
                         CompanionAnimationStyle summonAnimation, CompanionAnimationStyle rescueAnimation,
                         CompanionAnimationStyle storageAnimation, CompanionAnimationStyle switchAnimation,
                         CompanionEffectStyle summonStyle, CompanionEffectStyle rescueStyle,
-                        CompanionEffectStyle storageStyle, CompoundTag previewTag) {
+                        CompanionEffectStyle storageStyle, List<CompanionSpellBinding> spellBindings,
+                        CompanionMagicState magicState, CompoundTag previewTag) {
+        public Entry {
+            spellBindings = spellBindings == null ? List.of()
+                    : java.util.Collections.unmodifiableList(new ArrayList<>(
+                    spellBindings.subList(0, Math.min(3, spellBindings.size()))));
+            magicState = magicState == null ? CompanionMagicState.EMPTY : magicState;
+        }
+
+        public Entry(UUID uuid, int entityId, String entityType, String name, boolean loaded, boolean alive,
+                     boolean deployed, boolean ridden, boolean hasHome, boolean homeResident,
+                     CompanionTacticalAction tacticalAction, float health, float maxHealth, float armor,
+                     CompanionMoveType moveType, CompanionAnimationStyle summonAnimation,
+                     CompanionAnimationStyle rescueAnimation, CompanionAnimationStyle storageAnimation,
+                     CompanionAnimationStyle switchAnimation, CompanionEffectStyle summonStyle,
+                     CompanionEffectStyle rescueStyle, CompanionEffectStyle storageStyle, CompoundTag previewTag) {
+            this(uuid, entityId, entityType, name, loaded, alive, deployed, ridden, hasHome, homeResident,
+                    tacticalAction, health, maxHealth, armor, moveType, summonAnimation, rescueAnimation,
+                    storageAnimation, switchAnimation, summonStyle, rescueStyle, storageStyle,
+                    List.of(), CompanionMagicState.EMPTY, previewTag);
+        }
     }
 }

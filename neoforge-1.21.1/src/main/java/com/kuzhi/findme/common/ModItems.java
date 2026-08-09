@@ -2,7 +2,7 @@ package com.kuzhi.findme.common;
 
 import com.kuzhi.findme.Config;
 import com.kuzhi.findme.FindMeMod;
-import net.minecraft.world.item.CreativeModeTabs;
+import com.kuzhi.findme.api.FindMeCreativeTabs;
 import net.minecraft.world.item.Item;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.bus.api.IEventBus;
@@ -26,7 +26,7 @@ public final class ModItems {
     }
 
     public static void addCreative(BuildCreativeModeTabContentsEvent event) {
-        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
+        if (event.getTabKey().equals(FindMeCreativeTabs.MAIN)) {
             if (Config.moduleConfigured(FindMeModule.RIDING)) {
                 event.accept(VEHICLE_BINDER.get());
             }

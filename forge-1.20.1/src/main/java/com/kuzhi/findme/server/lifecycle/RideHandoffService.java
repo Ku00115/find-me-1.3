@@ -31,10 +31,6 @@ public final class RideHandoffService {
         if (ride == null || ride.isRemoved()) {
             return Source.none();
         }
-        Optional<UUID> machineMax = VehicleManager.currentMachineMaxForRideHandoff(player, data);
-        if (machineMax.isPresent()) {
-            return source(SourceType.MACHINE_MAX, machineMax.get(), CompanionMoveType.WALK, ride, player);
-        }
         if (data.contains(CompanionKind.MOUNT, ride.getUUID())) {
             return source(SourceType.FINDME_MOUNT, ride.getUUID(),
                     CompanionEntityClassifier.moveType(ride, CompanionKind.MOUNT), ride, player);
@@ -45,10 +41,6 @@ public final class RideHandoffService {
         }
         return source(SourceType.OTHER, ride.getUUID(),
                 CompanionEntityClassifier.moveType(ride, CompanionKind.MOUNT), ride, player);
-    }
-
-    public static Source sableSource(ServerPlayer player, UUID uuid) {
-        return Source.none();
     }
 
     public static MountCinematicMode modeForMountTarget(Source source, CompanionMoveType targetMoveType,
@@ -74,8 +66,7 @@ public final class RideHandoffService {
         boolean started = switch (source.type()) {
             case FINDME_MOUNT -> retireFindMeMount(player, data, source.entity());
             case ENTITY_VEHICLE -> retireEntityVehicle(player, data, source.entity());
-            case MACHINE_MAX -> VehicleManager.collectMachineMaxForRideHandoff(player, data, source.uuid());
-            case NONE, SABLE, OTHER -> false;
+            case NONE, OTHER -> false;
         };
 
         if (source.airborne()) {
@@ -212,8 +203,6 @@ public final class RideHandoffService {
         NONE,
         FINDME_MOUNT,
         ENTITY_VEHICLE,
-        SABLE,
-        MACHINE_MAX,
         OTHER
     }
 

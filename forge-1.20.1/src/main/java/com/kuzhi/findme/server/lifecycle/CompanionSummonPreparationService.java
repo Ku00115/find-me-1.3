@@ -2,6 +2,7 @@ package com.kuzhi.findme.server.lifecycle;
 
 import com.kuzhi.findme.Config;
 import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.server.safety.CompanionCombatRescueService;
 import com.kuzhi.findme.server.ui.CompanionSummonLineService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
@@ -34,6 +35,10 @@ public final class CompanionSummonPreparationService {
             return Optional.empty();
         }
         UUID uuid = maybeUuid.get();
+        if (data.isRecovery(uuid)) {
+            CompanionSummonLineService.showUnavailable(player, data, kind);
+            return Optional.empty();
+        }
         if (CompanionLifecycleFacade.isBusy(player, data, uuid)) {
             CompanionSummonLineService.showBusy(player, data, kind, uuid);
             return Optional.empty();

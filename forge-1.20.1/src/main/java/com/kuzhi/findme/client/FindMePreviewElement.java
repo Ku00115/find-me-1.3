@@ -50,13 +50,13 @@ public final class FindMePreviewElement extends MinecraftElement {
         for (CardOverlay overlay : CARD_OVERLAYS) {
             if ("expanded".equals(overlay.mode())) {
                 renderExpandedOverlay(graphics, overlay.name(), overlay.type(), overlay.team(), overlay.x(), overlay.y(),
-                        overlay.width(), overlay.height(), overlay.number(), overlay.status());
+                        overlay.width(), overlay.height(), overlay.number(), overlay.status(), overlay.statusTone());
             } else if ("profile".equals(overlay.mode())) {
                 renderProfileOverlay(graphics, overlay.name(), overlay.type(), overlay.team(), overlay.x(), overlay.y(),
                         overlay.width(), overlay.height());
             } else {
                 renderWarehouseOverlay(graphics, overlay.name(), overlay.team(), overlay.x(), overlay.y(),
-                        overlay.width(), overlay.height(), overlay.number(), overlay.status());
+                        overlay.width(), overlay.height(), overlay.number(), overlay.status(), overlay.statusTone());
             }
         }
         graphics.flush();
@@ -81,6 +81,10 @@ public final class FindMePreviewElement extends MinecraftElement {
                     : CompanionListPacketEntry.fromHouse(resident);
             if (entry == null) return;
         }
+        String overlayMode = getAttribute("data-preview-overlay");
+        // Metadata must use the same rectangle as the entity renderer. It is intentionally
+        // not derived from the outer card: legacy AUI can place the first flex row differently
+        // from its card background while the preview renderer still uses this element's rect.
         Rect rect = Rect.of(this);
         Position position = rect.getBodyRectPosition();
         Size size = rect.getBodyRectSize();
@@ -91,13 +95,6 @@ public final class FindMePreviewElement extends MinecraftElement {
         if (!isVisible(minecraft, position.x, position.y, width, height)) {
             return;
         }
-        String overlayMode = getAttribute("data-preview-overlay");
-        if ("warehouse".equals(overlayMode) || "expanded".equals(overlayMode) || "profile".equals(overlayMode)) {
-            String name = entry.vehicle() != null ? entry.vehicle().name() : entry.companion().name();
-            CARD_OVERLAYS.add(new CardOverlay(overlayMode, name, getAttribute("data-preview-type"), getAttribute("data-preview-team"),
-                    (int) Math.round(position.x), (int) Math.round(position.y), width, height,
-                    getAttribute("data-preview-number"), getAttribute("data-preview-status")));
-        }
         if (!allowPreview(minecraft)) return;
         GuiGraphics graphics = new GuiGraphics(minecraft, minecraft.renderBuffers().bufferSource());
         CompanionDetailPreviewRenderer renderer = new CompanionDetailPreviewRenderer();
@@ -105,6 +102,9 @@ public final class FindMePreviewElement extends MinecraftElement {
                 ? entry.vehicle().asPreviewEntry() : entry.companion();
         String fallbackType = entry.vehicle() != null ? "minecraft:boat"
                 : previewEntry.moveType() == com.kuzhi.findme.common.CompanionMoveType.FLY ? "minecraft:parrot" : previewEntry.entityType();
+        // Do not leave orphaned metadata when the preview entity cannot be created. This is
+        // especially important for dead/recovery records whose saved preview tag is optional.
+        if (renderer.previewEntityForBounds(previewEntry, fallbackType) == null) return;
         String interactionId = getAttribute("data-interaction-id");
         FindMePreviewInteractionState.View view = FindMePreviewInteractionState.view(interactionId);
         if (interactionId == null || interactionId.isBlank()) {
@@ -113,6 +113,16 @@ public final class FindMePreviewElement extends MinecraftElement {
         } else {
             renderer.render(graphics, previewEntry, (int)Math.round(position.x), (int)Math.round(position.y), width, height,
                     view.yaw(), view.pitch(), view.zoom() * previewScale, view.offsetX(), view.offsetY(), fallbackType);
+        }
+        if ("warehouse".equals(overlayMode) || "expanded".equals(overlayMode) || "profile".equals(overlayMode)) {
+            String name = getAttribute("data-preview-name");
+            if (name == null || name.isBlank()) {
+                name = entry.vehicle() != null ? entry.vehicle().name() : entry.companion().name();
+            }
+            CARD_OVERLAYS.add(new CardOverlay(overlayMode, name, getAttribute("data-preview-type"), getAttribute("data-preview-team"),
+                    (int) Math.round(position.x), (int) Math.round(position.y), width, height,
+                    getAttribute("data-preview-number"), getAttribute("data-preview-status"),
+                    getAttribute("data-preview-status-tone")));
         }
         if ("true".equals(getAttribute("data-show-bounds"))) {
             renderBoundsOverlay(graphics, renderer.previewEntityForBounds(previewEntry, fallbackType), previewEntry,
@@ -249,33 +259,41 @@ public final class FindMePreviewElement extends MinecraftElement {
     }
 
     private static void renderWarehouseOverlay(GuiGraphics graphics, String name, String team, int x, int y, int width, int height,
-                                               String number, String status) {
+                                               String number, String status, String statusTone) {
         Minecraft minecraft = Minecraft.getInstance();
         float nameScale = 10.0f / 9.0f;
-        float teamScale = 6.0f / 9.0f;
+        float teamScale = ("death".equals(statusTone) || "recovery".equals(statusTone))
+                ? 7.0f / 9.0f : 6.0f / 9.0f;
         int availableWidth = Math.max(1, width - 11);
-        drawScaledString(graphics, minecraft.font, fitText(minecraft.font, name, availableWidth, nameScale),
-                x + 6, y + height - 31, nameScale, 0xFFFFFFFF);
-        drawScaledString(graphics, minecraft.font, fitText(minecraft.font, team, availableWidth, teamScale),
-                x + 6, y + height - 12, teamScale, 0xFFD0D6D8);
-        drawScaledString(graphics, minecraft.font, number, x + 6, y + 5, 7.0f / 9.0f, 0xDEFFFFFF);
-        if (status != null && !status.isBlank()) {
-            float statusScale = 6.0f / 9.0f;
-            int statusWidth = Math.max(22, Math.round(minecraft.font.width(status) * statusScale) + 8);
-            graphics.pose().pushPose();
-            try {
-                graphics.pose().translate(0.0f, 0.0f, 295.0f);
-                graphics.fill(x + width - statusWidth, y + 4, x + width, y + 14, 0xE6A94F4F);
-            } finally {
-                graphics.pose().popPose();
+        graphics.enableScissor(x, y, x + width, y + height);
+        try {
+            drawScaledString(graphics, minecraft.font, fitText(minecraft.font, name, availableWidth, nameScale),
+                    x + 6, y + height - 31, nameScale, 0xFFFFFFFF);
+            drawScaledString(graphics, minecraft.font, fitText(minecraft.font, team, availableWidth, teamScale),
+                    x + 6, y + height - 12, teamScale, 0xFFD0D6D8);
+            drawScaledString(graphics, minecraft.font, number, x + 6, y + 5, 7.0f / 9.0f, 0xDEFFFFFF);
+            if (status != null && !status.isBlank()) {
+                float statusScale = 7.0f / 9.0f;
+                int statusWidth = Math.max(22, Math.round(minecraft.font.width(status) * statusScale) + 8);
+                graphics.pose().pushPose();
+                try {
+                    graphics.pose().translate(0.0f, 0.0f, 295.0f);
+                    int statusColor = "recovery".equals(statusTone) ? 0xE6D3A83D : 0xE6A94F4F;
+                    graphics.fill(x + width - statusWidth, y + 4, x + width, y + 15, statusColor);
+                } finally {
+                    graphics.pose().popPose();
+                }
+                drawScaledString(graphics, minecraft.font, status, x + width - statusWidth + 4, y + 6,
+                        statusScale, 0xFFFFFFFF, false);
             }
-            drawScaledString(graphics, minecraft.font, status, x + width - statusWidth + 4, y + 6,
-                    statusScale, 0xFFFFFFFF);
+        } finally {
+            graphics.disableScissor();
         }
     }
 
     private static void renderExpandedOverlay(GuiGraphics graphics, String name, String type, String state,
-                                              int x, int y, int width, int height, String number, String status) {
+                                              int x, int y, int width, int height, String number, String status,
+                                              String statusTone) {
         Minecraft minecraft = Minecraft.getInstance();
         int left = x + Math.max(6, width / 18);
         int availableWidth = Math.max(1, width - (left - x) - Math.max(7, width / 24));
@@ -344,12 +362,17 @@ public final class FindMePreviewElement extends MinecraftElement {
     }
 
     private static void drawScaledString(GuiGraphics graphics, Font font, String text, int x, int y, float scale, int color) {
+        drawScaledString(graphics, font, text, x, y, scale, color, true);
+    }
+
+    private static void drawScaledString(GuiGraphics graphics, Font font, String text, int x, int y, float scale,
+                                         int color, boolean dropShadow) {
         if (text == null || text.isBlank()) return;
         graphics.pose().pushPose();
         try {
             graphics.pose().translate(x, y, 300.0f);
             graphics.pose().scale(scale, scale, 1.0f);
-            graphics.drawString(font, text, 0, 0, color, true);
+            graphics.drawString(font, text, 0, 0, color, dropShadow);
         } finally {
             graphics.pose().popPose();
         }
@@ -360,7 +383,7 @@ public final class FindMePreviewElement extends MinecraftElement {
     }
 
     private record CardOverlay(String mode, String name, String type, String team, int x, int y, int width, int height,
-                               String number, String status) {
+                               String number, String status, String statusTone) {
     }
 
     record CompanionListPacketEntry(java.util.UUID uuid, com.kuzhi.findme.network.CompanionListPacket.Entry companion,
@@ -378,6 +401,9 @@ public final class FindMePreviewElement extends MinecraftElement {
             for (var entry : ClientCompanionState.deadEntries()) {
                 if (entry.uuid().equals(uuid)) return fromDead(entry);
             }
+            for (var entry : ClientCompanionState.recoveryEntries()) {
+                if (entry.uuid().equals(uuid)) return fromRecovery(entry);
+            }
             return null;
         }
 
@@ -390,6 +416,24 @@ public final class FindMePreviewElement extends MinecraftElement {
                     com.kuzhi.findme.common.CompanionEffectStyle.NONE, com.kuzhi.findme.common.CompanionEffectStyle.NONE,
                     com.kuzhi.findme.common.CompanionEffectStyle.NONE, dead.previewTag());
             return new CompanionListPacketEntry(dead.uuid(), entry, null);
+        }
+
+        static CompanionListPacketEntry fromRecovery(com.kuzhi.findme.network.RecoveryCompanionListPacket.Entry recovery) {
+            var tag = recovery.previewTag();
+            float health = tag == null ? 0.0f : tag.getFloat("CompanionRescueHealth");
+            float maxHealth = tag == null ? 0.0f : tag.getFloat("CompanionRescueMaxHealth");
+            float armor = tag == null ? 0.0f : tag.getInt("CompanionRescueArmor");
+            var entry = new com.kuzhi.findme.network.CompanionListPacket.Entry(
+                    recovery.uuid(), -1, recovery.entityType(), recovery.name(), false, false, false, false,
+                    false, false, null, health, maxHealth, armor, recovery.moveType(),
+                    com.kuzhi.findme.common.CompanionAnimationStyle.STANDARD,
+                    com.kuzhi.findme.common.CompanionAnimationStyle.STANDARD,
+                    com.kuzhi.findme.common.CompanionAnimationStyle.STANDARD,
+                    com.kuzhi.findme.common.CompanionAnimationStyle.STANDARD,
+                    com.kuzhi.findme.common.CompanionEffectStyle.NONE,
+                    com.kuzhi.findme.common.CompanionEffectStyle.NONE,
+                    com.kuzhi.findme.common.CompanionEffectStyle.NONE, tag);
+            return new CompanionListPacketEntry(recovery.uuid(), entry, null);
         }
 
         static CompanionListPacketEntry fromHouse(com.kuzhi.findme.network.HousePagePacket.Resident resident) {

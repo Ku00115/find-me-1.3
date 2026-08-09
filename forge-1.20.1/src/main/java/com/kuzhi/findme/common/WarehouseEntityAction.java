@@ -6,5 +6,8 @@ public enum WarehouseEntityAction {
     MOVE_TO_MOUNT,
     REMOVE_FROM_TEAM,
     RELEASE,
-    DELETE_DEAD
+    DELETE_DEAD,
+    RETRY_RECOVERY,
+    DELETE_RECOVERY,
+    MOVE_RECOVERY_TO_DEAD
 }

@@ -28,12 +28,14 @@ public class NamePaperItem extends Item {
         if (!(player instanceof ServerPlayer serverPlayer)) {
             return InteractionResult.PASS;
         }
-        boolean started = CompanionContractService.start(serverPlayer, target);
-        if (started) {
+        CompanionContractService.StartResult result = CompanionContractService.start(serverPlayer, target, hand);
+        if (result.accepted()) {
             player.getCooldowns().addCooldown(this, 80);
+        }
+        if (result.consumePaperNow()) {
             consumeOne(stack, player);
         }
-        return started ? InteractionResult.CONSUME : InteractionResult.FAIL;
+        return result.accepted() ? InteractionResult.CONSUME : InteractionResult.FAIL;
     }
 
     public static void consumeOne(ItemStack stack, Player player) {

@@ -22,8 +22,9 @@ public static void encode(PackAnimationPresetMotionPacket packet, FriendlyByteBu
     }
 
     public static PackAnimationPresetMotionPacket decode(FriendlyByteBuf buffer) {
-        int size = buffer.readVarInt();
-        ArrayList<String> entityTypes = new ArrayList<>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_PRESET_ENTRIES,
+                "preset motion entity");
+        ArrayList<String> entityTypes = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; i++) entityTypes.add(buffer.readUtf(128));
         return new PackAnimationPresetMotionPacket(entityTypes, buffer.readEnum(CompanionAnimationPurpose.class),
                 buffer.readEnum(CompanionAnimationStyle.class));

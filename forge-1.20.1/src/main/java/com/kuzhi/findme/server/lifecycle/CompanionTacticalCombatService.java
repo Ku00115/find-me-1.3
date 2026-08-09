@@ -55,6 +55,19 @@ final class CompanionTacticalCombatService {
         state.reset();
     }
 
+    static void suspend(Mob mob, State state, String reason) {
+        LivingEntity target = mob.getTarget();
+        if (target != null) {
+            mob.setTarget(null);
+            mob.setAggressive(false);
+            mob.getNavigation().stop();
+            FindMeDebugLogger.info("command-target",
+                    "suspend companion={} target={} source={} reason={}",
+                    mob.getUUID(), target.getUUID(), state.source, reason);
+        }
+        state.reset();
+    }
+
     static final class State {
         private UUID targetUuid;
         private int targetAcquiredTick;

@@ -1,6 +1,7 @@
 package com.kuzhi.findme.server.lifecycle;
 
 import com.kuzhi.findme.Config;
+import com.kuzhi.findme.api.CompanionSpellRole;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.CompanionMoveType;
@@ -95,8 +96,7 @@ public final class CompanionTeamOrderService {
             for (UUID uuid : team) {
                 if (CompanionTacticalOrderService.currentAction(uuid) == action.tacticalAction()) {
                     changed += CompanionTacticalOrderService.cancelTargetWithoutSync(player.getServer(), uuid,
-                            action == CompanionTeamCommandAction.CANCEL_PROTECT
-                                    ? "team_cancel_protect" : "team_cancel_guard");
+                            cancellationReason(action));
                 }
             }
             CompanionSyncService.syncToClient(player, CompanionKind.COMPANION);
@@ -138,10 +138,17 @@ public final class CompanionTeamOrderService {
 
         CompanionTacticalAction tactical = action.tacticalAction();
         if (tactical == null) return;
-        List<UUID> recipients = selectRecipients(team, deployed, Config.companionDeploymentLimit,
+        CompanionSpellRole requiredRole = CompanionTacticalOrderService.requiredSpellRole(tactical);
+        List<UUID> eligibleTeam = requiredRole == null ? team : team.stream()
+                .filter(uuid -> data.spellBindings(uuid).stream()
+                        .anyMatch(binding -> binding != null && binding.role() == requiredRole))
+                .toList();
+        List<UUID> recipients = selectRecipients(eligibleTeam, deployed, Config.companionDeploymentLimit,
                 action.deploysTeam());
         if (recipients.isEmpty()) {
-            CompanionMessageService.tell(player, "message.find_me.command_no_deployed_team_members",
+            CompanionMessageService.tell(player, requiredRole == null
+                            ? "message.find_me.command_no_deployed_team_members"
+                            : "message.find_me.command_no_eligible_spell_team_members",
                     ChatFormatting.YELLOW);
             return;
         }
@@ -176,7 +183,8 @@ public final class CompanionTeamOrderService {
             BlockPos deploymentCenter = player.blockPosition();
             if (action == CompanionTeamCommandAction.GUARD_HERE && requestedPos != null) {
                 deploymentCenter = requestedPos;
-            } else if (action == CompanionTeamCommandAction.ATTACK_TARGET
+            } else if ((action == CompanionTeamCommandAction.ATTACK_TARGET
+                    || action == CompanionTeamCommandAction.MAGIC_ATTACK)
                     && player.level().getEntity(targetEntityId) != null) {
                 deploymentCenter = player.level().getEntity(targetEntityId).blockPosition();
             }
@@ -251,6 +259,16 @@ public final class CompanionTeamOrderService {
             if (!selected.contains(uuid)) selected.add(uuid);
         }
         return List.copyOf(selected);
+    }
+
+    static String cancellationReason(CompanionTeamCommandAction action) {
+        return switch (action) {
+            case CANCEL_PROTECT -> "team_cancel_protect";
+            case CANCEL_MAGIC_PROTECT -> "team_cancel_magic_protect";
+            case CANCEL_MAGIC_SUPPORT -> "team_cancel_magic_support";
+            case CANCEL_GUARD -> "team_cancel_guard";
+            default -> "team_cancel";
+        };
     }
 
     static Map<UUID, CompanionFormationPlanner.Offset> formationOffsets(List<CompanionFormationPlanner.Member> members) {
@@ -455,9 +473,9 @@ public final class CompanionTeamOrderService {
                 : player.level().getEntity(targetEntityId).getUUID();
         CompanionDeploymentPlan.Intent intent = switch (action) {
             case FOLLOW -> CompanionDeploymentPlan.Intent.FOLLOW;
-            case PROTECT_OWNER -> CompanionDeploymentPlan.Intent.PROTECT;
+            case PROTECT_OWNER, HEAL_OWNER, MAGIC_PROTECT, MAGIC_SUPPORT -> CompanionDeploymentPlan.Intent.PROTECT;
             case GUARD_HERE -> CompanionDeploymentPlan.Intent.GUARD;
-            case ATTACK_TARGET -> CompanionDeploymentPlan.Intent.ATTACK;
+            case ATTACK_TARGET, MAGIC_ATTACK -> CompanionDeploymentPlan.Intent.ATTACK;
             default -> CompanionDeploymentPlan.Intent.ORDINARY;
         };
         int offset = 1;
@@ -478,9 +496,12 @@ public final class CompanionTeamOrderService {
                                                   UUID operationUuid,
                                                   Map<UUID, CompanionDeploymentPlan> plans) {
         if (plans.isEmpty() || action != CompanionTeamCommandAction.PROTECT_OWNER
+                && action != CompanionTeamCommandAction.MAGIC_PROTECT
+                && action != CompanionTeamCommandAction.MAGIC_SUPPORT
                 && action != CompanionTeamCommandAction.GUARD_HERE
                 && action != CompanionTeamCommandAction.FOLLOW
-                && action != CompanionTeamCommandAction.ATTACK_TARGET) return;
+                && action != CompanionTeamCommandAction.ATTACK_TARGET
+                && action != CompanionTeamCommandAction.MAGIC_ATTACK) return;
         Vec3 center = action == CompanionTeamCommandAction.GUARD_HERE && requestedPos != null
                 ? Vec3.atBottomCenterOf(requestedPos) : player.position();
         ArrayList<CompanionTacticalFormationPacket.Member> members = new ArrayList<>();

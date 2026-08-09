@@ -43,8 +43,9 @@ public static void encode(DeadCompanionListPacket packet, FriendlyByteBuf buffer
     }
 
     public static DeadCompanionListPacket decode(FriendlyByteBuf buffer) {
-        int size = buffer.readVarInt();
-        ArrayList<Entry> entries = new ArrayList<Entry>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_ROSTER_ENTRIES,
+                "dead companion entry");
+        ArrayList<Entry> entries = new ArrayList<Entry>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; ++i) {
             UUID uuid = buffer.readUUID();
             CompanionKind kind = buffer.readEnum(CompanionKind.class);

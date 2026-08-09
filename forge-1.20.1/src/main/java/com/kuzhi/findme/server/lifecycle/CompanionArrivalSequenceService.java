@@ -18,8 +18,11 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.phys.Vec3;
 
 public final class CompanionArrivalSequenceService {
-    private static final int DEFAULT_SUMMON_REVEAL_DELAY_TICKS = 2;
-    private static final int DEFAULT_RESCUE_REVEAL_DELAY_TICKS = 1;
+    // Keep the fallback barrier long enough for optional-mod entities to settle
+    // before FindMe releases their native movement controller. Explicit magic
+    // sequences may still provide their own reveal delay.
+    private static final int DEFAULT_SUMMON_REVEAL_DELAY_TICKS = 16;
+    private static final int DEFAULT_RESCUE_REVEAL_DELAY_TICKS = 11;
     private static final Map<UUID, PendingArrival> PENDING = new HashMap<>();
 
     private CompanionArrivalSequenceService() {
@@ -235,10 +238,12 @@ public final class CompanionArrivalSequenceService {
         }
 
         private static Vec3 launchVelocity(LivingEntity living, Vec3 focus, RescueMagicPacket.Purpose purpose) {
-            Vec3 direction = purpose == RescueMagicPacket.Purpose.RESCUE && focus != null
-                    ? focus.subtract(living.position())
-                    : living.position().subtract(focus == null
-                    ? living.position().add(0.0, 0.0, 1.0) : focus);
+            // The reveal impulse is an outward presentation impulse. The rescue
+            // cinematic itself owns the later approach to the player; reversing
+            // this vector here makes flying entities rush the player before that
+            // controller gets its first stable tick.
+            Vec3 direction = living.position().subtract(
+                    focus == null ? living.position().add(0.0, 0.0, 1.0) : focus);
             direction = new Vec3(direction.x, 0.0, direction.z);
             if (direction.lengthSqr() < 0.01) {
                 direction = living.getLookAngle();

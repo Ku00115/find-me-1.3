@@ -361,8 +361,7 @@ public class VehicleWheelScreen extends FindMeScreen {
     }
 
     private void playHoverSound() {
-        if (!ClientWheelPresentationState.operationSounds()) return;
-        Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.45f, 0.22f));
+        FindMeAuiSound.wheelHover();
     }
 
     private void playConfirmSound() {

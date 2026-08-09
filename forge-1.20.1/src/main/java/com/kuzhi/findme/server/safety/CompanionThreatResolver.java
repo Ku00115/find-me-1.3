@@ -3,11 +3,17 @@ package com.kuzhi.findme.server.safety;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
 import java.util.LinkedHashSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.function.Predicate;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobCategory;
@@ -15,11 +21,13 @@ import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import com.kuzhi.findme.server.core.FindMePerformanceMonitor;
 
 /** Shared bounded threat recognition and scoring for rescue and persistent tactical orders. */
 public final class CompanionThreatResolver {
     private static final int RECENT_COMBAT_TICKS = 200;
     private static final double CURRENT_TARGET_BONUS = 24.0;
+    private static final Map<ServerLevel, ScanWindow> SCAN_WINDOWS = new WeakHashMap<>();
 
     private CompanionThreatResolver() {
     }
@@ -58,7 +66,7 @@ public final class CompanionThreatResolver {
         addRecentCombatRescueCandidate(candidates, owner, data::contains, owner.getLastHurtByMob(),
                 owner.getLastHurtByMobTimestamp(), center, pursuitRadius);
         AABB area = owner.getBoundingBox().inflate(scanRadius, Math.min(scanRadius, 12.0), scanRadius);
-        for (Mob candidate : owner.serverLevel().getEntitiesOfClass(Mob.class, area)) {
+        for (Mob candidate : scanMobs(owner.serverLevel(), area)) {
             if (candidate.getTarget() == owner) addCombatRescueCandidate(candidates, owner, data::contains, candidate, center, scanRadius);
         }
         return candidates.stream().min(java.util.Comparator.comparingDouble(owner::distanceToSqr));
@@ -75,7 +83,7 @@ public final class CompanionThreatResolver {
         addIfRecent(candidates, owner, rosterContains, responder, owner.getLastHurtByMob(),
                 owner.getLastHurtByMobTimestamp(), center, pursuitRadius, true);
         AABB area = owner.getBoundingBox().inflate(scanRadius, Math.min(scanRadius, 12.0), scanRadius);
-        for (Mob candidate : owner.serverLevel().getEntitiesOfClass(Mob.class, area))
+        for (Mob candidate : scanMobs(owner.serverLevel(), area))
             addIfValid(candidates, owner, rosterContains, responder, candidate, center, scanRadius, true);
         ProtectThreat best = null;
         LivingEntity remembered = CompanionThreatMemoryService.findRecentThreat(owner, pursuitRadius).orElse(null);
@@ -103,7 +111,7 @@ public final class CompanionThreatResolver {
         addIfRecent(candidates, owner, rosterContains, responder, owner.getLastHurtMob(),
                 owner.getLastHurtMobTimestamp(), center, pursuitRadius, includeAreaHostiles);
         AABB area = owner.getBoundingBox().inflate(scanRadius, Math.min(scanRadius, 12.0), scanRadius);
-        for (Mob candidate : owner.serverLevel().getEntitiesOfClass(Mob.class, area)) {
+        for (Mob candidate : scanMobs(owner.serverLevel(), area)) {
             addIfValid(candidates, owner, rosterContains, responder, candidate, center, scanRadius, includeAreaHostiles);
         }
         return choose(owner, rosterContains, responder, current, candidates, center);
@@ -131,7 +139,7 @@ public final class CompanionThreatResolver {
         Set<LivingEntity> candidates = new LinkedHashSet<>();
         addIfValid(candidates, owner, rosterContains, responder, current, scanCenter, pursuitRadius, true);
         AABB area = new AABB(scanCenter, scanCenter).inflate(scanRadius, Math.min(scanRadius, 8.0), scanRadius);
-        for (Mob candidate : owner.serverLevel().getEntitiesOfClass(Mob.class, area)) {
+        for (Mob candidate : scanMobs(owner.serverLevel(), area)) {
             addIfValid(candidates, owner, rosterContains, responder, candidate, scanCenter, scanRadius, true);
         }
         return choose(owner, rosterContains, responder, current, candidates,
@@ -153,6 +161,31 @@ public final class CompanionThreatResolver {
             }
         }
         return Optional.ofNullable(best);
+    }
+
+    private static List<Mob> scanMobs(ServerLevel level, AABB area) {
+        long gameTime = level.getGameTime();
+        ScanWindow window = SCAN_WINDOWS.get(level);
+        if (window == null || window.gameTime != gameTime) {
+            window = new ScanWindow(gameTime);
+            SCAN_WINDOWS.put(level, window);
+        }
+        AreaKey key = new AreaKey(area.minX, area.minY, area.minZ, area.maxX, area.maxY, area.maxZ);
+        List<Mob> cached = window.areas.get(key);
+        if (cached != null) return cached;
+        long startedAt = FindMePerformanceMonitor.start();
+        List<Mob> scanned = level.getEntitiesOfClass(Mob.class, area);
+        window.areas.put(key, scanned);
+        FindMePerformanceMonitor.recordThreatScan(startedAt);
+        return scanned;
+    }
+
+    public static void finishServerTick(MinecraftServer server) {
+        if (server == null) {
+            SCAN_WINDOWS.clear();
+            return;
+        }
+        for (ServerLevel level : server.getAllLevels()) SCAN_WINDOWS.remove(level);
     }
 
     private static double score(ServerPlayer owner, Predicate<UUID> rosterContains, LivingEntity responder,
@@ -309,5 +342,18 @@ public final class CompanionThreatResolver {
             if (this.current != other.current) return this.current;
             return this.distanceSqr < other.distanceSqr;
         }
+    }
+
+    private static final class ScanWindow {
+        private final long gameTime;
+        private final Map<AreaKey, List<Mob>> areas = new HashMap<>();
+
+        private ScanWindow(long gameTime) {
+            this.gameTime = gameTime;
+        }
+    }
+
+    private record AreaKey(double minX, double minY, double minZ,
+                           double maxX, double maxY, double maxZ) {
     }
 }

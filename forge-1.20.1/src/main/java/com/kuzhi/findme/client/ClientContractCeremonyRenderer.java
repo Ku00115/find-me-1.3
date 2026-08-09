@@ -1,6 +1,7 @@
 package com.kuzhi.findme.client;
 
 import com.kuzhi.findme.client.ClientMagicCircleRenderer.Color;
+import com.kuzhi.findme.common.ContractCeremonyTimeline;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.BufferUploader;
@@ -35,7 +36,7 @@ final class ClientContractCeremonyRenderer {
         float age = ClientContractRenderState.age(event.getPartialTick());
         Vec3 playerPos = ClientContractRenderState.playerCircle();
         Vec3 targetPos = ClientContractRenderState.targetCircle();
-        ClientContractRenderState.Phase phase = ClientContractRenderState.phase();
+        ContractCeremonyTimeline.Stage phase = ClientContractRenderState.phase();
         ClientContractRenderState.Outcome outcome = ClientContractRenderState.outcome();
         float ending = ClientContractRenderState.endingProgress(event.getPartialTick());
         Color color = phaseColor(phase);
@@ -56,8 +57,10 @@ final class ClientContractCeremonyRenderer {
         renderCircle(buffer, matrix, playerPos, ClientContractRenderState.playerRadius(), color, intensity, progress, age, 0.0, false, outcome, ending);
         renderCircle(buffer, matrix, targetPos, ClientContractRenderState.targetRadius(), color, intensity, progress, age, 0.7, true, outcome, ending);
         renderPaperGhost(buffer, matrix, playerPos, targetPos, color, intensity, age, outcome, ending);
-        if (age >= 92.0f) {
-            renderContractLine(buffer, matrix, playerPos, targetPos, color, Math.min(1.0f, (age - 92.0f) / 18.0f));
+        if (age >= ContractCeremonyTimeline.NAME_END_TICK) {
+            float thread = ContractCeremonyTimeline.segmentProgress(age,
+                    ContractCeremonyTimeline.NAME_END_TICK, ContractCeremonyTimeline.RESPONSE_END_TICK);
+            renderContractLine(buffer, matrix, playerPos, targetPos, color, thread, outcome, ending);
         }
         if (outcome == ClientContractRenderState.Outcome.CANCEL) {
             renderShatter(buffer, matrix, playerPos, targetPos, color, ending, age);
@@ -86,12 +89,18 @@ final class ClientContractCeremonyRenderer {
         int textWidth = font.width(subtitle);
         int x = (width - textWidth) / 2;
         int color = switch (ClientContractRenderState.phase()) {
+            case FOCUS -> 0x8FE7F1;
             case NAME -> 0xA7F7FF;
             case RESPONSE -> 0xDDFBFF;
             case VOW -> 0xF7FEFF;
         };
-        graphics.drawString(font, subtitle, x + 1, y + 1, 0x70000000, false);
-        graphics.drawString(font, subtitle, x, y, color, false);
+        float age = ClientContractRenderState.age(event.getPartialTick());
+        float alpha = ClientContractRenderState.outcome() == ClientContractRenderState.Outcome.NONE
+                ? smooth(Mth.clamp((age - ContractCeremonyTimeline.FOCUS_END_TICK) / 5.0f, 0.0f, 1.0f))
+                : 1.0f - smooth(ClientContractRenderState.endingProgress(event.getPartialTick()));
+        int alphaByte = Mth.clamp(Math.round(alpha * 255.0f), 0, 255);
+        graphics.drawString(font, subtitle, x + 1, y + 1, alphaByte << 24, false);
+        graphics.drawString(font, subtitle, x, y, alphaByte << 24 | color, false);
     }
 
     private static void renderCircle(BufferBuilder buffer, Matrix4f matrix, Vec3 center, double radius, Color color, float intensity, float progress, float age, double offset, boolean targetCircle, ClientContractRenderState.Outcome outcome, float ending) {
@@ -113,8 +122,7 @@ final class ClientContractCeremonyRenderer {
     private static void renderWard(BufferBuilder buffer, Matrix4f matrix, Vec3 playerPos, Vec3 targetPos, float playerRadius, float targetRadius, float progress, float age, ClientContractRenderState.Outcome outcome, float ending) {
         Vec3 center = playerPos.add(targetPos).scale(0.5);
         double distance = horizontalDistance(playerPos, targetPos);
-        double radius = distance * 0.5 + Math.max(playerRadius, targetRadius) * 1.45 + 4.0;
-        double height = Mth.clamp(radius * 0.20 + 1.35, 2.6, 5.8);
+        double radius = distance * 0.5 + Math.max(playerRadius, targetRadius) * 0.82 + 1.25;
         float pulse = 0.64f + 0.16f * (float)Math.sin(age * 0.08);
         if (outcome == ClientContractRenderState.Outcome.COMPLETE) {
             pulse *= 1.0f - ending * 0.35f;
@@ -123,41 +131,43 @@ final class ClientContractCeremonyRenderer {
             radius += ending * 1.2;
         }
         Color shield = new Color(0.42f, 0.88f, 1.0f);
-        int segments = 96;
         double y0 = Math.min(playerPos.y, targetPos.y) + 0.05;
-        double y1 = y0 + height;
-        for (int i = 0; i < segments; i++) {
-            double a0 = Math.PI * 2.0 * i / segments;
-            double a1 = Math.PI * 2.0 * (i + 1) / segments;
-            double wave0 = 0.035 * Math.sin(age * 0.05 + i * 0.42);
-            double wave1 = 0.035 * Math.sin(age * 0.05 + (i + 1) * 0.42);
-            Vec3 p0 = new Vec3(center.x + Math.cos(a0) * (radius + wave0), y0, center.z + Math.sin(a0) * (radius + wave0));
-            Vec3 p1 = new Vec3(center.x + Math.cos(a1) * (radius + wave1), y0, center.z + Math.sin(a1) * (radius + wave1));
-            Vec3 p2 = new Vec3(p1.x, y1, p1.z);
-            Vec3 p3 = new Vec3(p0.x, y1, p0.z);
-            quad(buffer, matrix, p0, p1, p2, p3, shield, 0.038f * pulse);
+        float open = smooth(ContractCeremonyTimeline.segmentProgress(age, 0, ContractCeremonyTimeline.FOCUS_END_TICK));
+        ClientMagicCircleRenderer.ring(buffer, matrix, center, y0 + 0.025, radius * (0.88 + 0.12 * open), 96,
+                age * 0.012, 0.055, shield, 0.42f * pulse * open);
+        if (age >= ContractCeremonyTimeline.NAME_END_TICK) {
+            float answer = ContractCeremonyTimeline.segmentProgress(age,
+                    ContractCeremonyTimeline.NAME_END_TICK, ContractCeremonyTimeline.RESPONSE_END_TICK);
+            ClientMagicCircleRenderer.ring(buffer, matrix, center, y0 + 0.05, radius * (0.58 + 0.16 * answer),
+                    64, -age * 0.018, 0.032, shield, 0.25f * pulse * answer);
         }
-        ClientMagicCircleRenderer.ring(buffer, matrix, center, y0 + 0.05, radius, 128, age * 0.01, 0.075, shield, 0.46f * pulse);
-        ClientMagicCircleRenderer.ring(buffer, matrix, center, y0 + height * 0.5, radius * 0.92, 96, age * 0.006, 0.035, shield, 0.14f * pulse);
-        ClientMagicCircleRenderer.ring(buffer, matrix, center, y1, radius * 0.72, 96, -age * 0.015, 0.042, shield, 0.22f * pulse);
     }
 
-    private static void renderContractLine(BufferBuilder buffer, Matrix4f matrix, Vec3 a, Vec3 b, Color color, float alpha) {
+    private static void renderContractLine(BufferBuilder buffer, Matrix4f matrix, Vec3 a, Vec3 b, Color color,
+                                           float progress, ClientContractRenderState.Outcome outcome, float ending) {
         Vec3 start = new Vec3(a.x, a.y + 0.16, a.z);
         Vec3 end = new Vec3(b.x, b.y + 0.16, b.z);
-        line(buffer, matrix, start, end, 0.11, color, 0.58f * alpha);
-        line(buffer, matrix, start.add(0.0, 0.055, 0.0), end.add(0.0, 0.055, 0.0), 0.045, new Color(0.94f, 1.0f, 1.0f), 0.82f * alpha);
+        Vec3 drawnEnd = start.lerp(end, smooth(progress));
+        float alpha = outcome == ClientContractRenderState.Outcome.NONE ? progress : 1.0f - smooth(ending);
+        line(buffer, matrix, start, drawnEnd, 0.085, color, 0.48f * alpha);
+        line(buffer, matrix, start.add(0.0, 0.045, 0.0), drawnEnd.add(0.0, 0.045, 0.0), 0.032,
+                new Color(0.94f, 1.0f, 1.0f), 0.78f * alpha);
     }
 
     private static void renderPaperGhost(BufferBuilder buffer, Matrix4f matrix, Vec3 playerPos, Vec3 targetPos, Color color, float intensity, float age, ClientContractRenderState.Outcome outcome, float ending) {
-        float appear = smooth(Mth.clamp((age - 8.0f) / 24.0f, 0.0f, 1.0f));
+        float appear = smooth(ContractCeremonyTimeline.segmentProgress(age, 3, ContractCeremonyTimeline.FOCUS_END_TICK));
         if (appear <= 0.0f) {
             return;
         }
         Vec3 axis = horizontalDirection(playerPos, targetPos);
         Vec3 side = new Vec3(-axis.z, 0.0, axis.x);
         Vec3 up = new Vec3(0.0, 1.0, 0.0);
-        Vec3 center = playerPos.add(axis.scale(0.56)).add(0.0, 1.30 + 0.035 * Math.sin(age * 0.07), 0.0);
+        Vec3 paperStart = playerPos.add(axis.scale(0.48)).add(0.0, 1.28, 0.0);
+        Vec3 paperDestination = playerPos.add(targetPos).scale(0.5).add(0.0, 1.18, 0.0);
+        float handoff = smooth(ContractCeremonyTimeline.segmentProgress(age,
+                ContractCeremonyTimeline.NAME_END_TICK - 6, ContractCeremonyTimeline.RESPONSE_END_TICK));
+        Vec3 center = paperStart.lerp(paperDestination, handoff)
+                .add(0.0, 0.035 * Math.sin(age * 0.11), 0.0);
         double width = 0.48 + 0.025 * Math.sin(age * 0.09);
         double height = 0.70;
         float alpha = appear * intensity;
@@ -178,7 +188,8 @@ final class ClientContractCeremonyRenderer {
         line(buffer, matrix, bottomRight, bottomLeft, 0.020, color, 0.32f * alpha);
         line(buffer, matrix, bottomLeft, topLeft, 0.020, color, 0.42f * alpha);
 
-        float write = smooth(Mth.clamp((age - 46.0f) / 34.0f, 0.0f, 1.0f));
+        float write = smooth(ContractCeremonyTimeline.segmentProgress(age,
+                ContractCeremonyTimeline.FOCUS_END_TICK + 4, ContractCeremonyTimeline.NAME_END_TICK + 8));
         int strokes = Math.max(0, Math.min(7, (int)Math.ceil(write * 7.0f)));
         for (int i = 0; i < strokes; i++) {
             double row = 0.20 - i * 0.068;
@@ -188,7 +199,8 @@ final class ClientContractCeremonyRenderer {
             Vec3 end = center.add(up.scale(row + 0.018 * Math.sin(i))).add(side.scale(length * 0.5 + wobble));
             line(buffer, matrix, start, end, 0.018, new Color(0.93f, 1.0f, 1.0f), alpha * (0.36f + i * 0.030f));
         }
-        float seal = smooth(Mth.clamp((age - 88.0f) / 18.0f, 0.0f, 1.0f));
+        float seal = smooth(ContractCeremonyTimeline.segmentProgress(age,
+                ContractCeremonyTimeline.RESPONSE_END_TICK - 5, 68));
         if (seal > 0.0f) {
             Vec3 sealCenter = center.add(up.scale(-0.16));
             double sealRadius = 0.115 + 0.018 * Math.sin(age * 0.16);
@@ -281,16 +293,18 @@ final class ClientContractCeremonyRenderer {
         return clamped * clamped * (3.0f - 2.0f * clamped);
     }
 
-    private static Color phaseColor(ClientContractRenderState.Phase phase) {
+    private static Color phaseColor(ContractCeremonyTimeline.Stage phase) {
         return switch (phase) {
+            case FOCUS -> new Color(0.40f, 0.78f, 0.86f);
             case NAME -> new Color(0.58f, 0.92f, 1.0f);
             case RESPONSE -> new Color(0.78f, 0.97f, 1.0f);
             case VOW -> new Color(0.94f, 1.0f, 1.0f);
         };
     }
 
-    private static float phaseIntensity(ClientContractRenderState.Phase phase, float age) {
+    private static float phaseIntensity(ContractCeremonyTimeline.Stage phase, float age) {
         float base = switch (phase) {
+            case FOCUS -> 0.52f;
             case NAME -> 0.72f;
             case RESPONSE -> 1.00f;
             case VOW -> 1.18f;

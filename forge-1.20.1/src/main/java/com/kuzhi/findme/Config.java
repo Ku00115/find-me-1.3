@@ -15,7 +15,7 @@ import net.minecraftforge.fml.event.config.ModConfigEvent;
 public class Config {
     public static final int DEFAULT_SAFE_SEARCH_RADIUS = 12;
     public static final int DEFAULT_VAULT_CAPACITY = 30;
-    public static final int DEFAULT_BACKUP_CAPACITY = 5;
+    public static final int DEFAULT_BACKUP_CAPACITY = 6;
     public static final int DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS = 30;
     private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
     private static final ForgeConfigSpec.Builder SERVER_BUILDER = new ForgeConfigSpec.Builder();
@@ -23,7 +23,7 @@ public class Config {
     private static final ForgeConfigSpec.BooleanValue ENABLE_AUTO_BACKUPS = SERVER_BUILDER.comment("[Safety] Periodically back up each player's Find me lists. Recommended: true.").translation("config.find_me.enableAutoBackups").define("enableAutoBackups", true);
     private static final ForgeConfigSpec.IntValue BACKUP_INTERVAL_MINUTES = SERVER_BUILDER.comment("[Safety] Minutes between automatic player list backups.").translation("config.find_me.backupIntervalMinutes").defineInRange("backupIntervalMinutes", 30, 1, 1440);
     private static final ForgeConfigSpec.BooleanValue PREVENT_BOUND_CREATURE_DEATH_DROPS = SERVER_BUILDER.comment("[Safety] If true, bound mounts and companions do not drop inventory/equipment items when they die. FindMe still keeps its death snapshot for revival, preventing duplicate saddles, armor, or modded equipment.").translation("config.find_me.preventBoundCreatureDeathDrops").define("preventBoundCreatureDeathDrops", true);
-    private static final ForgeConfigSpec.BooleanValue ENABLE_CONTRACT_ANIMATION = SERVER_BUILDER.comment("[Binding] Play the Name Paper contract ceremony animation before manual binding completes. Disable to bind immediately.").translation("config.find_me.enableContractAnimation").define("enableContractAnimation", true);
+    private static final ForgeConfigSpec.BooleanValue ENABLE_CONTRACT_ANIMATION = SERVER_BUILDER.comment("[Binding] Play the Name Paper contract ceremony animation before manual binding completes. Disable to bind immediately.").translation("config.find_me.enableContractAnimation").define("enableContractAnimation", false);
     private static final ForgeConfigSpec.BooleanValue ENABLE_CONTRACT_CINEMATIC_CAMERA = SERVER_BUILDER.comment("[Binding] Use the temporary side-view cinematic camera during the Name Paper ceremony. If false, effects play from the player's normal view.").translation("config.find_me.enableContractCinematicCamera").define("enableContractCinematicCamera", true);
     private static final ForgeConfigSpec.BooleanValue ENABLE_DIAGNOSTIC_LOGGING = SERVER_BUILDER.comment("[Debug] Write all FindMe diagnostic, performance, summon, cinematic, preview, and compatibility logs. Disabled by default.").translation("config.find_me.enableDiagnosticLogging").define("enableDiagnosticLogging", false);
 
@@ -33,14 +33,17 @@ public class Config {
 
     private static final ForgeConfigSpec.IntValue SUMMON_COOLDOWN_TICKS = SERVER_BUILDER.comment("[Summon] Shared cooldown in ticks for summon, combat summon, companion summon, and return actions.").translation("config.find_me.summonCooldownTicks").defineInRange("summonCooldownTicks", 60, 0, 1200);
     private static final ForgeConfigSpec.IntValue COMPANION_DEPLOYMENT_LIMIT = SERVER_BUILDER.comment("[Companion] Maximum simultaneously deployed companions, including the escort slot. Default: 2.").translation("config.find_me.companionDeploymentLimit").defineInRange("companionDeploymentLimit", 2, 1, 32);
+    private static final ForgeConfigSpec.IntValue COMPANION_MAGIC_CONTRIBUTION_LIMIT = SERVER_BUILDER.comment("[Companion Magic] Maximum number of bound creatures that contribute 100 mana each to the player's shared companion mana pool. 0 means unlimited.").translation("config.find_me.companionMagicContributionLimit").defineInRange("companionMagicContributionLimit", 0, 0, 10000);
     private static final ForgeConfigSpec.IntValue RESCUE_MIN_FALL_DISTANCE = SERVER_BUILDER.comment("[Summon] If the player is falling at least this many blocks, rescue summon can trigger.").translation("config.find_me.rescueMinFallDistance").defineInRange("rescueMinFallDistance", 5, 0, 128);
     private static final ForgeConfigSpec.DoubleValue RESCUE_HOVER_BASE_HEIGHT = SERVER_BUILDER.comment("[Rescue] Base height above the predicted landing point where a flying mount waits during a hover rescue.").translation("config.find_me.rescueHoverBaseHeight").defineInRange("rescueHoverBaseHeight", 12.0, 2.0, 64.0);
     private static final ForgeConfigSpec.DoubleValue RESCUE_HOVER_HEIGHT_RATIO = SERVER_BUILDER.comment("[Rescue] Additional waiting height per block of fall distance above the ten-block landing-summon window.").translation("config.find_me.rescueHoverHeightRatio").defineInRange("rescueHoverHeightRatio", 0.25, 0.0, 1.0);
     private static final ForgeConfigSpec.DoubleValue RESCUE_HOVER_MAX_HEIGHT = SERVER_BUILDER.comment("[Rescue] Maximum height above the predicted landing point for a flying mount's hover wait.").translation("config.find_me.rescueHoverMaxHeight").defineInRange("rescueHoverMaxHeight", 48.0, 4.0, 256.0);
     private static final ForgeConfigSpec.BooleanValue ENABLE_CREATURE_ARRIVAL_VOICE = SERVER_BUILDER.comment("[Audio] Play the summoned creature's own voice when summon or rescue is accepted.").translation("config.find_me.enableCreatureArrivalVoice").define("enableCreatureArrivalVoice", true);
     private static final ForgeConfigSpec.DoubleValue CREATURE_ARRIVAL_VOICE_VOLUME = SERVER_BUILDER.comment("[Audio] Volume for summoned creature voice. 1.0 is full volume; default is 40%.").translation("config.find_me.creatureArrivalVoiceVolume").defineInRange("creatureArrivalVoiceVolume", 0.4, 0.0, 2.0);
-    private static final ForgeConfigSpec.IntValue HOUSE_PATROL_RADIUS = SERVER_BUILDER.comment("[House] Resident patrol radius in blocks. Default and minimum: 64.").translation("config.find_me.housePatrolRadius").defineInRange("housePatrolRadius", 64, 64, 4096);
-    private static final ForgeConfigSpec.IntValue HOUSE_HARD_RADIUS = SERVER_BUILDER.comment("[House] Hard resident boundary in blocks. Default and minimum: 128; values below the patrol radius are raised at runtime.").translation("config.find_me.houseHardRadius").defineInRange("houseHardRadius", 128, 128, 8192);
+    private static final ForgeConfigSpec.IntValue HOUSE_PATROL_RADIUS = SERVER_BUILDER.comment("[House] Resident patrol radius in blocks. Default: 24.").translation("config.find_me.housePatrolRadius").defineInRange("housePatrolRadius", 24, 4, 64);
+    private static final ForgeConfigSpec.IntValue HOUSE_HARD_RADIUS = SERVER_BUILDER.comment("[House] Hard resident boundary in blocks. Default: 32; values below the patrol radius are raised at runtime.").translation("config.find_me.houseHardRadius").defineInRange("houseHardRadius", 32, 8, 128);
+    private static final ForgeConfigSpec.IntValue HOUSE_RESIDENT_CAPACITY = SERVER_BUILDER.comment("[House] Maximum residents assigned to one house. Existing excess residents are preserved.").translation("config.find_me.houseResidentCapacity").defineInRange("houseResidentCapacity", 8, 1, 64);
+    private static final ForgeConfigSpec.IntValue HOUSE_GLOBAL_RESTORE_BUDGET = SERVER_BUILDER.comment("[House] Maximum expensive resident restoration attempts across the server in one tick.").translation("config.find_me.houseGlobalRestoreBudget").defineInRange("houseGlobalRestoreBudget", 2, 1, 16);
     static {
         SERVER_BUILDER.comment("Server-authoritative FindMe feature modules. Disabling a module preserves all saved records.").push("modules");
     }
@@ -58,8 +61,6 @@ public class Config {
     static {
         BUILDER.comment("[Dialogue] Editable summon, rescue, storage, and warning subtitle lines. Entries use first line|second line. Either side may be spoken by the player or creature. A blank first line such as |reply makes only the second line appear.").push("dialogue");
     }
-    private static final ForgeConfigSpec.BooleanValue ENABLE_DIALOGUE = BUILDER.comment("[Dialogue] Show FindMe's flavor subtitle dialogue. Disabled by default; players who like roleplay-style lines can enable it.").translation("config.find_me.enableDialogue").define("enableDialogue", false);
-
     private static final ForgeConfigSpec.ConfigValue<List<? extends String>> MOUNT_SUMMON_DIALOGUE_LINES = DIALOGUE_DEFAULTS_BUILDER.comment("[Flavor] Title/subtitle dialogue after a mount appears. Format: first line|second line. Supports {player} and {name}. Clear to disable.").translation("config.find_me.mountSummonDialogueLines").defineListAllowEmpty("mountSummonDialogueLines", List.of(
             "dialogue.find_me.mount_summon.0.call|dialogue.find_me.mount_summon.0.reply",
             "dialogue.find_me.mount_summon.1.call|dialogue.find_me.mount_summon.1.reply",
@@ -186,6 +187,7 @@ public class Config {
     public static double rescueHoverHeightRatio = 0.25;
     public static double rescueHoverMaxHeight = 48.0;
     public static int companionDeploymentLimit = 2;
+    public static int companionMagicContributionLimit;
     public static boolean enableRidingModule = true;
     public static boolean enableCompanionModule = true;
     public static boolean enableManagementModule = true;
@@ -193,8 +195,10 @@ public class Config {
     public static boolean enableSleepRevivalModule = true;
     public static boolean enableCreatureArrivalVoice = true;
     public static double creatureArrivalVoiceVolume = 0.4;
-    public static int housePatrolRadius = 64;
-    public static int houseHardRadius = 128;
+    public static int housePatrolRadius = 24;
+    public static int houseHardRadius = 32;
+    public static int houseResidentCapacity = 8;
+    public static int houseGlobalRestoreBudget = 2;
     public static Map<String, Double> previewScaleOverrides;
     public static double guiOpacity;
     public static boolean enableAutoBackups = true;
@@ -203,11 +207,10 @@ public class Config {
     public static int sleepReviveCooldownMinutes = 10;
     public static double sleepReviveChance = 0.7;
     public static boolean sleepReviveSpawnEntity = true;
-    public static boolean enableContractAnimation = true;
+    public static boolean enableContractAnimation = false;
     public static boolean enableContractCinematicCamera = true;
     public static boolean debugDiagnostics;
     public static boolean enableDiagnosticLogging;
-    public static boolean enableDialogue;
     public static List<String> mountSummonDialogueLines;
     public static List<String> companionSummonDialogueLines;
     public static List<String> mountRescueDialogueLines;
@@ -302,7 +305,6 @@ public class Config {
     public static void syncFromSpec() {
         previewScaleOverrides = Config.parseDoubleMap((List)PREVIEW_SCALE_OVERRIDES.get());
         guiOpacity = (Double)GUI_OPACITY.get();
-        enableDialogue = (Boolean)ENABLE_DIALOGUE.get();
         mountSummonDialogueLines = dialogueLines("mount_summon", MOUNT_SUMMON_DIALOGUE_LINES);
         companionSummonDialogueLines = dialogueLines("companion_summon", COMPANION_SUMMON_DIALOGUE_LINES);
         mountRescueDialogueLines = dialogueLines("mount_rescue", MOUNT_RESCUE_DIALOGUE_LINES);
@@ -331,6 +333,7 @@ public class Config {
     private static void syncServerFromSpec() {
         summonCooldownTicks = (Integer)SUMMON_COOLDOWN_TICKS.get();
         companionDeploymentLimit = (Integer)COMPANION_DEPLOYMENT_LIMIT.get();
+        companionMagicContributionLimit = (Integer)COMPANION_MAGIC_CONTRIBUTION_LIMIT.get();
         rescueMinFallDistance = (Integer)RESCUE_MIN_FALL_DISTANCE.get();
         rescueHoverBaseHeight = (Double)RESCUE_HOVER_BASE_HEIGHT.get();
         rescueHoverHeightRatio = (Double)RESCUE_HOVER_HEIGHT_RATIO.get();
@@ -339,6 +342,8 @@ public class Config {
         creatureArrivalVoiceVolume = (Double)CREATURE_ARRIVAL_VOICE_VOLUME.get();
         housePatrolRadius = (Integer)HOUSE_PATROL_RADIUS.get();
         houseHardRadius = Math.max(housePatrolRadius, (Integer)HOUSE_HARD_RADIUS.get());
+        houseResidentCapacity = (Integer)HOUSE_RESIDENT_CAPACITY.get();
+        houseGlobalRestoreBudget = (Integer)HOUSE_GLOBAL_RESTORE_BUDGET.get();
         enableAutoBackups = (Boolean)ENABLE_AUTO_BACKUPS.get();
         backupIntervalMinutes = (Integer)BACKUP_INTERVAL_MINUTES.get();
         preventBoundCreatureDeathDrops = (Boolean)PREVENT_BOUND_CREATURE_DEATH_DROPS.get();

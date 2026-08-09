@@ -3,8 +3,10 @@ package com.kuzhi.findme.server.data;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -79,6 +81,19 @@ class FindMeWorldSavedDataTest {
         assertTrue(secondIndex.contains(second));
     }
 
+    @Test
+    void runtimeIndexExposesAnImmutableUuidProjection() {
+        FindMeWorldSavedData data = new FindMeWorldSavedData();
+        UUID player = UUID.randomUUID();
+        UUID companion = UUID.randomUUID();
+        data.putPlayerRoot(player, rootWithMount(companion));
+
+        Set<UUID> uuids = data.companionRuntimeIndex(player).uuids();
+
+        assertEquals(Set.of(companion), uuids);
+        assertThrows(UnsupportedOperationException.class, uuids::clear);
+    }
+
     private static CompoundTag rootWithMount(UUID uuid) {
         CompoundTag root = new CompoundTag();
         CompoundTag entry = new CompoundTag();
@@ -88,4 +103,5 @@ class FindMeWorldSavedDataTest {
         root.put("mounts", mounts);
         return root;
     }
+
 }

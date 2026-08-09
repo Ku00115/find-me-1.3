@@ -1,5 +1,6 @@
 package com.kuzhi.findme.api.client;
 
+import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.client.ClientWheelPresentationState;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -26,8 +27,14 @@ public final class FindMeClientIntegrationRegistry {
     public static boolean open(String id, List<String> entityTypes) {
         for (Entry entry : ENTRIES) {
             if (entry.id().equals(id)) {
-                entry.opener().accept(List.copyOf(entityTypes));
-                return true;
+                try {
+                    entry.opener().accept(entityTypes == null ? List.of() : List.copyOf(entityTypes));
+                    return true;
+                } catch (RuntimeException exception) {
+                    ENTRIES.remove(entry);
+                    FindMeMod.LOGGER.error("FindMe removed failing client integration id={}", id, exception);
+                    return false;
+                }
             }
         }
         return false;

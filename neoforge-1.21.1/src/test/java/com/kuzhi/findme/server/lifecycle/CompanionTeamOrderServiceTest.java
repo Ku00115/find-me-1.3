@@ -14,10 +14,16 @@ class CompanionTeamOrderServiceTest {
     @Test
     void cancellationActionsNeverDeployStoredMembers() {
         assertTrue(CompanionTeamCommandAction.CANCEL_PROTECT.cancelsTacticalAction());
+        assertTrue(CompanionTeamCommandAction.CANCEL_MAGIC_PROTECT.cancelsTacticalAction());
+        assertTrue(CompanionTeamCommandAction.CANCEL_MAGIC_SUPPORT.cancelsTacticalAction());
         assertTrue(CompanionTeamCommandAction.CANCEL_GUARD.cancelsTacticalAction());
         assertFalse(CompanionTeamCommandAction.CANCEL_PROTECT.deploysTeam());
         assertFalse(CompanionTeamCommandAction.CANCEL_GUARD.deploysTeam());
         assertFalse(CompanionTeamCommandAction.PROTECT_OWNER.cancelsTacticalAction());
+        assertEquals("team_cancel_magic_protect", CompanionTeamOrderService.cancellationReason(
+                CompanionTeamCommandAction.CANCEL_MAGIC_PROTECT));
+        assertEquals("team_cancel_magic_support", CompanionTeamOrderService.cancellationReason(
+                CompanionTeamCommandAction.CANCEL_MAGIC_SUPPORT));
     }
 
     @Test
