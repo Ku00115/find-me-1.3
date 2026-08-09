@@ -70,6 +70,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private static final long MIN_SYNC_INTERVAL_NANOS = 2_000_000_000L;
     private static final long CARD_TOGGLE_IN_NANOS = 185_000_000L;
     private static final long CARD_EXIT_NANOS = 180_000_000L;
+    private static final long CLICK_PULSE_NANOS = 140_000_000L;
     private static final double TEAM_ROW_HEIGHT = 27.0;
     private static final double TEAM_SCROLL_VIEWPORT_HEIGHT = 126.0;
     private static final double TEAM_SCROLL_THUMB_HEIGHT = 28.0;
@@ -171,6 +172,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private long cardToggleStartedAtNanos;
     private UUID cardToggleUuid;
     private boolean cardToggleExpanding;
+    private long clickPulseStartedAtNanos;
+    private int clickPulseX;
+    private int clickPulseY;
+    private int clickPulseWidth;
+    private int clickPulseHeight;
+    private boolean clickPulseFromContext;
 
     public FindMeAuiManageScreen() {
         super(PATH);
@@ -275,6 +282,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         cardTogglePhase = CardTogglePhase.IDLE;
         cardToggleUuid = null;
         settingsDirty = false;
+        clickPulseStartedAtNanos = 0L;
     }
 
     public static void showResult(boolean success, String message) {
@@ -485,6 +493,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     @Override
     protected void renderMainDocumentOverlay(GuiGraphics graphics) {
+        if (!clickPulseFromContext || !contextOpen) renderClickPulse(graphics);
         if (expandedUuid == null || cardTogglePhase != CardTogglePhase.IDLE || isTransitionRunning()) return;
         graphics.pose().pushPose();
         graphics.pose().translate(0.0f, 0.0f, 450.0f);
@@ -498,7 +507,46 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         graphics.pose().pushPose();
         graphics.pose().translate(0.0f, 0.0f, 50.0f);
         renderSpellIcons(graphics, getOverlayDocument(), ".spell-picker-icon[data-spell-icon]", true);
+        if (clickPulseFromContext) renderClickPulse(graphics);
         graphics.pose().popPose();
+    }
+
+    private void startClickPulse(Element element, boolean fromContext) {
+        if (!settings.uiAnimations() || element == null) return;
+        Position position = Position.of(element);
+        Size size = Size.of(element);
+        clickPulseX = (int) Math.floor(position.x);
+        clickPulseY = (int) Math.floor(position.y);
+        clickPulseWidth = Math.max(1, (int) Math.ceil(size.width()));
+        clickPulseHeight = Math.max(1, (int) Math.ceil(size.height()));
+        clickPulseFromContext = fromContext;
+        clickPulseStartedAtNanos = System.nanoTime();
+    }
+
+    private void renderClickPulse(GuiGraphics graphics) {
+        if (clickPulseStartedAtNanos == 0L) return;
+        long elapsed = System.nanoTime() - clickPulseStartedAtNanos;
+        if (elapsed < 0L || elapsed >= CLICK_PULSE_NANOS) {
+            clickPulseStartedAtNanos = 0L;
+            return;
+        }
+        double progress = elapsed / (double) CLICK_PULSE_NANOS;
+        int alpha = (int) Math.round(210.0 * (1.0 - progress));
+        int cyan = (alpha << 24) | 0x16B5DF;
+        int white = (Math.max(0, alpha - 45) << 24) | 0xF2F4F3;
+        int black = (Math.max(0, alpha - 70) << 24) | 0x172027;
+        int expand = progress < 0.45 ? 2 : 1;
+        int left = clickPulseX - expand;
+        int top = clickPulseY - expand;
+        int right = clickPulseX + clickPulseWidth + expand;
+        int bottom = clickPulseY + clickPulseHeight + expand;
+        graphics.fill(left, top, right, top + 1, cyan);
+        graphics.fill(left, bottom - 1, right, bottom, cyan);
+        graphics.fill(left, top, left + 1, bottom, cyan);
+        graphics.fill(right - 1, top, right, bottom, cyan);
+        graphics.fill(left + 2, top + 2, Math.min(right, left + 5), bottom - 2, black);
+        int sweepX = left + 1 + (int) Math.round((right - left - 2) * progress);
+        graphics.fill(sweepX, top + 1, Math.min(right - 1, sweepX + 1), bottom - 1, white);
     }
 
     private void renderSpellIcons(GuiGraphics graphics, Document document, String selector, boolean clipToPicker) {
@@ -534,6 +582,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             Element directAction = expandedCardActionAt(mouseX, mouseY);
             if (directAction != null) {
                 settleCardToggleForDirectAction();
+                startClickPulse(directAction, false);
                 if ("spell-slot-bind".equals(directAction.getAttribute("data-action"))) {
                     rememberContextAnchor(mouseX, mouseY);
                 }
@@ -764,6 +813,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 Element action = target.closest("[data-action]");
                 if (action == null) return;
                 FindMeAuiSound.click();
+                startClickPulse(action, false);
                 com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] main click action={} value={} view={} contextOpen={} transition={}",
                         action.getAttribute("data-action"), action.getAttribute("data-value"), view, contextOpen, isTransitionRunning());
                 if (event instanceof MouseEvent mouse) {
@@ -976,6 +1026,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             Element action = element.closest("[data-action]");
             if (action != null) {
                 FindMeAuiSound.click();
+                startClickPulse(action, true);
                 com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] overlay click action={} value={} view={} contextOpen={} transition={}",
                         action.getAttribute("data-action"), action.getAttribute("data-value"), view, contextOpen, isTransitionRunning());
                 handleAction(action.getAttribute("data-action"), action.getAttribute("data-value"), action);
@@ -2821,7 +2872,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private String headerMarkup(String title, String subtitle, boolean categories) {
         StringBuilder html = new StringBuilder("<div class='topbar'>").append(button("back", "‹", "back-button"))
-                .append("<div class='page-title'><strong>").append(escape(title)).append("</strong><small>").append(subtitle).append("</small></div>");
+                .append("<div class='page-title ").append(font.width(title) > 100 ? "long-title" : "")
+                .append("'><strong>").append(escape(title)).append("</strong><small>").append(subtitle).append("</small></div>");
         if (categories) {
             html.append("<div class='category-tabs'>");
             for (Category value : Category.values()) {
@@ -2911,7 +2963,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     private String teamNameMarkup(String name) {
-        int availableWidth = Math.max(1, scaled(75) - 42);
+        int availableWidth = Math.max(1, scaled(75) - 29);
         int textWidth = Math.max(1, Math.round(font.width(name) * (12.0f / 9.0f)));
         int shift = Math.max(0, textWidth - availableWidth);
         if (shift <= 0) return "<strong>" + escape(name) + "</strong>";
@@ -3034,8 +3086,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 .append(rosterCardsMarkup(visibleCards));
         int hintInnerWidth = Math.max(1, width - scaled(75) - scaled(10) - scaled(9));
         int countLeft = Math.max(0, hintInnerWidth - scaled(28));
-        html.append("</div><div class='hintbar'><div class='hint-actions'><div class='hint-item'><div class='mouse-icon left-click'><div class='mouse-icon-mark'></div></div><span>").append(escape(tr("screen.find_me.details"))).append("</span></div><div class='hint-item'><div class='mouse-icon right-click'><div class='mouse-icon-mark'></div></div><span>").append(escape(tr("screen.find_me.aui.more_actions"))).append("</span></div></div><div class='hint-count' style='left:").append(countLeft).append("px'><span>").append(twoDigits(visibleCards.size())).append("</span><span class='hint-count-total'>/ ").append(view == View.TEAM ? "06" : twoDigits(allCards().size())).append("</span></div></div>");
+        html.append("</div><div class='hintbar'><div class='hint-actions'><div class='hint-item'>").append(mouseIconMarkup("left-click")).append("<span>").append(escape(tr("screen.find_me.details"))).append("</span></div><div class='hint-item'>").append(mouseIconMarkup("right-click")).append("<span>").append(escape(tr("screen.find_me.aui.more_actions"))).append("</span></div></div><div class='hint-count' style='left:").append(countLeft).append("px'><span>").append(twoDigits(visibleCards.size())).append("</span><span class='hint-count-total'>/ ").append(view == View.TEAM ? "06" : twoDigits(allCards().size())).append("</span></div></div>");
         return html.toString();
+    }
+
+    private String mouseIconMarkup(String clickClass) {
+        return "<div class='mouse-icon " + clickClass + "'><i class='mouse-button mouse-left'></i>"
+                + "<i class='mouse-button mouse-right'></i><i class='mouse-divider'></i>"
+                + "<i class='mouse-wheel'></i></div>";
     }
 
     private String rosterCardsMarkup(List<Card> visibleCards) {
@@ -3342,7 +3400,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         int hintInnerWidth = Math.max(1, width - scaled(75) - scaled(10) - scaled(9));
         int countLeft = Math.max(0, hintInnerWidth - scaled(28));
-        return html.append("</div><div class='hintbar'><div class='hint-actions'><div class='hint-item'><div class='mouse-icon'><div class='mouse-icon-mark'></div></div><span>")
+        return html.append("</div><div class='hintbar'><div class='hint-actions'><div class='hint-item'>").append(mouseIconMarkup("left-click")).append("<span>")
                 .append(escape(tr("screen.find_me.details"))).append("</span></div><div class='hint-item'><span>")
                 .append(escape(tr("screen.find_me.aui.permanent_records"))).append("</span></div></div><div class='hint-count' style='left:")
                 .append(countLeft).append("px'><span>").append(twoDigits(visibleCards.size()))
@@ -3444,7 +3502,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     .append(escape(tr(sectionLabelKeys[i]))).append("</small></span></div>");
         }
         html.append("</div></div><div class='settings-content'><div class='system-head'><b>").append(twoDigits(settingsSection + 1))
-                .append("</b><span><small>")
+                .append("</b><span style='width:").append(Math.max(1, systemWidth - 96)).append("px'><small>")
                 .append(escape(tr("screen.find_me.aui.settings.section_heading", tr(sectionLabelKeys[settingsSection]))))
                 .append("</small><strong>")
                 .append(escape(tr(sectionKeys[settingsSection]))).append("</strong></span>")
