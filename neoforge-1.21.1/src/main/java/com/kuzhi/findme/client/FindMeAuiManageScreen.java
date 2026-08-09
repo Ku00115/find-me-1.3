@@ -2634,8 +2634,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         double viewportHeight = Math.max(1.0, Box.of(viewport).innerSize().height());
         double contentHeight = Math.max(viewportHeight, Size.getContentSize(grid).height());
         double scrollLimit = Math.max(0.0, contentHeight - viewportHeight);
-        double current = Math.max(0.0, Math.min(scrollLimit, grid.getScrollTop()));
-        if (current != grid.getScrollTop()) grid.setScrollTop(current);
+        double target = grid.getTargetScrollTop();
+        double current = Math.max(0.0, Math.min(scrollLimit, target));
+        if (current != target) grid.setScrollTop(current);
         settingsScrollTop = current;
 
         double trackHeight = Math.max(1.0, Box.of(rail).innerSize().height());
