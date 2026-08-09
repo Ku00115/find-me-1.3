@@ -471,7 +471,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
 
         String nextLayoutStyle = layoutStyle();
         String nextMarkup = markup();
-        String nextMarkupKey = nextMarkup.replace(" fm-page-reveal", "");
+        String nextMarkupKey = nextMarkup;
         boolean layoutChanged = !nextLayoutStyle.equals(renderedLayoutStyle);
         boolean markupChanged = !nextMarkupKey.equals(renderedMarkupKey);
         if (layoutChanged) {
@@ -484,8 +484,6 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
             document.reapplyStylesFromCache();
             bind();
             renderedMarkupKey = nextMarkupKey;
-        } else if (isPageRevealing()) {
-            addClass(document.querySelector(".house-page"), "fm-page-reveal");
         }
         if (layoutChanged && !markupChanged) {
             document.reapplyStylesFromCache();
@@ -576,11 +574,8 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
 
         StringBuilder html = new StringBuilder("<div class='house-page ")
                 .append(ClientWheelPresentationState.typographyClasses())
-                .append(isPageRevealing() ? " fm-page-reveal" : "")
                 .append("' style='height:")
-                .append(Math.max(1, height)).append("px'><i class='fm-fold-crease'></i>")
-                .append("<i class='fm-fold-shard fm-fold-shard-dark'></i>")
-                .append("<i class='fm-fold-shard fm-fold-shard-light'></i><div class='topbar'>")
+                .append(Math.max(1, height)).append("px'><div class='topbar'>")
                 .append(button("back", "\u2039", "back-button"))
                 .append("<div class='page-title'><strong>")
                 .append(escape(tr("screen.find_me.aui.house.house_label")))
@@ -707,7 +702,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                 + "' style='width:" + paneWidth + "px;height:" + cardHeight + "px"
                 + (gapAfter ? ";margin-bottom:" + scaled(CARD_GAP) + "px" : "")
                 + "' data-house-entry='1' data-house-source='" + side + "' data-uuid='" + resident.uuid() + "'" + action + ">"
-                + "<div class='house-entry-marker'></div><div class='house-entry-preview' style='width:" + cardHeight
+                + "<div class='house-entry-marker'></div><div class='house-entry-baseline'></div><div class='house-entry-preview' style='width:" + cardHeight
                 + "px;height:" + cardHeight + "px'><findme-preview data-uuid='" + resident.uuid()
                 + "' data-preview-scale='0.78'></findme-preview></div><div class='house-entry-copy' style='left:"
                 + (cardHeight + scaled(5)) + "px'><b>" + escape(resident.name()) + "</b><small>"
@@ -745,9 +740,10 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                     .append(cardHeight).append("px")
                     .append(column < 3 && i < lastVisible - 1 ? ";margin-right:" + gap + "px" : "")
                     .append("'><div class='house-partner-preview'><findme-preview data-uuid='")
-                    .append(resident.uuid()).append("' data-preview-scale='0.68' data-preview-overlay='warehouse' data-preview-team='")
-                    .append(escape(cardStatus(resident, SIDE_HOME))).append("'></findme-preview></div><span class='house-partner-number'>")
-                    .append(twoDigits(i + 1)).append("</span></div>");
+                    .append(resident.uuid()).append("' data-preview-scale='0.68'></findme-preview></div><span class='house-partner-number'>")
+                    .append(twoDigits(i + 1)).append("</span><div class='house-partner-copy'><strong>")
+                    .append(escape(resident.name())).append("</strong><small>")
+                    .append(escape(cardStatus(resident, SIDE_HOME))).append("</small></div></div>");
             if (column == 3 || i == lastVisible - 1) html.append("</div>");
         }
         if (residents.isEmpty()) {
@@ -856,10 +852,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-house-entry:" + scaled(34) + "px"
                 + ";--fm-house-partner-card-width:" + partnerCardWidth + "px"
                 + ";--fm-house-partner-card-height:" + scaled(72) + "px"
-                + ";--fm-house-footer:" + scaled(21) + "px"
-                + ";--fm-fold-left:" + Math.max(0, scaled(75) - 10) + "px"
-                + ";--fm-fold-dark-top:" + Math.max(0, scaled(35) - 5) + "px"
-                + ";--fm-fold-light-top:" + scaled(39) + "px";
+                + ";--fm-house-footer:" + scaled(21) + "px";
     }
 
     private int scaled(int base) {

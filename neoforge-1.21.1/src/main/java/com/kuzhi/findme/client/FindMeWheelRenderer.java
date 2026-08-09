@@ -46,7 +46,9 @@ final class FindMeWheelRenderer {
         int outline = state == CompanionWheelVisualState.AVAILABLE
                 ? (hovered ? 0xE6F2F5F4 : 0x8CCCD6D6) : accent;
         drawSector(graphics, centerX, centerY, index, visibleSize, guiColor(fill, fade));
-        drawSectorOutline(graphics, centerX, centerY, index, visibleSize, guiColor(outline, fade));
+        if (hovered || state != CompanionWheelVisualState.AVAILABLE) {
+            drawSectorOutline(graphics, centerX, centerY, index, visibleSize, guiColor(outline, fade));
+        }
     }
 
     static void drawSlotNumber(GuiGraphics graphics, int centerX, int centerY, int index, int visibleSize, float fade) {
@@ -109,7 +111,6 @@ final class FindMeWheelRenderer {
     static void drawRosterRail(GuiGraphics graphics, int width, int height, float fade) {
         int top = height - CompanionWheelLayout.STRIP_CARD_HEIGHT - 15;
         graphics.fill(0, top, width, height, guiColor(0xD90A1216, fade));
-        graphics.fill(0, top, width * 3 / 5, top + 2, guiColor(0xDDE6EAE8, fade));
         graphics.fill(0, top, 4, height, guiColor(CYAN, fade));
     }
 

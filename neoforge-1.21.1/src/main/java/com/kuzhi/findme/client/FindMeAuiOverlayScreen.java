@@ -56,7 +56,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         clearPreviewCopyMarkup();
         syncOverlaySize();
         setTransitionBlocked(false);
-        if (ClientWheelPresentationState.uiAnimations()) transitionController.enter(transitionHost);
+        if (pageTransitionsEnabled() && ClientWheelPresentationState.uiAnimations()) transitionController.enter(transitionHost);
         else transitionController.forceSettle(transitionHost);
         FindMeAuiPerformanceMonitor.record(this, "init.layout_transition", setupStartedAt, 12.0);
         FindMeAuiPerformanceMonitor.record(this, "init.total", totalStartedAt, 30.0);
@@ -134,7 +134,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
     }
 
     protected final boolean transitionPage(Runnable pageChange) {
-        if (!ClientWheelPresentationState.uiAnimations()) {
+        if (!pageTransitionsEnabled() || !ClientWheelPresentationState.uiAnimations()) {
             pageChange.run();
             return true;
         }
@@ -158,7 +158,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
     }
 
     protected final boolean transitionClose() {
-        if (!ClientWheelPresentationState.uiAnimations()) {
+        if (!pageTransitionsEnabled() || !ClientWheelPresentationState.uiAnimations()) {
             closeImmediately();
             return true;
         }
@@ -166,11 +166,16 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
     }
 
     protected final boolean isPageRevealing() {
-        return ClientWheelPresentationState.uiAnimations() && transitionController.isRevealing();
+        return pageTransitionsEnabled() && ClientWheelPresentationState.uiAnimations() && transitionController.isRevealing();
     }
 
     protected final boolean isTransitionRunning() {
-        return ClientWheelPresentationState.uiAnimations() && transitionController.isRunning();
+        return pageTransitionsEnabled() && ClientWheelPresentationState.uiAnimations() && transitionController.isRunning();
+    }
+
+    /** Full-page transforms are intentionally disabled; local control animations remain available. */
+    protected boolean pageTransitionsEnabled() {
+        return false;
     }
 
     /** Network-driven page updates must not leave the old fold animation active. */
@@ -300,7 +305,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
     }
 
     private void updateTransitionPreference() {
-        if (ClientWheelPresentationState.uiAnimations()) transitionController.update(transitionHost);
+        if (pageTransitionsEnabled() && ClientWheelPresentationState.uiAnimations()) transitionController.update(transitionHost);
         else if (transitionController.isRunning()) transitionController.forceSettle(transitionHost);
     }
 
