@@ -178,7 +178,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private int clickPulseWidth;
     private int clickPulseHeight;
     private boolean clickPulseFromContext;
-    private boolean clickPulseBack;
+    private ClickPulseStyle clickPulseStyle = ClickPulseStyle.DEFAULT;
 
     public FindMeAuiManageScreen() {
         super(PATH);
@@ -521,8 +521,28 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         clickPulseWidth = Math.max(1, (int) Math.ceil(size.width()));
         clickPulseHeight = Math.max(1, (int) Math.ceil(size.height()));
         clickPulseFromContext = fromContext;
-        clickPulseBack = "back".equals(element.getAttribute("data-action"));
+        clickPulseStyle = clickPulseStyle(element);
         clickPulseStartedAtNanos = System.nanoTime();
+    }
+
+    private ClickPulseStyle clickPulseStyle(Element element) {
+        String action = element.getAttribute("data-action");
+        action = action == null ? "" : action;
+        if ("back".equals(action)) return ClickPulseStyle.BACK;
+        if (hasClass(element, "danger") || action.contains("delete") || action.contains("release")) {
+            return ClickPulseStyle.DANGER;
+        }
+        if (hasClass(element, "primary")) return ClickPulseStyle.PRIMARY;
+        if (hasClass(element, "side-row") || hasClass(element, "category-button")
+                || hasClass(element, "top-link") || action.startsWith("view:")
+                || action.startsWith("category:") || action.startsWith("team:")) {
+            return ClickPulseStyle.NAVIGATION;
+        }
+        if (hasClass(element, "member-card") || hasClass(element, "warehouse-card")
+                || hasClass(element, "death-card") || hasClass(element, "setting-card")) {
+            return ClickPulseStyle.CARD;
+        }
+        return ClickPulseStyle.DEFAULT;
     }
 
     private void renderClickPulse(GuiGraphics graphics) {
@@ -541,10 +561,35 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         int top = clickPulseY - expand;
         int right = clickPulseX + clickPulseWidth + expand;
         int bottom = clickPulseY + clickPulseHeight + expand;
-        if (clickPulseBack) {
+        if (clickPulseStyle == ClickPulseStyle.BACK) {
             int sweep = Math.max(2, (int) Math.round(clickPulseWidth * (1.0 - progress)));
             graphics.fill(left, top, Math.min(right, left + sweep), bottom, black);
             graphics.fill(left, top, left + 1, bottom, cyan);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.PRIMARY) {
+            int rise = Math.max(1, (int) Math.round(clickPulseHeight * (1.0 - progress)));
+            graphics.fill(left, Math.max(top, bottom - rise), right, bottom, black);
+            graphics.fill(left, bottom - 1, right, bottom, cyan);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.DANGER) {
+            int red = (alpha << 24) | 0xD85C5C;
+            int sweep = Math.max(1, (int) Math.round(clickPulseWidth * (1.0 - progress)));
+            graphics.fill(Math.max(left, right - sweep), top, right, top + 1, red);
+            graphics.fill(right - 1, top, right, bottom, red);
+            graphics.fill(left, bottom - 1, right, bottom, red);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.NAVIGATION) {
+            int sweep = Math.max(2, (int) Math.round(clickPulseWidth * progress));
+            graphics.fill(left, bottom - 1, Math.min(right, left + sweep), bottom, cyan);
+            graphics.fill(left, top, left + 1, bottom, black);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.CARD) {
+            graphics.fill(left, top, left + 1, bottom, cyan);
+            graphics.fill(left, bottom - 1, right, bottom, cyan);
             return;
         }
         graphics.fill(left, top, right, top + 1, cyan);
@@ -1444,7 +1489,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         cardTogglePhase = CardTogglePhase.IN;
         cardToggleStartedAtNanos = System.nanoTime();
         refreshRosterCards();
-        applyCardToggleInClasses();
     }
 
     private void updateCardToggle(long now) {
@@ -1468,7 +1512,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             return;
         }
         int compactWidth = scaled(36);
-        int cardGap = scaled(3);
+        int selectedWidth = scaled(136);
         int ordinal = 0;
         for (Element element : roster.querySelectorAll(".member-card[data-uuid]")) {
             UUID uuid = parseUuid(element.getAttribute("data-uuid"));
@@ -1479,28 +1523,25 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             String state = card.active ? "active" : card.alive ? "stored" : "dead";
             String insertion = settings.uiAnimations() && view == View.TEAM
                     && uuid.equals(pendingInsertedMemberUuid) ? " fm-member-insert" : "";
+            String toggleMotion = "";
+            if (settings.uiAnimations() && cardTogglePhase == CardTogglePhase.IN && cardToggleUuid != null) {
+                toggleMotion = uuid.equals(cardToggleUuid)
+                        ? (cardToggleExpanding ? " fm-card-expand-in" : " fm-card-collapse-in")
+                        : (cardToggleExpanding ? " fm-card-neighbor-expand-in" : " fm-card-neighbor-collapse-in");
+            }
             int accentIndex = index == 0 ? 3 : Math.floorMod(index - 1, 5);
             element.setClassName("member-card " + (selected ? "selected-card " : "compact ")
-                    + state + (selected ? "" : " accent-" + accentIndex) + insertion);
-            String offset = ordinal++ == 0 ? "" : "margin-left:" + cardGap + "px;";
-            String size = selected ? "" : "width:" + compactWidth + "px;min-width:" + compactWidth
-                    + "px;flex:0 0 " + compactWidth + "px;";
-            element.setAttribute("style", size + offset + cardThemeStyle(card));
+                    + state + (selected ? "" : " accent-" + accentIndex) + insertion + toggleMotion);
+            ordinal++;
+            int renderedWidth = selected ? selectedWidth : compactWidth;
+            String size = "width:" + renderedWidth + "px;min-width:" + renderedWidth
+                    + "px;flex:0 0 " + renderedWidth + "px;";
+            element.setAttribute("style", size + cardThemeStyle(card));
         }
+        document.reapplyStylesFromCache();
+        document.commitStyleRecalc();
         renderedMarkupKey = markupKey(markup());
         FindMeAuiPerformanceMonitor.record(this, "refresh.card_toggle", startedAt, 8.0);
-    }
-
-    private void applyCardToggleInClasses() {
-        Document document = getLinkedDocument();
-        if (document == null || cardToggleUuid == null) return;
-        for (Element card : document.querySelectorAll(".member-card")) {
-            if (cardToggleUuid.toString().equals(card.getAttribute("data-uuid"))) {
-                addClass(card, cardToggleExpanding ? "fm-card-expand-in" : "fm-card-collapse-in");
-            } else {
-                addClass(card, cardToggleExpanding ? "fm-card-neighbor-expand-in" : "fm-card-neighbor-collapse-in");
-            }
-        }
     }
 
     private void removeCardToggleClasses() {
@@ -3103,20 +3144,25 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     private String rosterCardsMarkup(List<Card> visibleCards) {
         int compactWidth = scaled(36);
+        int selectedWidth = scaled(136);
         int cardGap = scaled(3);
+        int rosterHeight = scaled(141);
         String compactBaseStyle = "width:" + compactWidth + "px;min-width:" + compactWidth + "px;flex:0 0 " + compactWidth + "px;";
+        String selectedBaseStyle = "width:" + selectedWidth + "px;min-width:" + selectedWidth + "px;flex:0 0 " + selectedWidth + "px;";
+        String spacer = "<div class='roster-gap' style='width:" + cardGap + "px;min-width:" + cardGap
+                + "px;height:" + rosterHeight + "px;flex:0 0 " + cardGap + "px'></div>";
         StringBuilder html = new StringBuilder();
         List<UUID> teamMembers = view == View.TEAM ? ClientCompanionTeamState.members(target(), selectedTeam) : List.of();
         for (int i = 0; i < visibleCards.size(); i++) {
             Card card = visibleCards.get(i);
             int memberIndex = view == View.TEAM ? teamMembers.indexOf(card.uuid) : i;
-            String offsetStyle = i == 0 ? "" : "margin-left:" + cardGap + "px;";
-            html.append(cardMarkup(card, memberIndex >= 0 ? memberIndex : i, compactBaseStyle + offsetStyle, offsetStyle));
+            if (i > 0) html.append(spacer);
+            html.append(cardMarkup(card, memberIndex >= 0 ? memberIndex : i, compactBaseStyle, selectedBaseStyle));
         }
         if (view == View.TEAM) {
             for (int i = visibleCards.size(); i < com.kuzhi.findme.common.FindMeUiSettings.TEAM_CAPACITY; i++) {
-                String offsetStyle = i == 0 ? "" : "margin-left:" + cardGap + "px;";
-                html.append("<div class='member-card compact empty-slot' style='").append(compactBaseStyle).append(offsetStyle)
+                if (i > 0) html.append(spacer);
+                html.append("<div class='member-card compact empty-slot' style='").append(compactBaseStyle)
                         .append("' data-action='open-team-warehouse'><b>+</b><span>").append(escape(tr("screen.find_me.aui.add_to_team")))
                         .append("</span><small>").append(twoDigits(i + 1)).append(" / EMPTY</small></div>");
             }
@@ -3208,7 +3254,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         return Math.max(1, (int) Math.round(base * scale));
     }
 
-    private String cardMarkup(Card card, int index, String compactStyle, String offsetStyle) {
+    private String cardMarkup(Card card, int index, String compactStyle, String selectedStyle) {
         String state = card.active ? "active" : card.alive ? "stored" : "dead";
         boolean selected = card.uuid.equals(expandedUuid);
         String insertion = settings.uiAnimations() && view == View.TEAM && card.uuid.equals(pendingInsertedMemberUuid) ? " fm-member-insert" : "";
@@ -3221,11 +3267,11 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         String deployed = card.active ? tr("screen.find_me.manage.state_deployed") : "";
         String spellSlot = card.alive && category != Category.VEHICLE && spellUiAvailable(card)
                 ? spellSlotsMarkup(card, card.uuid, "selected-spell-slots") : "";
-        String compactPane = selected ? "" : "<div class='compact-pane'><span class='member-number'>" + twoDigits(index + 1)
+        String compactPane = "<div class='compact-pane'><span class='member-number'>" + twoDigits(index + 1)
                 + "</span><div class='compact-info'><span class='compact-name'>" + escape(card.name)
                 + "</span><span class='compact-state'>" + escape(stateLabel(card)) + "</span></div></div>";
         return "<div class='member-card " + (selected ? "selected-card " : "compact ") + state
-                + (selected ? "" : accent) + insertion + "' style='" + (selected ? offsetStyle : compactStyle)
+                + (selected ? "" : accent) + insertion + "' style='" + (selected ? selectedStyle : compactStyle)
                 + themeStyle + "' data-uuid='" + card.uuid + "' data-member-index='" + index
                 + "' data-action='select-card' data-value='" + card.uuid + "'>"
                 + compactPane
@@ -4584,6 +4630,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private enum SettingsChoiceMenu { NONE, WHEEL_STYLE, DRAG_HOLD, NAME_LENGTH, TEXT_MODE, FONT_FAMILY, FONT_SIZE, RIDING_CAMERA, BINDING_ANIMATION, SUMMONED_OUTLINE, DEFAULT_TEAM, COMPANION_LIMIT }
     private enum DragKind { NONE, TEAM, MEMBER }
     private enum CardTogglePhase { IDLE, IN }
+    private enum ClickPulseStyle { BACK, PRIMARY, DANGER, NAVIGATION, CARD, DEFAULT }
     private enum DoctorView { BACKUPS, BACKUP_DETAIL }
     private enum Category {
         MOUNT("screen.find_me.mounts"), VEHICLE("screen.find_me.vehicles"), COMPANION("screen.find_me.companions");
