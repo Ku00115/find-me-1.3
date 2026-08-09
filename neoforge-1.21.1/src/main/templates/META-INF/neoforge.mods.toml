@@ -90,7 +90,7 @@ config="${mod_id}.mixins.json"
     modId="apricityui"
     type="required"
     reason="FindMe uses ApricityUI for its new UI layer."
-    versionRange="[1.2.0.2,)"
+    versionRange="[1.2.0-hotfix2,)"
     ordering="AFTER"
     side="CLIENT"
 
