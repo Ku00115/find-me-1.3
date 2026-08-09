@@ -8,6 +8,7 @@ import com.kuzhi.findme.server.ui.CompanionTeamService;
 
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
+import com.kuzhi.findme.server.core.FindMePerformanceMonitor;
 import com.kuzhi.findme.server.core.CompanionOperationLockService;
 import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.Config;
@@ -22,7 +23,6 @@ import com.kuzhi.findme.server.data.FindMeWorldSavedData;
 import com.kuzhi.findme.server.home.CompanionHomeResidentService;
 import com.kuzhi.findme.server.data.PlayerCompanionDataMirror;
 import com.kuzhi.findme.server.lifecycle.CompanionTransientStateService;
-import com.kuzhi.findme.server.vehicle.SableVehicleCompatibility;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
 import com.kuzhi.findme.server.lifecycle.CompanionSpawnPlacementService;
@@ -32,16 +32,20 @@ import com.kuzhi.findme.api.FindMeApi;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.neoforge.event.entity.player.PlayerWakeUpEvent;
@@ -55,21 +59,6 @@ public final class CompanionSafetyService {
     private CompanionSafetyService() {
     }
 
-    public static int listBackups(ServerPlayer player) {
-        PlayerCompanionData data = CompanionDataService.data(player);
-        List<PlayerCompanionData.BackupEntry> backups = data.backupList();
-        if (backups.isEmpty()) {
-            CompanionMessageService.tell(player, "message.find_me.backup_empty", ChatFormatting.YELLOW, new Object[0]);
-            return 0;
-        }
-        CompanionMessageService.tell(player, "message.find_me.backup_header", ChatFormatting.AQUA, new Object[0]);
-        for (int i = 0; i < backups.size(); ++i) {
-            PlayerCompanionData.BackupEntry backup = backups.get(i);
-            player.sendSystemMessage(Component.translatable("message.find_me.backup_entry", i, backup.savedAt(), backup.reason()).withStyle(ChatFormatting.GRAY));
-        }
-        return backups.size();
-    }
-
     public static int createBackup(ServerPlayer player, String reason) {
         PlayerCompanionData data = CompanionDataService.data(player);
         if (!hasBackupWorthyState(data)) {
@@ -77,30 +66,11 @@ public final class CompanionSafetyService {
             return 0;
         }
         long now = player.serverLevel().getGameTime();
-        data.createBackup(now, reason, MANUAL_BACKUP_CAPACITY, true);
+        data.createBackup(now, reason, MANUAL_BACKUP_CAPACITY, true, backupPreviewContents(player.getServer(), data));
         CompanionDataService.save(player, data);
         PlayerCompanionDataMirror.rememberBackup(player, now, reason, MANUAL_BACKUP_CAPACITY);
         scheduleNextAutoBackup(player, now);
         CompanionMessageService.tell(player, "message.find_me.backup_created", ChatFormatting.GREEN, new Object[0]);
-        return 1;
-    }
-
-    public static int previewBackupRestore(ServerPlayer player, int index) {
-        PlayerCompanionData data = CompanionDataService.data(player);
-        Optional<PlayerCompanionData.BackupEntry> targetBackup = data.backupAt(index);
-        if (targetBackup.isEmpty()) {
-            CompanionMessageService.tell(player, "message.find_me.invalid_backup_index", ChatFormatting.RED, new Object[0]);
-            return 0;
-        }
-        PlayerCompanionData.BackupEntry backup = targetBackup.get();
-        if (!data.backupChecksumMatches(backup)) {
-            player.sendSystemMessage(Component.literal("FindMe backup restore refused: backup checksum mismatch.").withStyle(ChatFormatting.RED));
-            return 0;
-        }
-        player.sendSystemMessage(Component.translatable("message.find_me.backup_restore_preview", index, backup.savedAt(), backup.reason()).withStyle(ChatFormatting.YELLOW));
-        player.sendSystemMessage(Component.translatable("message.find_me.backup_restore_preview_hint", index).withStyle(ChatFormatting.GRAY));
-        CompanionIntegrityService.Report report = CompanionIntegrityService.diagnose(player, false);
-        player.sendSystemMessage(Component.literal("FindMe doctor before restore: worst=" + report.worst() + " issues=" + report.issueCount()).withStyle(ChatFormatting.GRAY));
         return 1;
     }
 
@@ -117,15 +87,15 @@ public final class CompanionSafetyService {
         }
         PlayerCompanionData.BackupEntry backup = targetBackup.get();
         if (!data.backupChecksumMatches(backup)) {
-            player.sendSystemMessage(Component.literal("FindMe backup restore refused: backup checksum mismatch.").withStyle(ChatFormatting.RED));
+            player.sendSystemMessage(Component.translatable("message.find_me.backup_restore_checksum_mismatch").withStyle(ChatFormatting.RED));
             return 0;
         }
         if (expectedSavedAt > 0L && backup.savedAt() != expectedSavedAt) {
-            player.sendSystemMessage(Component.literal("FindMe backup restore refused: backup changed after preview.").withStyle(ChatFormatting.RED));
+            player.sendSystemMessage(Component.translatable("message.find_me.backup_restore_changed").withStyle(ChatFormatting.RED));
             return 0;
         }
         if (CompanionOperationLockService.hasActiveForPlayer(player.getUUID())) {
-            player.sendSystemMessage(Component.literal("FindMe backup restore refused: active operation locks exist. Clear stale locks first.").withStyle(ChatFormatting.RED));
+            player.sendSystemMessage(Component.translatable("message.find_me.backup_restore_active_lock").withStyle(ChatFormatting.RED));
             return 0;
         }
         if (!createForcedBackup(player, data, "before_restore")) {
@@ -156,7 +126,6 @@ public final class CompanionSafetyService {
         FindMeDebugLogger.info("recovery", "admin={} player={} removed_temporary={}",
                 source.getTextName(), player.getUUID(), removed);
         reply(source, "FindMe recovery: removed temporary skill performer entities=" + removed);
-        sendDoctorSummary(source, player);
         return Math.max(1, removed);
     }
 
@@ -181,7 +150,6 @@ public final class CompanionSafetyService {
         }
         boolean cleared = CompanionOperationLockService.clear(player, uuid, "admin_recovery:" + source.getTextName());
         reply(source, cleared ? "FindMe recovery: operation lock cleared." : "FindMe recovery: operation lock already gone.");
-        sendDoctorSummary(source, player);
         return cleared ? 1 : 0;
     }
 
@@ -216,7 +184,6 @@ public final class CompanionSafetyService {
                 FindMeDebugLogger.lifecycle("RECOVER_TO_STORAGE", player, uuid, null,
                         "UNKNOWN", "STORED", "admin_recovery:" + source.getTextName(), true, true);
                 reply(source, "FindMe recovery: kept snapshot in storage and cleared deployed state for " + uuid);
-                sendDoctorSummary(source, player);
                 return 1;
             } finally {
                 CompanionOperationLockService.end(player, uuid, CompanionOperationLockService.Operation.RECOVER, "recover_stored:to_storage");
@@ -227,7 +194,6 @@ public final class CompanionSafetyService {
                 restorePos, player.getYRot(), player.getXRot(), "recovery:recover_stored");
         if (restored.isEmpty()) {
             reply(source, "FindMe recovery failed: stored snapshot was kept.");
-            sendDoctorSummary(source, player);
             return 0;
         }
         Entity entity = restored.get();
@@ -241,7 +207,6 @@ public final class CompanionSafetyService {
         FindMeDebugLogger.lifecycle("RECOVER_TO_WORLD", player, uuid, entity,
                 "STORED", "ACTIVE", "admin_recovery:" + source.getTextName(), true, true);
         reply(source, "FindMe recovery: restored " + uuid + " to world at " + restorePos.toShortString());
-        sendDoctorSummary(source, player);
         return 1;
     }
 
@@ -265,7 +230,6 @@ public final class CompanionSafetyService {
         Entity loaded = CompanionEntityLookup.findEntity(player.getServer(), uuid).orElse(null);
         if (loaded == null || loaded.isRemoved()) {
             reply(source, "FindMe recovery refused: loaded world entity disappeared before confirmation.");
-            sendDoctorSummary(source, player);
             return 0;
         }
         CompanionTransientStateService.cancelTarget(player, data, uuid, CompanionTransientStateService.Reason.RECOVER);
@@ -276,7 +240,6 @@ public final class CompanionSafetyService {
         FindMeDebugLogger.lifecycle("DROP_STALE_STORED", player, uuid, loaded,
                 "STORED_AND_ACTIVE", "ACTIVE", "admin_recovery:" + source.getTextName(), true, true);
         reply(source, "FindMe recovery: dropped stale stored snapshot and kept loaded world entity for " + uuid);
-        sendDoctorSummary(source, player);
         return 1;
     }
 
@@ -319,34 +282,23 @@ public final class CompanionSafetyService {
     }
 
     public static void trySleepRevive(ServerPlayer player) {
-        if (!FindMeModuleService.enabled(FindMeModule.SLEEP_REVIVAL)) {
-            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=module_disabled", player.getUUID());
-            return;
-        }
-        double roll = player.getRandom().nextDouble();
-        if (roll > Config.sleepReviveChance) {
-            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=chance roll={} chance={}",
-                    player.getUUID(), roll, Config.sleepReviveChance);
+        if (!FindMeModuleService.enabled(FindMeModule.SLEEP_REVIVAL)
+                || player.getRandom().nextDouble() > Config.sleepReviveChance) {
             return;
         }
         long now = player.serverLevel().getGameTime();
         long cooldown = Math.max(0, Config.sleepReviveCooldownMinutes) * 1200L;
         Long last = LAST_SLEEP_REVIVE.get(player.getUUID());
         if (last != null && cooldown > 0L && now - last < cooldown) {
-            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=cooldown remainingTicks={}",
-                    player.getUUID(), cooldown - (now - last));
             return;
         }
         PlayerCompanionData data = CompanionDataService.data(player);
         List<UUID> dead = data.deadList();
         if (dead.isEmpty()) {
-            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=no_dead_records", player.getUUID());
             return;
         }
         List<UUID> eligible = dead.stream().filter(uuid -> data.storedEntity(uuid).isPresent()).toList();
         if (eligible.isEmpty()) {
-            FindMeDebugLogger.info("sleep-revive", "rejected player={} reason=no_stored_snapshot deadCount={}",
-                    player.getUUID(), dead.size());
             return;
         }
         UUID uuid = eligible.get(player.getRandom().nextInt(eligible.size()));
@@ -403,8 +355,6 @@ public final class CompanionSafetyService {
         CompanionSyncService.syncToClient(player, CompanionKind.COMPANION);
         CompanionSyncService.syncDeadToClient(player);
         CompanionSummonLineService.showSleepRevived(player, name.replace(" (Dead)", ""), spawned || homeResident);
-        FindMeDebugLogger.info("sleep-revive", "completed player={} companion={} kind={} spawned={} home={}",
-                player.getUUID(), uuid, kind, spawned, homeResident);
     }
 
     private static void tickAutomaticBackup(ServerPlayer player) {
@@ -412,7 +362,12 @@ public final class CompanionSafetyService {
             return;
         }
         long now = player.serverLevel().getGameTime();
-        long nextCheck = NEXT_AUTO_BACKUP_CHECK.getOrDefault(player.getUUID(), 0L);
+        Long scheduled = NEXT_AUTO_BACKUP_CHECK.get(player.getUUID());
+        if (scheduled == null) {
+            NEXT_AUTO_BACKUP_CHECK.put(player.getUUID(), now + initialAutoBackupDelay(player.getUUID()));
+            return;
+        }
+        long nextCheck = scheduled;
         if (now < nextCheck) return;
         PlayerCompanionData data = CompanionDataService.data(player);
         if (!hasBackupWorthyState(data)) {
@@ -424,10 +379,56 @@ public final class CompanionSafetyService {
             NEXT_AUTO_BACKUP_CHECK.put(player.getUUID(), data.lastBackupAt() + intervalTicks);
             return;
         }
-        data.createBackup(now, "auto", Config.DEFAULT_BACKUP_CAPACITY);
-        CompanionDataService.save(player, data);
-        PlayerCompanionDataMirror.rememberBackup(player, now, "auto", Config.DEFAULT_BACKUP_CAPACITY);
-        NEXT_AUTO_BACKUP_CHECK.put(player.getUUID(), now + intervalTicks);
+        long startedAt = FindMePerformanceMonitor.start();
+        try {
+            data.createBackup(now, "auto", Config.DEFAULT_BACKUP_CAPACITY, false, backupPreviewContents(player.getServer(), data));
+            CompanionDataService.save(player, data);
+            PlayerCompanionDataMirror.rememberBackup(player, now, "auto", Config.DEFAULT_BACKUP_CAPACITY);
+            NEXT_AUTO_BACKUP_CHECK.put(player.getUUID(), now + intervalTicks);
+        } finally {
+            FindMePerformanceMonitor.recordAutoBackup(startedAt);
+        }
+    }
+
+    /** Stores display-only history data without changing the restorable backup state. */
+    private static CompoundTag backupPreviewContents(MinecraftServer server, PlayerCompanionData data) {
+        CompoundTag root = new CompoundTag();
+        ListTag entries = new ListTag();
+        Set<UUID> captured = new HashSet<>();
+        for (CompanionKind kind : CompanionKind.values()) {
+            for (UUID uuid : data.list(kind)) {
+                addBackupPreviewEntry(server, data, kind, false, uuid, captured, entries);
+            }
+        }
+        for (UUID uuid : data.vehicleList()) {
+            addBackupPreviewEntry(server, data, CompanionKind.MOUNT, true, uuid, captured, entries);
+        }
+        root.put("entries", entries);
+        return root;
+    }
+
+    private static void addBackupPreviewEntry(MinecraftServer server, PlayerCompanionData data, CompanionKind kind,
+                                               boolean vehicle, UUID uuid, Set<UUID> captured, ListTag entries) {
+        if (uuid == null || !captured.add(uuid)) return;
+        Entity entity = CompanionEntityLookup.findEntity(server, uuid).orElse(null);
+        CompoundTag stored = data.rawStoredEntityForDiagnostics(uuid).orElse(null);
+        String type = entity == null ? stored == null ? "" : CompanionEntitySnapshots.storedEntityType(stored)
+                : EntityType.getKey(entity.getType()).toString();
+        String name = data.displayName(uuid).orElseGet(() -> entity == null
+                ? stored == null ? uuid.toString().substring(0, 8) : CompanionEntitySnapshots.storedEntityName(stored, uuid)
+                : entity.getDisplayName().getString());
+        CompoundTag preview = entity == null
+                ? stored == null ? null : CompanionEntitySnapshots.previewStoredEntityTag(stored)
+                : CompanionEntitySnapshots.previewEntityTag(entity, type);
+        CompoundTag entry = new CompoundTag();
+        entry.putString("kind", kind.name());
+        entry.putBoolean("vehicle", vehicle);
+        entry.putUUID("uuid", uuid);
+        entry.putString("name", name);
+        entry.putString("entityType", type);
+        entry.putBoolean("alive", entity == null ? stored != null && !stored.getBoolean("CompanionRescueDead") : entity.isAlive());
+        if (preview != null && !preview.isEmpty()) entry.put("preview", preview);
+        entries.add(entry);
     }
 
     public static void forgetPlayer(ServerPlayer player) {
@@ -446,8 +447,14 @@ public final class CompanionSafetyService {
         long now = player.serverLevel().getGameTime();
         long intervalTicks = Math.max(1, Config.backupIntervalMinutes) * 1200L;
         long lastBackup = data.lastBackupAt();
+        long staggeredStart = now + initialAutoBackupDelay(player.getUUID());
         NEXT_AUTO_BACKUP_CHECK.put(player.getUUID(), lastBackup > 0L
-                ? Math.max(now + 1L, lastBackup + intervalTicks) : now + 1L);
+                ? Math.max(staggeredStart, lastBackup + intervalTicks) : staggeredStart);
+    }
+
+    static int initialAutoBackupDelay(UUID playerUuid) {
+        int hash = playerUuid == null ? 0 : playerUuid.hashCode();
+        return 20 + Math.floorMod(hash, 181);
     }
 
     private static void scheduleNextAutoBackup(ServerPlayer player, long backupAt) {
@@ -604,7 +611,8 @@ public final class CompanionSafetyService {
             return false;
         }
         long now = player.serverLevel().getGameTime();
-        data.createBackup(now, reason, Math.max(1, Config.DEFAULT_BACKUP_CAPACITY));
+        data.createBackup(now, "safety",
+                Math.max(1, Config.DEFAULT_BACKUP_CAPACITY), false, backupPreviewContents(player.getServer(), data));
         CompanionDataService.save(player, data);
         PlayerCompanionDataMirror.rememberBackup(player, now, reason, Math.max(1, Config.DEFAULT_BACKUP_CAPACITY));
         scheduleNextAutoBackup(player, now);
@@ -619,18 +627,13 @@ public final class CompanionSafetyService {
             return false;
         }
         long now = server.overworld().getGameTime();
-        data.createBackup(now, reason, Math.max(1, Config.DEFAULT_BACKUP_CAPACITY));
+        data.createBackup(now, "safety",
+                Math.max(1, Config.DEFAULT_BACKUP_CAPACITY), false,
+                backupPreviewContents(server, data));
         CompanionDataService.save(server, playerUuid, data);
         FindMeDebugLogger.info("recovery", "forced_backup_created player={} reason={} tick={} offline=true",
                 playerUuid, reason, now);
         return true;
-    }
-
-    private static void sendDoctorSummary(CommandSourceStack source, ServerPlayer player) {
-        CompanionIntegrityService.Report report = CompanionIntegrityService.diagnose(player, false);
-        for (String line : report.lines()) {
-            reply(source, line);
-        }
     }
 
     private static void syncAll(ServerPlayer player) {

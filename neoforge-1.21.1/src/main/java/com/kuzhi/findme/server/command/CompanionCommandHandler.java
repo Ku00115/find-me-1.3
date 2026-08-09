@@ -78,15 +78,16 @@ public final class CompanionCommandHandler {
         FindMeModule feature = kind == CompanionKind.MOUNT ? FindMeModule.RIDING : FindMeModule.COMPANIONS;
         boolean modulesReady = (!requiresGameplayModule(action) || FindMeModuleService.enabled(feature))
                 && (!isHouseAction(action) || FindMeModuleService.enabled(FindMeModule.HOUSES));
+        boolean targetRegistered = targetUuid != null && data.contains(kind, targetUuid);
         boolean busy = targetUuid != null && CompanionLifecycleFacade.isBusy(player, data, targetUuid);
         boolean cancellingSwitch = busy && action == CompanionAction.RECALL
                 && CompanionWheelTransactionService.canRecallActiveSwitch(player, kind, targetUuid);
-        boolean accepted = supported && targetUuid != null && data.contains(kind, targetUuid)
+        boolean accepted = supported && targetUuid != null && targetRegistered
                 && !data.deadList().contains(targetUuid)
                 && modulesReady
                 && (action == CompanionAction.SELECT || !busy || cancellingSwitch);
         String rejection = !supported ? "unsupported_action"
-                : targetUuid == null || !data.contains(kind, targetUuid) ? "target_not_registered"
+                : !targetRegistered ? "target_not_registered"
                 : data.deadList().contains(targetUuid) ? "target_dead"
                 : !modulesReady ? "module_disabled"
                 : busy && action != CompanionAction.SELECT && !cancellingSwitch ? "target_busy" : "rejected";
@@ -99,14 +100,14 @@ public final class CompanionCommandHandler {
                     || action == CompanionAction.GO_HOME) {
                 CompanionWheelTransactionService.completeImmediate(player, requestId, "committed");
             }
-        } else if (supported && targetUuid != null && data.contains(kind, targetUuid) && !modulesReady) {
+        } else if (supported && targetUuid != null && targetRegistered && !modulesReady) {
             requireWheelModules(player, kind, action);
             CompanionWheelTransactionService.reject(player, requestId, kind, action, targetUuid, rejection);
         } else if (!accepted) {
             com.kuzhi.findme.server.core.FindMeDebugLogger.info("command",
                     "wheel intent rejected player={} kind={} action={} target={} supported={} contained={} dead={} modulesReady={} busy={}",
                     player.getUUID(), kind, action, targetUuid, supported,
-                    targetUuid != null && data.contains(kind, targetUuid),
+                    targetRegistered,
                     targetUuid != null && data.deadList().contains(targetUuid), modulesReady,
                     busy);
             CompanionWheelTransactionService.reject(player, requestId, kind, action,
@@ -147,7 +148,8 @@ public final class CompanionCommandHandler {
 
     private static boolean requiresGameplayModule(CompanionAction action) {
         return action == CompanionAction.SUMMON || action == CompanionAction.SELECT_SUMMON
-                || action == CompanionAction.ESCORT || action == CompanionAction.RIDE_HOME;
+                || action == CompanionAction.ESCORT || action == CompanionAction.RIDE_HOME
+                ;
     }
 
     private static boolean isManagementAction(CompanionAction action) {

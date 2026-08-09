@@ -45,6 +45,7 @@
   .warehouse-style-menu { width: calc(100% + 5px); max-height: 77px; display: flex; flex-direction: column; gap: 1px; padding-right: 5px; overflow-x: hidden; overflow-y: auto; }
   .spell-picker-subject { width: 100%; min-height: 12px; overflow: hidden; color: #9da8ad; font-size: 8px; line-height: 10px; white-space: nowrap; }
   .spell-picker-empty { width: 100%; min-height: 28px; display: flex; align-items: center; padding: 4px; overflow: hidden; color: #c5cdd1; border: 1px solid #465158; background-color: rgba(255,255,255,0.025); font-size: 9px; line-height: 11px; }
+  .context-menu .backup-warning { min-height: 0; height: auto; align-items: flex-start; padding: 2px 3px; line-height: 10px; white-space: normal; }
   .spell-picker-list { width: 100%; max-height: 88px; display: flex; flex-direction: column; gap: 2px; overflow-x: hidden; overflow-y: auto; }
   .spell-picker-row { min-height: 22px; gap: 4px; padding: 2px 3px; }
   .spell-picker-row > span { min-width: 0; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
@@ -58,6 +59,11 @@
   .house-menu-detail { width: 100%; min-height: 23px; display: flex; flex-direction: column; justify-content: center; padding: 2px 3px; overflow: hidden; border: 1px solid #465158; background-color: rgba(255,255,255,0.025); }
   .house-menu-detail small { display: block; color: #879399; font-size: 7px; }
   .house-menu-detail b { display: block; margin-top: 2px; overflow: hidden; color: #dbe0e2; font-size: 8px; font-weight: normal; white-space: nowrap; }
+  .house-mode-label { min-height: 9px; display: flex; align-items: center; color: #879399; font-size: 7px; line-height: 8px; }
+  .house-mode-segments { width: 100%; height: 16px; display: flex; gap: 1px; }
+  .house-mode-button { min-width: 0; height: 16px; display: flex; flex: 1; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #4d5960; color: #b9c2c6; background-color: rgba(255,255,255,0.025); font-size: 7px; line-height: 8px; white-space: nowrap; pointer-events: auto; }
+  .house-mode-button:hover { color: #ffffff; border-color: #16b5df; background-color: rgba(22,181,223,0.12); }
+  .house-mode-button.active { color: #172027; border-color: #16b5df; background-color: #16b5df; }
 
   .fm-font-size-extra-small { --fm-type-body:8px; --fm-type-button:8px; --fm-type-meta:6px; --fm-type-heading:10px; }
   .fm-font-size-small { --fm-type-body:9px; --fm-type-button:9px; --fm-type-meta:7px; --fm-type-heading:11px; }
@@ -88,6 +94,7 @@
   .house-context-menu .house-menu-button { font-size: var(--fm-type-button); }
   .house-context-menu .house-menu-detail small { font-size: var(--fm-type-meta); }
   .house-context-menu .house-menu-detail b { font-size: var(--fm-type-body); }
+  .house-context-menu .house-mode-label { font-size: var(--fm-type-meta); }
 
   .fm-context-open { animation: fm-context-paper-open 110ms cubic-bezier(0.18,0.80,0.22,1) both; }
   .fm-context-forward { animation: fm-context-page-forward 105ms ease-out both; }

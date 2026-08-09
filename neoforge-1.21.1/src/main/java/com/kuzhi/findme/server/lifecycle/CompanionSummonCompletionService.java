@@ -11,6 +11,7 @@ import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.SavedPosition;
+import com.kuzhi.findme.network.RescueMagicPacket;
 import com.kuzhi.findme.server.safety.CompanionCombatRescueService;
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
 import com.kuzhi.findme.server.home.CompanionHomeResidentService;
@@ -45,7 +46,7 @@ public final class CompanionSummonCompletionService {
                     data.uiSettings().mountSummonAnimations() || mode.isRescue());
         } else {
             completeCompanionSummon(player, data, kind, living, companionRescue, companionRescueTarget,
-                    !arrivalStarted && !presentationAlreadyPlayed, moveType, tacticalDeploy);
+                    !arrivalStarted && !presentationAlreadyPlayed);
         }
         data.setLifecycleState(living.getUUID(), CompanionLifecycleState.DEPLOYED);
         int cooldown = Config.summonCooldownTicks;
@@ -59,7 +60,8 @@ public final class CompanionSummonCompletionService {
         FindMeDebugLogger.info("summon-timing",
                 "stage=AFTER_SAVE_SYNC player={} entity={} kind={} gameTime={}",
                 player.getUUID(), FindMeDebugLogger.entity(living), kind, player.level().getGameTime());
-        CompanionSummonLineService.showOrSchedule(player, living, kind, mode.isRescue() || companionRescue, companionRescue, arrivalStarted);
+        CompanionSummonLineService.showOrSchedule(player, living, kind,
+                mode.isRescue() || companionRescue, companionRescue, arrivalStarted);
     }
 
     public static void completeVoidFlyingMount(ServerPlayer player, PlayerCompanionData data, LivingEntity living,
@@ -107,14 +109,13 @@ public final class CompanionSummonCompletionService {
 
     private static void completeCompanionSummon(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
                                                 LivingEntity living, boolean companionRescue,
-                                                LivingEntity companionRescueTarget, boolean sendArrivalMagic,
-                                                CompanionMoveType moveType, boolean tacticalDeploy) {
+                                                LivingEntity companionRescueTarget, boolean sendArrivalMagic) {
         CompanionDeploymentService.rememberDeployedWithinLimit(player, data, kind, living.getUUID());
         if (companionRescue) {
             CompanionCombatRescueService.applyArrival(player, living, companionRescueTarget, sendArrivalMagic);
-        }
-        if (!companionRescue && !tacticalDeploy && data.uiSettings().companionSummonAnimations()) {
-            CompanionDeploymentPresentationService.startOrdinary(player, living, moveType);
+        } else {
+            CompanionArrivalMagicService.openEffectAt(player, living, living.position(), player.position(), 42,
+                    RescueMagicPacket.Style.GROUND_CIRCLE, RescueMagicPacket.Purpose.SUMMON);
         }
     }
 
@@ -127,6 +128,7 @@ public final class CompanionSummonCompletionService {
             CompanionSyncService.syncToClient(player, kind);
         }
     }
+
 }
 
 

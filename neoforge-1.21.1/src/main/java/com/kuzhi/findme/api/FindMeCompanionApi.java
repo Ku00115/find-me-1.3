@@ -87,13 +87,24 @@ public final class FindMeCompanionApi {
                 CompanionActionRequest.Action.DEPLOY, timeoutTicks);
     }
 
+    /**
+     * Deploys a companion for a bounded addon task without consuming the player's normal deployment limit.
+     * The task owner must release companions it temporarily deployed through {@link #requestStore}.
+     */
+    public static CompanionActionRequest requestTaskDeploy(ServerPlayer owner, UUID companionUuid,
+                                                            UUID requestId, int timeoutTicks) {
+        return CompanionActionRequestService.submit(owner, companionUuid, requestId,
+                CompanionActionRequest.Action.TASK_DEPLOY, timeoutTicks);
+    }
+
     public static CompanionActionRequest requestStore(ServerPlayer owner, UUID companionUuid,
                                                        UUID requestId, int timeoutTicks) {
         return CompanionActionRequestService.submit(owner, companionUuid, requestId,
                 CompanionActionRequest.Action.STORE, timeoutTicks);
     }
 
-    public static Optional<CompanionActionRequest> requestStatus(MinecraftServer server, UUID requestId) {
-        return CompanionActionRequestService.status(server, requestId);
+    public static Optional<CompanionActionRequest> requestStatus(MinecraftServer server, UUID ownerUuid,
+                                                                  UUID requestId) {
+        return CompanionActionRequestService.status(server, ownerUuid, requestId);
     }
 }

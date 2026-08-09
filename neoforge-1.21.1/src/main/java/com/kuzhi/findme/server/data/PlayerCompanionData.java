@@ -49,6 +49,7 @@ public class PlayerCompanionData {
     final List<UUID> deadCompanions = new ArrayList<UUID>();
     final Map<UUID, CompanionKind> deadKinds = new HashMap<UUID, CompanionKind>();
     final Map<UUID, DeadCompanionRecord> deadRecords = new HashMap<>();
+    final Map<UUID, RecoveryCompanionRecord> recoveryRecords = new HashMap<>();
     final List<VaultEntry> vault = new ArrayList<VaultEntry>();
     final List<BackupEntry> backups = new ArrayList<BackupEntry>();
 
@@ -61,6 +62,7 @@ public class PlayerCompanionData {
     final Map<UUID, CompoundTag> storedEntities = new HashMap<UUID, CompoundTag>();
     final Map<UUID, String> displayNames = new HashMap<UUID, String>();
     final Map<UUID, CompanionLifecycleState> lifecycleStates = new HashMap<>();
+    final Set<UUID> criticalCompanions = new HashSet<>();
 
     // Visual and pack/player customization.
     final Map<UUID, EnumMap<CompanionAnimationPurpose, CompanionAnimationStyle>> animationStyles = new HashMap<>();
@@ -123,6 +125,8 @@ public class PlayerCompanionData {
         boolean clearedDead = this.deadCompanions.remove(uuid);
         clearedDead |= this.deadKinds.remove(uuid) != null;
         clearedDead |= this.deadRecords.remove(uuid) != null;
+        clearedDead |= this.recoveryRecords.remove(uuid) != null;
+        clearedDead |= this.criticalCompanions.remove(uuid);
         int previousTeamIndex = this.teamIndexOf(uuid);
         if (list.contains(uuid)) {
             return clearedDead;
@@ -358,6 +362,7 @@ public class PlayerCompanionData {
         this.storedEntities.remove(uuid);
         this.displayNames.remove(uuid);
         this.lifecycleStates.remove(uuid);
+        this.criticalCompanions.remove(uuid);
         this.animationStyles.remove(uuid);
         this.effectStyles.remove(uuid);
         queueSpellItemReturns(uuid);
@@ -380,6 +385,7 @@ public class PlayerCompanionData {
         this.deadCompanions.remove(uuid);
         this.deadKinds.remove(uuid);
         this.deadRecords.remove(uuid);
+        this.recoveryRecords.remove(uuid);
         reconcileCompanionMagicContributors(previousMagicContributors);
     }
 
@@ -419,6 +425,9 @@ public class PlayerCompanionData {
         moveMapEntry(this.storedEntities, oldUuid, newUuid);
         moveMapEntry(this.displayNames, oldUuid, newUuid);
         moveMapEntry(this.lifecycleStates, oldUuid, newUuid);
+        if (this.criticalCompanions.remove(oldUuid)) {
+            this.criticalCompanions.add(newUuid);
+        }
         moveMapEntry(this.animationStyles, oldUuid, newUuid);
         moveMapEntry(this.effectStyles, oldUuid, newUuid);
         moveMapEntry(this.spellBindings, oldUuid, newUuid);
@@ -432,6 +441,14 @@ public class PlayerCompanionData {
             this.deadRecords.put(newUuid, new DeadCompanionRecord(deadRecord.recordId(), newUuid, deadRecord.customName(), deadRecord.entityType(),
                     deadRecord.previousKind(), deadRecord.previousTeamIndex(), deadRecord.deathTime(), deadRecord.worldDay(), deadRecord.dimension(),
                     deadRecord.x(), deadRecord.y(), deadRecord.z(), deadRecord.deathCause(), deadRecord.recoverable(), deadRecord.recoveryRequirements()));
+        }
+        RecoveryCompanionRecord recoveryRecord = this.recoveryRecords.remove(oldUuid);
+        if (recoveryRecord != null) {
+            this.recoveryRecords.put(newUuid, new RecoveryCompanionRecord(recoveryRecord.recordId(), newUuid,
+                    recoveryRecord.customName(), recoveryRecord.entityType(), recoveryRecord.kind(),
+                    recoveryRecord.previousTeamIndex(), recoveryRecord.detectedAt(), recoveryRecord.lastCheckedAt(),
+                    recoveryRecord.dimension(), recoveryRecord.x(), recoveryRecord.y(), recoveryRecord.z(),
+                    recoveryRecord.reason(), recoveryRecord.detail(), recoveryRecord.sourceState()));
         }
         if (this.mountEligible.remove(oldUuid)) {
             this.mountEligible.add(newUuid);
@@ -746,6 +763,7 @@ public class PlayerCompanionData {
     }
 
     public boolean allowedInTeam(CompanionTeamTarget target, UUID uuid) {
+        if (isRecovery(uuid)) return false;
         return switch (target) {
             case MOUNT -> this.companions.get(CompanionKind.MOUNT).contains(uuid);
             case COMPANION -> this.companions.get(CompanionKind.COMPANION).contains(uuid);
@@ -844,6 +862,38 @@ public class PlayerCompanionData {
 
     public boolean removeDeadAt(int index) {
         return PlayerCompanionDeadService.removeDeadAt(this, index, VAULT_LIMIT_DEFAULT);
+    }
+
+    public Optional<RecoveryCompanionRecord> recoveryRecord(UUID uuid) {
+        return Optional.ofNullable(this.recoveryRecords.get(uuid));
+    }
+
+    public boolean isRecovery(UUID uuid) {
+        return uuid != null && this.recoveryRecords.containsKey(uuid)
+                && lifecycleState(uuid) == CompanionLifecycleState.RECOVERY;
+    }
+
+    public List<RecoveryCompanionRecord> recoveryRecords() {
+        ArrayList<RecoveryCompanionRecord> records = new ArrayList<>();
+        for (CompanionKind kind : CompanionKind.values()) {
+            for (UUID uuid : this.companions.get(kind)) {
+                RecoveryCompanionRecord record = this.recoveryRecords.get(uuid);
+                if (record != null && lifecycleState(uuid) == CompanionLifecycleState.RECOVERY) records.add(record);
+            }
+        }
+        return List.copyOf(records);
+    }
+
+    public List<UUID> recoveryList() {
+        return recoveryRecords().stream().map(RecoveryCompanionRecord::sourceEntityId).toList();
+    }
+
+    public void putRecoveryRecord(RecoveryCompanionRecord record) {
+        if (record != null) this.recoveryRecords.put(record.sourceEntityId(), record);
+    }
+
+    public void clearRecoveryRecord(UUID uuid) {
+        if (uuid != null) this.recoveryRecords.remove(uuid);
     }
 
     void purgeDeadFromLiveLists() {
@@ -962,13 +1012,13 @@ public class PlayerCompanionData {
     }
 
     public void setCompanionMagicMana(float mana, long tick) {
-        this.companionMagicMana = mana;
+        this.companionMagicMana = Float.isFinite(mana) ? Math.max(0.0F, mana) : -1.0F;
         this.companionMagicManaTick = Math.max(0L, tick);
     }
 
     public void setCompanionMagicMana(float mana, long tick, float capacity) {
         setCompanionMagicMana(mana, tick);
-        this.companionMagicCapacity = capacity;
+        this.companionMagicCapacity = Float.isFinite(capacity) ? Math.max(0.0F, capacity) : -1.0F;
     }
 
     public Optional<CompanionSpellBinding> spellBinding(UUID uuid, int slot) {
@@ -1163,6 +1213,7 @@ public class PlayerCompanionData {
         if (uuid != null && state != null) {
             CompanionLifecycleState previous = lifecycleState(uuid);
             this.lifecycleStates.put(uuid, state);
+            if (state != CompanionLifecycleState.RECOVERY) this.recoveryRecords.remove(uuid);
             if (previous != state) markLifecycleChanged(uuid);
         }
     }
@@ -1189,6 +1240,21 @@ public class PlayerCompanionData {
         return Set.copyOf(this.storedEntities.keySet());
     }
 
+    public boolean isCritical(UUID uuid) {
+        return uuid != null && this.criticalCompanions.contains(uuid);
+    }
+
+    public Set<UUID> criticalCompanions() {
+        return Set.copyOf(this.criticalCompanions);
+    }
+
+    public boolean setCritical(UUID uuid, boolean critical) {
+        if (uuid == null) return false;
+        boolean changed = critical ? this.criticalCompanions.add(uuid) : this.criticalCompanions.remove(uuid);
+        if (changed) markLifecycleChanged(uuid);
+        return changed;
+    }
+
     public Optional<CompoundTag> rawStoredEntityForDiagnostics(UUID uuid) {
         CompoundTag tag = this.storedEntities.get(uuid);
         return tag == null ? Optional.empty() : Optional.of(tag.copy());
@@ -1200,6 +1266,7 @@ public class PlayerCompanionData {
         metadata.put("animation-style", Set.copyOf(this.animationStyles.keySet()));
         metadata.put("effect-style", Set.copyOf(this.effectStyles.keySet()));
         metadata.put("spell-binding", Set.copyOf(this.spellBindings.keySet()));
+        metadata.put("critical", Set.copyOf(this.criticalCompanions));
         metadata.put("origin", Set.copyOf(this.origins.keySet()));
         metadata.put("last-known-position", Set.copyOf(this.lastKnownPositions.keySet()));
         metadata.put("home-position", Set.copyOf(this.homePositions.keySet()));
@@ -1307,6 +1374,11 @@ public class PlayerCompanionData {
         markLifecycleChanged(uuid);
     }
 
+    public void setHouseResidentPosition(UUID uuid, SavedPosition position) {
+        PlayerCompanionEntityStateService.setHouseResidentPosition(this, uuid, position);
+        markLifecycleChanged(uuid);
+    }
+
     public void setHomeNestBlock(UUID uuid, SavedPosition position) {
         PlayerCompanionEntityStateService.setHomeNestBlock(this, uuid, position);
         markLifecycleChanged(uuid);
@@ -1347,6 +1419,18 @@ public class PlayerCompanionData {
         return PlayerCompanionEntityStateService.storedEntity(this, uuid);
     }
 
+    public boolean hasStoredEntity(UUID uuid) {
+        return PlayerCompanionEntityStateService.hasStoredEntity(this, uuid);
+    }
+
+    public Optional<String> storedEntityType(UUID uuid) {
+        return PlayerCompanionEntityStateService.storedEntityType(this, uuid);
+    }
+
+    public Optional<String> storedEntityName(UUID uuid) {
+        return PlayerCompanionEntityStateService.storedEntityName(this, uuid);
+    }
+
     public Optional<String> displayName(UUID uuid) {
         return PlayerCompanionEntityStateService.displayName(this, uuid);
     }
@@ -1371,12 +1455,20 @@ public class PlayerCompanionData {
         return PlayerCompanionArchiveService.vaultList(this);
     }
 
+    public List<CompoundTag> recoverySnapshotsFromArchives(UUID uuid) {
+        return PlayerCompanionArchiveService.recoverySnapshots(this, uuid);
+    }
+
     public void createBackup(long savedAt, String reason, int limit) {
         PlayerCompanionArchiveService.createBackup(this, savedAt, reason, limit);
     }
 
     public void createBackup(long savedAt, String reason, int limit, boolean manual) {
         PlayerCompanionArchiveService.createBackup(this, savedAt, reason, limit, manual);
+    }
+
+    public void createBackup(long savedAt, String reason, int limit, boolean manual, CompoundTag previewContents) {
+        PlayerCompanionArchiveService.createBackup(this, savedAt, reason, limit, manual, previewContents);
     }
 
     public List<BackupEntry> backupList() {
@@ -1391,12 +1483,12 @@ public class PlayerCompanionData {
         return PlayerCompanionArchiveService.renameManualBackup(this, index, expectedSavedAt, name);
     }
 
-    public boolean restoreBackupAt(int index) {
-        return PlayerCompanionArchiveService.restoreBackupAt(this, index);
-    }
-
     public void restoreBackup(BackupEntry backup) {
         PlayerCompanionArchiveService.restoreBackup(this, backup);
+    }
+
+    public boolean deleteBackup(int index, long expectedSavedAt) {
+        return PlayerCompanionArchiveService.deleteBackup(this, index, expectedSavedAt);
     }
 
     public long lastBackupAt() {
@@ -1405,10 +1497,6 @@ public class PlayerCompanionData {
 
     public void trimVault(int limit) {
         PlayerCompanionArchiveService.trimVault(this, limit);
-    }
-
-    public void trimBackups(int limit) {
-        PlayerCompanionArchiveService.trimBackups(this, limit);
     }
 
     public List<UUID> wheelOrder(CompanionKind kind) {
@@ -1477,10 +1565,15 @@ public class PlayerCompanionData {
         }
     }
 
-    public static record BackupEntry(long savedAt, String reason, CompoundTag state, int formatVersion,
-                                     String checksum, boolean manual) {
+    public static record BackupEntry(long savedAt, long createdAtEpochMillis, String reason, CompoundTag state,
+                                     int formatVersion, String checksum, boolean manual) {
         public BackupEntry(long savedAt, String reason, CompoundTag state) {
-            this(savedAt, reason, state, 0, "", false);
+            this(savedAt, 0L, reason, state, 0, "", false);
+        }
+
+        public BackupEntry(long savedAt, String reason, CompoundTag state, int formatVersion,
+                           String checksum, boolean manual) {
+            this(savedAt, 0L, reason, state, formatVersion, checksum, manual);
         }
 
         public BackupEntry {

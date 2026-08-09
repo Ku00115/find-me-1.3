@@ -5,6 +5,7 @@ import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.CompanionTeamTarget;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.kuzhi.findme.network.DeadCompanionListPacket;
+import com.kuzhi.findme.network.RecoveryCompanionListPacket;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -20,6 +21,7 @@ public final class ClientCompanionState {
     private static final Map<CompanionKind, Integer> ACTIVE = new EnumMap<CompanionKind, Integer>(CompanionKind.class);
     private static final Map<CompanionKind, Long> SERVER_REVISIONS = new EnumMap<>(CompanionKind.class);
     private static List<DeadCompanionListPacket.Entry> DEAD_ENTRIES = List.of();
+    private static List<RecoveryCompanionListPacket.Entry> RECOVERY_ENTRIES = List.of();
     private static long revision;
 
     private ClientCompanionState() {
@@ -98,12 +100,22 @@ public final class ClientCompanionState {
         return DEAD_ENTRIES;
     }
 
+    public static void updateRecovery(List<RecoveryCompanionListPacket.Entry> entries) {
+        RECOVERY_ENTRIES = entries == null ? List.of() : List.copyOf(entries);
+        revision++;
+    }
+
+    public static List<RecoveryCompanionListPacket.Entry> recoveryEntries() {
+        return RECOVERY_ENTRIES;
+    }
+
     public static void reset() {
         ENTRIES.clear();
         ALL_ENTRIES.clear();
         ACTIVE.clear();
         SERVER_REVISIONS.clear();
         DEAD_ENTRIES = List.of();
+        RECOVERY_ENTRIES = List.of();
         revision++;
     }
 
@@ -140,7 +152,7 @@ public final class ClientCompanionState {
     private static CompanionListPacket.Entry copyWithPreview(CompanionListPacket.Entry entry, CompoundTag previewTag) {
         CompanionMoveType moveType = entry.moveType();
         return new CompanionListPacket.Entry(entry.uuid(), entry.entityId(), entry.entityType(), entry.name(), entry.loaded(), entry.alive(),
-                entry.deployed(), entry.ridden(), entry.hasHome(), entry.homeResident(), entry.tacticalAction(),
+                entry.critical(), entry.deployed(), entry.ridden(), entry.hasHome(), entry.homeResident(), entry.tacticalAction(),
                 entry.health(), entry.maxHealth(), entry.armor(),
                 moveType, entry.summonAnimation(), entry.rescueAnimation(), entry.storageAnimation(),
                 entry.switchAnimation(), entry.summonStyle(), entry.rescueStyle(), entry.storageStyle(),

@@ -5,6 +5,7 @@ import com.kuzhi.findme.server.ui.CompanionMessageService;
 import com.kuzhi.findme.server.data.CompanionDataService;
 
 import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.CompanionTeamTarget;
 import com.kuzhi.findme.network.CompanionTeamListPacket;
 import com.kuzhi.findme.network.ModNetwork;
@@ -29,7 +30,10 @@ public final class CompanionTeamService {
         ArrayList<CompanionTeamListPacket.Entry> entries = new ArrayList<>();
         for (CompanionTeamTarget target : CompanionTeamTarget.values()) {
             for (int i = 0; i < data.teamCount(target); ++i) {
-                entries.add(new CompanionTeamListPacket.Entry(target, i, data.teamNumber(target, i), data.teamAutoJoin(target, i), data.teamName(target, i), data.team(target, i)));
+                List<UUID> visible = data.team(target, i).stream()
+                        .filter(uuid -> !data.isRecovery(uuid))
+                        .toList();
+                entries.add(new CompanionTeamListPacket.Entry(target, i, data.teamNumber(target, i), data.teamAutoJoin(target, i), data.teamName(target, i), visible));
             }
         }
         ModNetwork.sendToPlayer(player, new CompanionTeamListPacket(CompanionDataService.revision(player), entries));

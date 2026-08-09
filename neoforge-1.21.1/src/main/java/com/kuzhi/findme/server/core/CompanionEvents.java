@@ -9,6 +9,9 @@ import com.kuzhi.findme.server.safety.CompanionSafetyService;
 import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.server.safety.CompanionDeathService;
 import com.kuzhi.findme.server.safety.CompanionThreatMemoryService;
+import com.kuzhi.findme.server.safety.CompanionCriticalStateService;
+import com.kuzhi.findme.server.safety.CompanionRecoveryService;
+import com.kuzhi.findme.server.ui.CompanionSyncService;
 import com.kuzhi.findme.server.api.ExternalActionLeaseService;
 import com.kuzhi.findme.server.api.CompanionActionRequestService;
 
@@ -40,8 +43,14 @@ public class CompanionEvents {
     }
 
     @SubscribeEvent
+    public void onServerTickPre(ServerTickEvent.Pre event) {
+        CompanionSyncService.beginServerTick(event.getServer());
+    }
+
+    @SubscribeEvent
     public void onServerTick(ServerTickEvent.Post event) {
         CompanionTickService.serverPost(event.getServer());
+        CompanionSyncService.flushServerTick(event.getServer());
     }
 
     @SubscribeEvent
@@ -56,6 +65,15 @@ public class CompanionEvents {
         com.kuzhi.findme.server.lifecycle.CompanionTeamOrderService.resetServerState();
         CompanionTacticalOrderService.resetServerState();
         CompanionSafetyService.resetRuntimeState();
+        CompanionRecoveryService.resetServerState();
+        com.kuzhi.findme.server.home.CompanionHomeResidentService.resetServerState();
+        com.kuzhi.findme.server.lifecycle.CompanionStorageService.resetServerState();
+        com.kuzhi.findme.server.lifecycle.CompanionTemporaryForcedRideService.resetServerState();
+        com.kuzhi.findme.server.data.CompanionDataService.resetServerState(event.getServer());
+        CompanionSyncService.resetServerState();
+        CompanionEntityLookup.resetServerState(event.getServer());
+        com.kuzhi.findme.server.safety.CompanionThreatResolver.finishServerTick(event.getServer());
+        FindMePerformanceMonitor.resetServerState();
     }
 
     @SubscribeEvent
@@ -75,6 +93,9 @@ public class CompanionEvents {
 
     @SubscribeEvent
     public void onEntityJoinLevel(EntityJoinLevelEvent event) {
+        if (!event.getLevel().isClientSide()) {
+            CompanionEntityLookup.trackEntity(event.getLevel().getServer(), event.getEntity());
+        }
         VehicleSeatService.handleEntityJoinLevel(event);
     }
 
@@ -105,6 +126,9 @@ public class CompanionEvents {
 
     @SubscribeEvent
     public void onEntityLeaveLevel(EntityLeaveLevelEvent event) {
+        if (!event.getLevel().isClientSide()) {
+            CompanionEntityLookup.untrackEntity(event.getLevel().getServer(), event.getEntity());
+        }
         CompanionDeathService.handleEntityLeaveLevel(event);
     }
 
@@ -126,6 +150,7 @@ public class CompanionEvents {
     @SubscribeEvent
     public void onLivingHurt(LivingIncomingDamageEvent event) {
         CompanionThreatMemoryService.handleIncomingDamage(event);
+        CompanionCriticalStateService.handleIncomingDamage(event);
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = false)

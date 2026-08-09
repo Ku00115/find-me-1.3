@@ -102,10 +102,13 @@ public final class SmallHouseBlockEntity extends BlockEntity {
         if (!(level instanceof ServerLevel serverLevel) || serverLevel.getServer() == null) {
             return;
         }
-        FindMeWorldSavedData.get(serverLevel.getServer()).registerHouse(
-                houseId,
-                owner,
-                SavedPosition.of(serverLevel, worldPosition.getX(), worldPosition.getY(), worldPosition.getZ(), 0.0f, 0.0f),
-                displayName);
+        FindMeWorldSavedData world = FindMeWorldSavedData.get(serverLevel.getServer());
+        SavedPosition position = SavedPosition.of(serverLevel, worldPosition.getX(), worldPosition.getY(),
+                worldPosition.getZ(), 0.0f, 0.0f);
+        if (!world.registerHouse(houseId, owner, position, displayName)) {
+            houseId = UUID.randomUUID();
+            setChanged();
+            world.registerHouse(houseId, owner, position, displayName);
+        }
     }
 }

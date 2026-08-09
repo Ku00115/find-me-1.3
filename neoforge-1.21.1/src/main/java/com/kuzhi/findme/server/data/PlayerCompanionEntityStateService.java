@@ -34,6 +34,12 @@ final class PlayerCompanionEntityStateService {
         data.homeHouseIds.remove(uuid);
     }
 
+    static void setHouseResidentPosition(PlayerCompanionData data, UUID uuid, SavedPosition position) {
+        if (uuid != null && position != null) {
+            data.homePositions.put(uuid, position);
+        }
+    }
+
     static Optional<SavedPosition> homePosition(PlayerCompanionData data, UUID uuid) {
         return Optional.ofNullable(data.homePositions.get(uuid));
     }
@@ -108,6 +114,22 @@ final class PlayerCompanionEntityStateService {
     static Optional<CompoundTag> storedEntity(PlayerCompanionData data, UUID uuid) {
         CompoundTag tag = data.storedEntities.get(uuid);
         return tag == null ? Optional.empty() : Optional.of(tag.copy());
+    }
+
+    static boolean hasStoredEntity(PlayerCompanionData data, UUID uuid) {
+        return uuid != null && data.storedEntities.containsKey(uuid);
+    }
+
+    static Optional<String> storedEntityType(PlayerCompanionData data, UUID uuid) {
+        CompoundTag tag = uuid == null ? null : data.storedEntities.get(uuid);
+        return tag == null ? Optional.empty()
+                : Optional.of(CompanionEntitySnapshots.storedEntityType(tag));
+    }
+
+    static Optional<String> storedEntityName(PlayerCompanionData data, UUID uuid) {
+        CompoundTag tag = uuid == null ? null : data.storedEntities.get(uuid);
+        return tag == null ? Optional.empty()
+                : Optional.of(CompanionEntitySnapshots.storedEntityName(tag, uuid));
     }
 
     static Optional<String> displayName(PlayerCompanionData data, UUID uuid) {

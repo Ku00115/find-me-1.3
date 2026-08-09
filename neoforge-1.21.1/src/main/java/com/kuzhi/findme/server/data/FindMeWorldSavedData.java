@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -14,6 +15,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.saveddata.SavedData;
 import com.kuzhi.findme.common.SavedPosition;
+import com.kuzhi.findme.common.HouseResidentMode;
 
 /**
  * FindMe's world-owned persistence boundary.
@@ -30,6 +32,8 @@ public final class FindMeWorldSavedData extends SavedData {
     private final Map<UUID, Long> playerRevisions = new HashMap<>();
     private final Map<UUID, HomeResidentIndex> homeResidentIndexes = new HashMap<>();
     private final Map<UUID, CompanionRuntimeIndex> companionRuntimeIndexes = new HashMap<>();
+    private final Map<UUID, UUID> companionOwners = new HashMap<>();
+    private boolean companionOwnersInitialized;
     private final Map<UUID, MigrationRecord> migrations = new HashMap<>();
     private final Map<UUID, HouseRecord> houses = new HashMap<>();
     private final Map<String, SavedPosition> destroyedHousePositions = new HashMap<>();
@@ -42,13 +46,20 @@ public final class FindMeWorldSavedData extends SavedData {
     public static FindMeWorldSavedData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
                 new SavedData.Factory<>(FindMeWorldSavedData::new, FindMeWorldSavedData::load),
-                DATA_NAME
-        );
+                DATA_NAME);
     }
 
     public Optional<CompoundTag> playerRoot(UUID playerUuid) {
         CompoundTag root = playerRoots.get(playerUuid);
         return root == null ? Optional.empty() : Optional.of(root.copy());
+    }
+
+    boolean hasPlayerRoot(UUID playerUuid) {
+        return playerUuid != null && playerRoots.containsKey(playerUuid);
+    }
+
+    PlayerCompanionData decodePlayerData(UUID playerUuid) {
+        return PlayerCompanionDataCodec.loadRoot(playerUuid == null ? null : playerRoots.get(playerUuid));
     }
 
     public long playerRevision(UUID playerUuid) {
@@ -65,6 +76,13 @@ public final class FindMeWorldSavedData extends SavedData {
         if (playerUuid == null) return CompanionRuntimeIndex.empty();
         return companionRuntimeIndexes.computeIfAbsent(playerUuid,
                 uuid -> CompanionRuntimeIndex.fromRoot(playerRoots.get(uuid)));
+    }
+
+    /** Derived reverse lookup for hot entity lifecycle events; player roots remain authoritative. */
+    public Optional<UUID> companionOwner(UUID companionUuid) {
+        if (companionUuid == null) return Optional.empty();
+        ensureCompanionOwners();
+        return Optional.ofNullable(companionOwners.get(companionUuid));
     }
 
     public boolean hasAuthoritativePlayer(UUID playerUuid) {
@@ -101,14 +119,19 @@ public final class FindMeWorldSavedData extends SavedData {
                 .toList();
     }
 
-    public void registerHouse(UUID houseId, UUID owner, SavedPosition position, String displayName) {
+    public boolean registerHouse(UUID houseId, UUID owner, SavedPosition position, String displayName) {
         if (houseId == null || position == null) {
-            return;
+            return false;
         }
         HouseRecord previous = houses.get(houseId);
+        if (previous != null && !sameBlock(previous.position(), position)) {
+            return false;
+        }
         Set<UUID> residents = previous == null ? new HashSet<>() : previous.residents();
-        houses.put(houseId, new HouseRecord(houseId, owner, position, displayName, residents));
+        Map<UUID, HouseResidentMode> residentModes = previous == null ? new HashMap<>() : previous.residentModes();
+        houses.put(houseId, new HouseRecord(houseId, owner, position, displayName, residents, residentModes));
         setDirty();
+        return true;
     }
 
     public void removeHouse(UUID houseId) {
@@ -145,16 +168,81 @@ public final class FindMeWorldSavedData extends SavedData {
 
     public void addResident(UUID houseId, UUID companionUuid) {
         HouseRecord house = houses.get(houseId);
-        if (house != null && companionUuid != null && house.residents.add(companionUuid)) {
-            setDirty();
+        if (house != null && companionUuid != null) {
+            boolean changed = house.residents.add(companionUuid);
+            changed |= house.residentModes.putIfAbsent(companionUuid, HouseResidentMode.WANDER) == null;
+            if (changed) {
+                setDirty();
+            }
         }
     }
 
     public void removeResident(UUID houseId, UUID companionUuid) {
         HouseRecord house = houses.get(houseId);
-        if (house != null && companionUuid != null && house.residents.remove(companionUuid)) {
+        if (house != null && companionUuid != null) {
+            boolean changed = house.residents.remove(companionUuid);
+            changed |= house.residentModes.remove(companionUuid) != null;
+            if (changed) {
+                setDirty();
+            }
+        }
+    }
+
+    public HouseResidentMode residentMode(UUID houseId, UUID companionUuid) {
+        HouseRecord house = houses.get(houseId);
+        return house == null || companionUuid == null
+                ? HouseResidentMode.WANDER
+                : house.residentMode(companionUuid);
+    }
+
+    public boolean setResidentMode(UUID houseId, UUID companionUuid, HouseResidentMode mode) {
+        HouseRecord house = houses.get(houseId);
+        if (house == null || companionUuid == null || mode == null || !house.residents.contains(companionUuid)) {
+            return false;
+        }
+        HouseResidentMode previous = house.residentModes.put(companionUuid, mode);
+        if (previous == mode) {
+            return false;
+        }
+        setDirty();
+        return true;
+    }
+
+    public int removeResidentFromAllHouses(UUID companionUuid) {
+        if (companionUuid == null) {
+            return 0;
+        }
+        int removed = 0;
+        for (HouseRecord house : houses.values()) {
+            if (house.residents.remove(companionUuid)) {
+                house.residentModes.remove(companionUuid);
+                removed++;
+            }
+        }
+        if (removed > 0) {
             setDirty();
         }
+        return removed;
+    }
+
+    private static boolean sameBlock(SavedPosition first, SavedPosition second) {
+        return first != null && second != null
+                && Objects.equals(first.dimension(), second.dimension())
+                && first.blockPos().equals(second.blockPos());
+    }
+
+    static ListTag saveResidents(HouseRecord house) {
+        ListTag residents = new ListTag();
+        if (house == null) {
+            return residents;
+        }
+        for (UUID residentUuid : house.residents()) {
+            CompoundTag resident = new CompoundTag();
+            resident.putUUID("uuid", residentUuid);
+            resident.putString("mode", house.residentMode(residentUuid).name());
+            residents.add(resident);
+        }
+        return residents;
     }
 
     public long putPlayerRoot(UUID playerUuid, CompoundTag root) {
@@ -168,6 +256,7 @@ public final class FindMeWorldSavedData extends SavedData {
         playerRoots.put(playerUuid, root.copy());
         homeResidentIndexes.remove(playerUuid);
         companionRuntimeIndexes.remove(playerUuid);
+        refreshCompanionOwners(playerUuid);
         long revision = playerRevision(playerUuid) + 1L;
         playerRevisions.put(playerUuid, revision);
         setDirty();
@@ -178,6 +267,7 @@ public final class FindMeWorldSavedData extends SavedData {
         if (playerUuid != null && playerRoots.remove(playerUuid) != null) {
             homeResidentIndexes.remove(playerUuid);
             companionRuntimeIndexes.remove(playerUuid);
+            removeCompanionOwnerEntries(playerUuid);
             playerRevisions.remove(playerUuid);
             setDirty();
         }
@@ -201,6 +291,7 @@ public final class FindMeWorldSavedData extends SavedData {
             playerRoots.put(targetUuid, root.copy());
             homeResidentIndexes.remove(targetUuid);
             companionRuntimeIndexes.remove(targetUuid);
+            refreshCompanionOwners(targetUuid);
             playerRevisions.put(targetUuid, Math.max(playerRevision(sourceUuid), playerRevision(targetUuid) + 1L));
         }
         if (migration != null) {
@@ -215,7 +306,27 @@ public final class FindMeWorldSavedData extends SavedData {
         return NbtFingerprint.sha256(root);
     }
 
-    private static FindMeWorldSavedData load(CompoundTag tag, HolderLookup.Provider provider) {
+    private void ensureCompanionOwners() {
+        if (companionOwnersInitialized) return;
+        companionOwners.clear();
+        playerRoots.keySet().stream().sorted().forEach(owner ->
+                companionRuntimeIndex(owner).uuids().stream().sorted()
+                        .forEach(companion -> companionOwners.putIfAbsent(companion, owner)));
+        companionOwnersInitialized = true;
+    }
+
+    private void refreshCompanionOwners(UUID playerUuid) {
+        if (!companionOwnersInitialized || playerUuid == null) return;
+        removeCompanionOwnerEntries(playerUuid);
+        companionRuntimeIndex(playerUuid).uuids().forEach(companion -> companionOwners.put(companion, playerUuid));
+    }
+
+    private void removeCompanionOwnerEntries(UUID playerUuid) {
+        if (!companionOwnersInitialized || playerUuid == null) return;
+        companionOwners.entrySet().removeIf(entry -> playerUuid.equals(entry.getValue()));
+    }
+
+    static FindMeWorldSavedData load(CompoundTag tag, HolderLookup.Provider provider) {
         FindMeWorldSavedData data = new FindMeWorldSavedData();
         data.destroyedHouseRevision = Math.max(0, tag.getInt("destroyedHouseRevision"));
         ListTag players = tag.getList("players", Tag.TAG_COMPOUND);
@@ -249,11 +360,14 @@ public final class FindMeWorldSavedData extends SavedData {
                 continue;
             }
             Set<UUID> residents = new HashSet<>();
+            Map<UUID, HouseResidentMode> residentModes = new HashMap<>();
             ListTag residentList = entry.getList("residents", Tag.TAG_COMPOUND);
             for (int residentIndex = 0; residentIndex < residentList.size(); residentIndex++) {
                 CompoundTag resident = residentList.getCompound(residentIndex);
                 if (resident.hasUUID("uuid")) {
-                    residents.add(resident.getUUID("uuid"));
+                    UUID residentUuid = resident.getUUID("uuid");
+                    residents.add(residentUuid);
+                    residentModes.put(residentUuid, HouseResidentMode.parse(resident.getString("mode")));
                 }
             }
             data.houses.put(entry.getUUID("houseId"), new HouseRecord(
@@ -261,7 +375,8 @@ public final class FindMeWorldSavedData extends SavedData {
                     entry.hasUUID("owner") ? entry.getUUID("owner") : null,
                     SavedPosition.load(entry.getCompound("position")),
                     entry.getString("displayName"),
-                    residents));
+                    residents,
+                    residentModes));
         }
         ListTag destroyedHouses = tag.getList("destroyedHouses", Tag.TAG_COMPOUND);
         for (int index = 0; index < destroyedHouses.size(); index++) {
@@ -324,13 +439,7 @@ public final class FindMeWorldSavedData extends SavedData {
             if (!house.displayName().isBlank()) {
                 entry.putString("displayName", house.displayName());
             }
-            ListTag residents = new ListTag();
-            for (UUID residentUuid : house.residents()) {
-                CompoundTag resident = new CompoundTag();
-                resident.putUUID("uuid", residentUuid);
-                residents.add(resident);
-            }
-            entry.put("residents", residents);
+            entry.put("residents", saveResidents(house));
             houses.add(entry);
         }
         tag.put("houses", houses);
@@ -373,13 +482,25 @@ public final class FindMeWorldSavedData extends SavedData {
         private final SavedPosition position;
         private final String displayName;
         private final Set<UUID> residents;
+        private final Map<UUID, HouseResidentMode> residentModes;
 
         public HouseRecord(UUID houseId, UUID owner, SavedPosition position, String displayName, Set<UUID> residents) {
+            this(houseId, owner, position, displayName, residents, Map.of());
+        }
+
+        public HouseRecord(UUID houseId, UUID owner, SavedPosition position, String displayName, Set<UUID> residents,
+                           Map<UUID, HouseResidentMode> residentModes) {
             this.houseId = houseId;
             this.owner = owner;
             this.position = position;
             this.displayName = displayName == null ? "" : displayName;
             this.residents = new HashSet<>(residents == null ? Set.of() : residents);
+            this.residentModes = new HashMap<>();
+            for (UUID resident : this.residents) {
+                this.residentModes.put(resident, residentModes == null
+                        ? HouseResidentMode.WANDER
+                        : residentModes.getOrDefault(resident, HouseResidentMode.WANDER));
+            }
         }
 
         public UUID houseId() { return houseId; }
@@ -387,6 +508,10 @@ public final class FindMeWorldSavedData extends SavedData {
         public SavedPosition position() { return position; }
         public String displayName() { return displayName; }
         public Set<UUID> residents() { return residents; }
-        public HouseRecord copy() { return new HouseRecord(houseId, owner, position, displayName, residents); }
+        public Map<UUID, HouseResidentMode> residentModes() { return residentModes; }
+        public HouseResidentMode residentMode(UUID resident) {
+            return residentModes.getOrDefault(resident, HouseResidentMode.WANDER);
+        }
+        public HouseRecord copy() { return new HouseRecord(houseId, owner, position, displayName, residents, residentModes); }
     }
 }

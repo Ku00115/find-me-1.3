@@ -216,8 +216,8 @@ public final class CompanionSpawnPlacementService {
                 if (rescueFlightMode == RescueFlightMode.LANDING_SUMMON) {
                     return landing;
                 }
-                double catchY = CompanionCinematicLandingService.flyingHoverTarget(
-                        player.serverLevel(), player).y;
+                double catchY = (double) landing.getY()
+                        + CompanionCinematicLandingService.flyingCatchHeight(player);
                 double angle = player.getRandom().nextDouble() * Math.PI * 2.0;
                 Vec3 direction = new Vec3(Math.cos(angle), 0.0, Math.sin(angle));
                 double horizontalDistance = CompanionRescuePlanner.plan(player).approachDistance(true);
@@ -225,7 +225,6 @@ public final class CompanionSpawnPlacementService {
                         .add(direction.scale(horizontalDistance));
                 return BlockPos.containing((Position)start);
             }
-            // Normal flying summons begin behind the player and approach into view.
             return randomizedArrivalCandidate(player, horizontal, moveType, dimensions);
         }
         if (moveType == CompanionMoveType.SWIM) {

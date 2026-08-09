@@ -3,9 +3,11 @@ package com.kuzhi.findme.server.safety;
 import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.safety.CompanionSafetyService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
+import com.kuzhi.findme.server.data.FindMeWorldSavedData;
 import com.kuzhi.findme.api.FindMeApi;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.Config;
+import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.SavedPosition;
@@ -27,6 +29,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.Creeper;
 import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
@@ -49,18 +52,26 @@ public final class CompanionDeathService {
         }
         UUID uuid = living.getUUID();
         boolean changed = false;
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            PlayerCompanionData data = CompanionDataService.data(player);
+        for (UUID ownerUuid : FindMeWorldSavedData.get(server).playerUuids()) {
+            ServerPlayer player = server.getPlayerList().getPlayer(ownerUuid);
+            PlayerCompanionData data = player == null
+                    ? CompanionDataService.data(server, ownerUuid) : CompanionDataService.data(player);
             Optional<CompanionKind> maybeKind = data.kindOf(uuid);
             if (maybeKind.isEmpty() || data.deadList().contains(uuid)) {
                 continue;
             }
             CompanionKind kind = maybeKind.get();
-            if (kind == CompanionKind.COMPANION && CompanionShoulderService.shoulderEntityTag(player, uuid).isPresent()) {
+            if (player != null && kind == CompanionKind.COMPANION
+                    && CompanionShoulderService.shoulderEntityTag(player, uuid).isPresent()) {
                 continue;
             }
-            boolean backupCreated = CompanionSafetyService.createForcedBackup(player, data, "before_mark_dead");
-            if (!backupCreated) {
+            boolean backupCreated;
+            if (player != null) {
+                backupCreated = CompanionSafetyService.createForcedBackup(player, data, "before_mark_dead");
+            } else {
+                backupCreated = CompanionSafetyService.createForcedBackup(server, ownerUuid, data, "before_mark_dead");
+            }
+            if (!backupCreated && player != null) {
                 FindMeDebugLogger.lifecycle("DEATH_BACKUP_FAILED_CONTINUE", player, uuid, living,
                         "ACTIVE", "DEAD", "death:mark_registered", data.storedEntity(uuid).isPresent(), true);
             }
@@ -92,13 +103,20 @@ public final class CompanionDeathService {
                     living.getX(), living.getY(), living.getZ(), cause, sleepRecoverable, ""));
             data.markDead(uuid, kind);
             data.setLifecycleState(uuid, CompanionLifecycleState.DEAD);
-            FindMeDebugLogger.lifecycle("MARK_DEAD", player, uuid, living,
-                    "ACTIVE", "DEAD", "death:mark_registered", true, true);
-            CompanionDataService.save(player, data);
-            CompanionSyncService.syncToClient(player, CompanionKind.MOUNT);
-            CompanionSyncService.syncToClient(player, CompanionKind.COMPANION);
-            CompanionSyncService.syncDeadToClient(player);
-            CompanionTeamService.syncToClient(player);
+            if (player != null) {
+                FindMeDebugLogger.lifecycle("MARK_DEAD", player, uuid, living,
+                        "ACTIVE", "DEAD", "death:mark_registered", true, true);
+                CompanionDataService.save(player, data);
+                CompanionSyncService.syncToClient(player, CompanionKind.MOUNT);
+                CompanionSyncService.syncToClient(player, CompanionKind.COMPANION);
+                CompanionSyncService.syncDeadToClient(player);
+                CompanionRecoveryService.syncToClient(player);
+                CompanionTeamService.syncToClient(player);
+            } else {
+                CompanionDataService.save(server, ownerUuid, data);
+                FindMeMod.LOGGER.info("FindMe marked offline owner's companion dead: owner={} companion={}",
+                        ownerUuid, uuid);
+            }
             changed = true;
         }
         return changed;
@@ -116,15 +134,28 @@ public final class CompanionDeathService {
             return;
         }
         if (entity instanceof LivingEntity living) {
+            Entity.RemovalReason reason = living.getRemovalReason();
+            if (reason == Entity.RemovalReason.KILLED || living.getHealth() <= 0.0f
+                    || isExplosionDeathDiscard(living, reason)) {
+                markRegisteredDead(event.getLevel().getServer(), living, true);
+                return;
+            }
             if (CompanionEntityTransferService.consumeIntentionalTransferRemoval(event.getLevel().getServer(), living.getUUID())) {
                 return;
             }
             if (CompanionStorageService.consumeIntentionalStorageRemoval(event.getLevel().getServer(), living.getUUID())) {
                 return;
             }
-            if (markRegisteredDead(event.getLevel().getServer(), living)) {
+            if (reason == Entity.RemovalReason.UNLOADED_TO_CHUNK) {
+                CompanionRecoveryService.snapshotBeforeChunkUnload(event.getLevel().getServer(), living);
                 return;
             }
+            if (reason == Entity.RemovalReason.DISCARDED) {
+                CompanionRecoveryService.salvageDestructiveRemoval(event.getLevel().getServer(), living, reason);
+                return;
+            }
+            CompanionRecoveryService.deferUnexpectedRemoval(event.getLevel().getServer(), living, reason);
+            return;
         }
         CompanionCollectionService.snapshotRegisteredBeforeUnload(event.getLevel().getServer(), entity);
     }
@@ -163,6 +194,18 @@ public final class CompanionDeathService {
         }
     }
 
+    private static boolean isExplosionDeathDiscard(LivingEntity living, Entity.RemovalReason reason) {
+        if (living == null || reason != Entity.RemovalReason.DISCARDED) {
+            return false;
+        }
+        if (living instanceof Creeper creeper && creeper.getSwellDir() > 0) {
+            return true;
+        }
+        if (living.getLastDamageSource() == null) return false;
+        String damageId = living.getLastDamageSource().getMsgId();
+        return damageId != null && damageId.toLowerCase(java.util.Locale.ROOT).contains("explosion");
+    }
+
     static boolean shouldSuppressDeathDrops(LivingEntity living) {
         if (living == null || living.level().isClientSide()) {
             return false;
@@ -171,14 +214,7 @@ public final class CompanionDeathService {
         if (server == null) {
             return false;
         }
-        UUID uuid = living.getUUID();
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            PlayerCompanionData data = CompanionDataService.data(player);
-            if (data.kindOf(uuid).isPresent()) {
-                return true;
-            }
-        }
-        return false;
+        return CompanionRecoveryService.ownerUuid(server, living.getUUID()).isPresent();
     }
 }
 

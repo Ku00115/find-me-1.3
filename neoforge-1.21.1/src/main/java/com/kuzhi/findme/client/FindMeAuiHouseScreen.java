@@ -2,15 +2,16 @@ package com.kuzhi.findme.client;
 
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.HouseCommandAction;
+import com.kuzhi.findme.common.HouseResidentMode;
 import com.kuzhi.findme.network.HouseCommandPacket;
 import com.kuzhi.findme.network.HousePagePacket;
 import com.kuzhi.findme.network.ModNetwork;
 import com.sighs.apricityui.event.MouseEvent;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
-import com.sighs.apricityui.style.Box;
-import com.sighs.apricityui.style.Position;
-import com.sighs.apricityui.style.Size;
+import com.sighs.apricityui.layout.Box;
+import com.sighs.apricityui.layout.Position;
+import com.sighs.apricityui.layout.Size;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -302,6 +303,13 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
             move(uuid, side);
             return;
         }
+        if (action.startsWith("house-context:mode:") && !page.readOnly() && contextUuid != null
+                && SIDE_HOME.equals(contextSide)) {
+            HouseResidentMode mode = HouseResidentMode.parse(action.substring("house-context:mode:".length()));
+            ModNetwork.sendToServer(new HouseCommandPacket(HouseCommandAction.SET_RESIDENT_MODE,
+                    page.houseId(), contextUuid, mode.name()));
+            return;
+        }
         if (action.equals("toggle-home") && !page.readOnly()) {
             moveFromValue(value);
         }
@@ -317,30 +325,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
     private void move(UUID uuid, String fromSide) {
         if (uuid == null || page.readOnly()) return;
         HouseCommandAction action = SIDE_HOME.equals(fromSide) ? HouseCommandAction.REMOVE : HouseCommandAction.ASSIGN;
-        applyOptimisticMove(uuid, fromSide);
         ModNetwork.sendToServer(new HouseCommandPacket(action, page.houseId(), uuid, ""));
-    }
-
-    private void applyOptimisticMove(UUID uuid, String fromSide) {
-        HousePagePacket.Resident moved = resident(uuid);
-        if (moved == null) return;
-        List<HousePagePacket.Resident> residents = new ArrayList<>(page.residents());
-        List<HousePagePacket.Resident> available = new ArrayList<>(page.available());
-        residents.removeIf(entry -> uuid.equals(entry.uuid()));
-        available.removeIf(entry -> uuid.equals(entry.uuid()));
-        HousePagePacket.Resident updated = new HousePagePacket.Resident(moved.uuid(), moved.name(), moved.entityType(),
-                moved.kind(), moved.active(), moved.dead(), false, moved.previewTag());
-        if (SIDE_HOME.equals(fromSide)) {
-            available.add(updated);
-            outsideFirstVisible = 0;
-        } else {
-            residents.add(updated);
-            homeFirstVisible = Math.max(0, residents.size() - VISIBLE_CARDS_PER_PANE);
-        }
-        page = new HousePagePacket(page.houseId(), page.owner(), page.ownerName(), page.houseName(), page.readOnly(),
-                List.copyOf(residents), List.copyOf(available));
-        ClientHouseState.update(page);
-        refresh();
     }
 
     private void beginDrag(MouseEvent mouse, Element target) {
@@ -533,7 +518,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
             clearOverlayMarkup();
             return;
         }
-        setOverlayMarkup("<div class='findme-context-dismiss' data-context-dismiss='1'></div>" + contextMarkup());
+        setOverlayMarkup("<div class='findme-context-dismiss' data-context-dismiss='1' data-action='house-context:close'></div>" + contextMarkup());
         contextMotionClass = "";
         contextBounds = FindMeAuiContextMenuPlacement.place(getOverlayDocument(), "findme-house-context-menu",
                 ".findme-context-overlay-root", contextAnchorX, contextAnchorY, width - 99.0, 4.0, 91.0, 24.0);
@@ -606,7 +591,8 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
         }
         int activeResidents = (int) page.residents().stream().filter(HousePagePacket.Resident::active).count();
         html.append("</div><div class='house-sidebar'><div class='house-sidebar-sheet'></div><div class='house-sidebar-content'><div class='side-heading house-side-stage-0'><small>")
-                .append(escape(tr("screen.find_me.aui.house.residence"))).append("</small><strong>")
+                .append(escape(tr("screen.find_me.aui.house.capacity", page.residents().size(), page.capacity())))
+                .append("</small><strong>")
                 .append(escape(page.houseName())).append("</strong></div>")
                 .append(sideSummary(activeResidents, tr("screen.find_me.aui.house.home_creatures"),
                         tr("screen.find_me.aui.house.home_creatures_subtitle"), "assignment", view == HouseView.ASSIGNMENT))
@@ -636,6 +622,9 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                     .append("</small><b>").append(escape(resident.entityType())).append("</b></div>")
                     .append("<div class='house-menu-detail'><small>").append(escape(tr("screen.find_me.aui.house.detail_state")))
                     .append("</small><b>").append(escape(cardStatus(resident, contextSide))).append("</b></div>")
+                    .append("<div class='house-menu-detail'><small>")
+                    .append(escape(tr("screen.find_me.aui.house.detail_mode")))
+                    .append("</small><b>").append(escape(modeLabel(resident.mode()))).append("</b></div>")
                     .append(button("house-context:main", tr("screen.find_me.aui.back"), "house-menu-button"));
         } else if (contextPage == HouseContextPage.RENAME && !page.readOnly()) {
             html.append("<span class='house-menu-title'>").append(escape(tr("screen.find_me.aui.rename"))).append("</span>")
@@ -647,6 +636,16 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
             html.append("<span class='house-menu-title'>").append(escape(resident.name())).append("</span>")
                     .append(button("house-context:detail", tr("screen.find_me.details"), "house-menu-button"));
             if (!page.readOnly()) {
+                if (SIDE_HOME.equals(contextSide)) {
+                    html.append("<span class='house-mode-label'>")
+                            .append(escape(tr("screen.find_me.aui.house.behavior")))
+                            .append("</span><div class='house-mode-segments'>");
+                    for (HouseResidentMode mode : HouseResidentMode.values()) {
+                        html.append(button("house-context:mode:" + mode.name().toLowerCase(Locale.ROOT),
+                                modeLabel(mode), "house-mode-button" + (resident.mode() == mode ? " active" : "")));
+                    }
+                    html.append("</div>");
+                }
                 html.append(button("house-context:rename", tr("screen.find_me.aui.rename"), "house-menu-button"));
                 String moveKey = SIDE_HOME.equals(contextSide)
                         ? "screen.find_me.aui.house.leave_current_home"
@@ -782,6 +781,11 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
 
     private String kindLabel(CompanionKind kind) {
         return tr(kind == CompanionKind.MOUNT ? "screen.find_me.mounts" : "screen.find_me.companions");
+    }
+
+    private String modeLabel(HouseResidentMode mode) {
+        HouseResidentMode value = mode == null ? HouseResidentMode.WANDER : mode;
+        return tr("screen.find_me.aui.house.mode." + value.name().toLowerCase(Locale.ROOT));
     }
 
     private String sideSummary(int count, String label, String subtitle, String targetView, boolean active) {

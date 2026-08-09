@@ -53,6 +53,7 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
             buffer.writeUtf(entry.name, 128);
             buffer.writeBoolean(entry.loaded);
             buffer.writeBoolean(entry.alive);
+            buffer.writeBoolean(entry.critical);
             buffer.writeBoolean(entry.deployed);
             buffer.writeBoolean(entry.ridden);
             buffer.writeBoolean(entry.hasHome);
@@ -70,7 +71,7 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
             buffer.writeVarInt(bindingCount);
             for (int slot = 0; slot < bindingCount; slot++) {
                 CompanionSpellBinding binding = entry.spellBindings.get(slot);
-                buffer.writeNbt(binding == null ? null : binding.save());
+                buffer.writeNbt(binding == null ? null : binding.saveMetadata());
             }
             buffer.writeFloat(entry.magicState.mana());
             buffer.writeFloat(entry.magicState.maxMana());
@@ -88,8 +89,9 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
     }
 
     private static ArrayList<Entry> readEntries(FriendlyByteBuf buffer) {
-        int size = buffer.readVarInt();
-        ArrayList<Entry> entries = new ArrayList<Entry>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_ROSTER_ENTRIES,
+                "companion roster entry");
+        ArrayList<Entry> entries = new ArrayList<Entry>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; ++i) {
             UUID uuid = buffer.readUUID();
             int entityId = buffer.readInt();
@@ -97,6 +99,7 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
             String name = buffer.readUtf(128);
             boolean loaded = buffer.readBoolean();
             boolean alive = buffer.readBoolean();
+            boolean critical = buffer.readBoolean();
             boolean deployed = buffer.readBoolean();
             boolean ridden = buffer.readBoolean();
             boolean hasHome = buffer.readBoolean();
@@ -124,7 +127,7 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
                 if (slot < 3) spellBindings.add(binding);
             }
             CompanionMagicState magicState = new CompanionMagicState(buffer.readFloat(), buffer.readFloat());
-            entries.add(new Entry(uuid, entityId, entityType, name, loaded, alive, deployed, ridden, hasHome,
+            entries.add(new Entry(uuid, entityId, entityType, name, loaded, alive, critical, deployed, ridden, hasHome,
                     homeResident, tacticalAction, health, maxHealth, armor, moveType, summonAnimation,
                     rescueAnimation, storageAnimation, switchAnimation, summonStyle, rescueStyle, storageStyle,
                     spellBindings, magicState, buffer.readNbt()));
@@ -140,6 +143,7 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
     }
 
     public record Entry(UUID uuid, int entityId, String entityType, String name, boolean loaded, boolean alive,
+                        boolean critical,
                         boolean deployed, boolean ridden, boolean hasHome, boolean homeResident,
                         CompanionTacticalAction tacticalAction, float health,
                         float maxHealth, float armor, CompanionMoveType moveType,
@@ -162,7 +166,7 @@ public record CompanionListPacket(CompanionKind kind, long revision, int activeI
                      CompanionAnimationStyle rescueAnimation, CompanionAnimationStyle storageAnimation,
                      CompanionAnimationStyle switchAnimation, CompanionEffectStyle summonStyle,
                      CompanionEffectStyle rescueStyle, CompanionEffectStyle storageStyle, CompoundTag previewTag) {
-            this(uuid, entityId, entityType, name, loaded, alive, deployed, ridden, hasHome, homeResident,
+            this(uuid, entityId, entityType, name, loaded, alive, false, deployed, ridden, hasHome, homeResident,
                     tacticalAction, health, maxHealth, armor, moveType, summonAnimation, rescueAnimation,
                     storageAnimation, switchAnimation, summonStyle, rescueStyle, storageStyle,
                     List.of(), CompanionMagicState.EMPTY, previewTag);

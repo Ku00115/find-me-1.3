@@ -34,4 +34,8 @@ public final class WaystonesIntegration {
         }
         WaystonesApiBridge.teleport(player, mount, waystoneUuid, success, failure);
     }
+
+    public static void syncMountedState(ServerPlayer player, LivingEntity mount) {
+        if (available()) WaystonesApiBridge.syncMountedState(player, mount);
+    }
 }

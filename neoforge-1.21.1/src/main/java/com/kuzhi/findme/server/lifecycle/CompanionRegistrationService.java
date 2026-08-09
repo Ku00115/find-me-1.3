@@ -41,14 +41,18 @@ public final class CompanionRegistrationService {
             RIDDEN_PROMOTION_CHECKS.remove(player.getUUID());
             return;
         }
+        com.kuzhi.findme.server.data.CompanionRuntimeIndex runtimeIndex =
+                CompanionDataService.runtimeIndex(player);
+        if (!runtimeIndex.autoPromoteRiddenCompanions()) {
+            RIDDEN_PROMOTION_CHECKS.remove(player.getUUID());
+            return;
+        }
         long now = player.serverLevel().getGameTime();
         RiddenPromotionCheck previous = RIDDEN_PROMOTION_CHECKS.get(player.getUUID());
         if (previous != null && previous.vehicleUuid().equals(living.getUUID())
                 && (previous.resolved() || now < previous.nextCheckTick())) {
             return;
         }
-        com.kuzhi.findme.server.data.CompanionRuntimeIndex runtimeIndex =
-                CompanionDataService.runtimeIndex(player);
         if (runtimeIndex.contains(CompanionKind.MOUNT, living.getUUID())) {
             RIDDEN_PROMOTION_CHECKS.put(player.getUUID(), new RiddenPromotionCheck(
                     living.getUUID(), Long.MAX_VALUE, true));

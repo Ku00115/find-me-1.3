@@ -1,6 +1,8 @@
 package com.kuzhi.findme.server.core;
 
 import com.kuzhi.findme.server.safety.CompanionSafetyService;
+import com.kuzhi.findme.server.safety.CompanionRecoveryService;
+import com.kuzhi.findme.server.safety.CompanionCriticalStateService;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.server.home.CompanionHomeResidentService;
@@ -10,6 +12,7 @@ import com.kuzhi.findme.server.lifecycle.CompanionContractService;
 import com.kuzhi.findme.server.lifecycle.CompanionCollectionService;
 import com.kuzhi.findme.server.lifecycle.CompanionEscortService;
 import com.kuzhi.findme.server.lifecycle.CompanionMountCinematicFlowService;
+import com.kuzhi.findme.server.lifecycle.CompanionTemporaryForcedRideService;
 import com.kuzhi.findme.server.lifecycle.CompanionMountSettleProtectionService;
 import com.kuzhi.findme.server.lifecycle.CompanionRegistrationService;
 import com.kuzhi.findme.server.lifecycle.CompanionRetreatService;
@@ -38,6 +41,9 @@ public final class CompanionTickService {
 
     public static void serverPost(MinecraftServer server) {
         long tickStartedAt = FindMePerformanceMonitor.start();
+        CompanionRecoveryService.tick(server);
+        CompanionCriticalStateService.tick(server);
+        CompanionTemporaryForcedRideService.tick(server);
         long stageStartedAt = FindMePerformanceMonitor.start();
         FindMeModuleService.tick(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.MODULES, stageStartedAt);
@@ -92,7 +98,11 @@ public final class CompanionTickService {
         stageStartedAt = FindMePerformanceMonitor.start();
         VehicleSeatService.tick(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.VEHICLE_SEATS, stageStartedAt);
+        stageStartedAt = FindMePerformanceMonitor.start();
         MountRosterTransactionService.tick(server);
+        FindMePerformanceMonitor.record(FindMePerformanceMonitor.ROSTER_TRANSACTIONS, stageStartedAt);
+        CompanionEntityLookup.finishServerTick(server);
+        com.kuzhi.findme.server.safety.CompanionThreatResolver.finishServerTick(server);
         FindMePerformanceMonitor.finishServerTick(server, tickStartedAt);
     }
 

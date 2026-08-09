@@ -42,6 +42,8 @@ public class Config {
     private static final ModConfigSpec.DoubleValue CREATURE_ARRIVAL_VOICE_VOLUME = SERVER_BUILDER.comment("[Audio] Volume for summoned creature voice. 1.0 is full volume; default is 40%.").translation("config.find_me.creatureArrivalVoiceVolume").defineInRange("creatureArrivalVoiceVolume", 0.4, 0.0, 2.0);
     private static final ModConfigSpec.IntValue HOUSE_PATROL_RADIUS = SERVER_BUILDER.comment("[House] Resident patrol radius in blocks. Default and minimum: 64.").translation("config.find_me.housePatrolRadius").defineInRange("housePatrolRadius", 64, 64, 4096);
     private static final ModConfigSpec.IntValue HOUSE_HARD_RADIUS = SERVER_BUILDER.comment("[House] Hard resident boundary in blocks. Default and minimum: 128; values below the patrol radius are raised at runtime.").translation("config.find_me.houseHardRadius").defineInRange("houseHardRadius", 128, 128, 8192);
+    private static final ModConfigSpec.IntValue HOUSE_RESIDENT_CAPACITY = SERVER_BUILDER.comment("[House] Maximum residents assigned to one house. Existing excess residents are preserved.").translation("config.find_me.houseResidentCapacity").defineInRange("houseResidentCapacity", 8, 1, 64);
+    private static final ModConfigSpec.IntValue HOUSE_GLOBAL_RESTORE_BUDGET = SERVER_BUILDER.comment("[House] Maximum expensive resident restoration attempts across the server in one tick.").translation("config.find_me.houseGlobalRestoreBudget").defineInRange("houseGlobalRestoreBudget", 2, 1, 16);
     static {
         SERVER_BUILDER.comment("Server-authoritative FindMe feature modules. Disabling a module preserves all saved records.").push("modules");
     }
@@ -199,6 +201,8 @@ public class Config {
     public static double creatureArrivalVoiceVolume = 0.4;
     public static int housePatrolRadius = 64;
     public static int houseHardRadius = 128;
+    public static int houseResidentCapacity = 8;
+    public static int houseGlobalRestoreBudget = 2;
     public static Map<String, Double> previewScaleOverrides;
     public static double guiOpacity;
     public static boolean enableAutoBackups = true;
@@ -342,6 +346,8 @@ public class Config {
         creatureArrivalVoiceVolume = (Double)CREATURE_ARRIVAL_VOICE_VOLUME.get();
         housePatrolRadius = (Integer)HOUSE_PATROL_RADIUS.get();
         houseHardRadius = Math.max(housePatrolRadius, (Integer)HOUSE_HARD_RADIUS.get());
+        houseResidentCapacity = (Integer)HOUSE_RESIDENT_CAPACITY.get();
+        houseGlobalRestoreBudget = (Integer)HOUSE_GLOBAL_RESTORE_BUDGET.get();
         enableAutoBackups = (Boolean)ENABLE_AUTO_BACKUPS.get();
         backupIntervalMinutes = (Integer)BACKUP_INTERVAL_MINUTES.get();
         preventBoundCreatureDeathDrops = (Boolean)PREVENT_BOUND_CREATURE_DEATH_DROPS.get();

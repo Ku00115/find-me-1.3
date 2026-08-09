@@ -12,5 +12,6 @@ public enum CompanionTacticalAction {
     PROTECT_OWNER,
     HEAL_OWNER,
     MAGIC_PROTECT,
-    MAGIC_SUPPORT
+    MAGIC_SUPPORT,
+    MOVE_FORWARD
 }

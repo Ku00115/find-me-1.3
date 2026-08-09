@@ -118,6 +118,9 @@ final class PlayerCompanionDataCodec {
             if (!entry6.hasUUID("uuid") || !entry6.contains("entity", 10)) continue;
             data.storedEntities.put(entry6.getUUID("uuid"), CompanionStorageService.sanitizedStoredTag(entry6.getCompound("entity")));
         }
+        data.criticalCompanions.clear();
+        data.criticalCompanions.addAll(readUuidList(root.getList("criticalCompanions", 10)));
+        data.criticalCompanions.removeIf(uuid -> !data.contains(uuid) && !data.storedEntities.containsKey(uuid));
         ListTag names = root.getList("displayNames", 10);
         for (int i = 0; i < names.size(); ++i) {
             String name;
@@ -136,12 +139,13 @@ final class PlayerCompanionDataCodec {
             CompoundTag backupEntry = backupList.getCompound(i);
             if (!backupEntry.contains("state", 10)) continue;
             data.backups.add(new PlayerCompanionData.BackupEntry(backupEntry.getLong("savedAt"),
-                    backupEntry.getString("reason"), backupEntry.getCompound("state"),
+                    backupEntry.getLong("createdAtEpochMillis"), backupEntry.getString("reason"),
+                    backupEntry.getCompound("state"),
                     backupEntry.getInt("formatVersion"), backupEntry.getString("checksum"),
                     backupEntry.contains("manual") ? backupEntry.getBoolean("manual")
                             : isLegacyManualBackup(backupEntry.getString("reason"))));
         }
-        PlayerCompanionArchiveService.trimBackups(data, 4, true);
+        PlayerCompanionArchiveService.normalizeBackups(data, 6, 4);
         ListTag mountEligible = root.getList("mountEligible", 10);
         for (int i = 0; i < mountEligible.size(); ++i) {
             CompoundTag entry8 = mountEligible.getCompound(i);
@@ -226,8 +230,16 @@ final class PlayerCompanionDataCodec {
                     root.contains("companionMagicCapacity", 99) ? root.getFloat("companionMagicCapacity") : -1.0F);
         }
         readLifecycleStates(root, data);
+        readRecoveryRecords(root, data);
         data.clearLifecycleChanges();
         return data;
+    }
+
+    /** Decodes an authoritative world root without exposing or copying that root. */
+    static PlayerCompanionData loadRoot(CompoundTag root) {
+        CompoundTag container = new CompoundTag();
+        if (root != null) container.put(ROOT, root);
+        return load(container);
     }
 
     static boolean hasMeaningfulRoot(CompoundTag persistentData) {
@@ -240,6 +252,11 @@ final class PlayerCompanionDataCodec {
 
     static CompoundTag rootCopy(CompoundTag persistentData) {
         return persistentData.contains(ROOT, 10) ? persistentData.getCompound(ROOT).copy() : new CompoundTag();
+    }
+
+    /** The caller must immediately pass this to a boundary that performs its own defensive copy. */
+    static CompoundTag rootForImmediateStore(CompoundTag persistentData) {
+        return persistentData.contains(ROOT, 10) ? persistentData.getCompound(ROOT) : new CompoundTag();
     }
 
     static void putRoot(CompoundTag persistentData, CompoundTag root) {
@@ -270,6 +287,7 @@ final class PlayerCompanionDataCodec {
                 || !root.getList("storedEntities", 10).isEmpty()
                 || !root.getList("displayNames", 10).isEmpty()
                 || !root.getList("lifecycleStates", 10).isEmpty()
+                || !root.getList("criticalCompanions", 10).isEmpty()
                 || !root.getList("animationStyles", 10).isEmpty()
                 || !root.getList("effectStyles", 10).isEmpty()
                 || !root.getList("spellBindings", 10).isEmpty()
@@ -285,6 +303,7 @@ final class PlayerCompanionDataCodec {
                 || root.contains("teamNumbers", 10)
                 || root.contains("teamAutoJoinDisabled", 10)
                 || !root.getList("deadRecords", 10).isEmpty()
+                || !root.getList("recoveryRecords", 10).isEmpty()
                 || root.contains("uiSettings", 10)
                 || !root.getList("bindingCinematicSeenTypes", 10).isEmpty()
                 || root.contains("companionMagicMana", 99)
@@ -317,6 +336,7 @@ final class PlayerCompanionDataCodec {
         root.put("storedEntities", (Tag)storedEntityList(data.storedEntities));
         root.put("displayNames", (Tag)displayNameList(data.displayNames));
         root.put("lifecycleStates", (Tag)lifecycleStateList(data));
+        root.put("criticalCompanions", (Tag)sortedUuidList(data.criticalCompanions));
         root.put("animationStyles", (Tag)animationStyleList(data));
         root.put("effectStyles", (Tag)effectStyleList(data));
         root.put("spellBindings", (Tag)spellBindingList(data));
@@ -330,6 +350,7 @@ final class PlayerCompanionDataCodec {
         for (PlayerCompanionData.BackupEntry backup : data.backups) {
             CompoundTag backupTag = new CompoundTag();
             backupTag.putLong("savedAt", backup.savedAt());
+            backupTag.putLong("createdAtEpochMillis", backup.createdAtEpochMillis());
             backupTag.putString("reason", backup.reason());
             backupTag.put("state", (Tag)backup.state());
             backupTag.putInt("formatVersion", backup.formatVersion());
@@ -348,6 +369,7 @@ final class PlayerCompanionDataCodec {
         root.put("teamNumbers", teamNumbers(data));
         root.put("teamAutoJoinDisabled", teamAutoJoinDisabled(data));
         root.put("deadRecords", (Tag)deadRecordList(data));
+        root.put("recoveryRecords", (Tag)recoveryRecordList(data));
         root.put("uiSettings", data.uiSettings.save());
         root.put("bindingCinematicSeenTypes", stringValueList(data.bindingCinematicSeenTypes, "entityType"));
         if (data.companionMagicMana >= 0.0F) {
@@ -416,6 +438,7 @@ final class PlayerCompanionDataCodec {
         root.put("storedEntities", (Tag)storedEntityList(data.storedEntities));
         root.put("displayNames", (Tag)displayNameList(data.displayNames));
         root.put("lifecycleStates", (Tag)lifecycleStateList(data));
+        root.put("criticalCompanions", (Tag)sortedUuidList(data.criticalCompanions));
         root.put("animationStyles", (Tag)animationStyleList(data));
         root.put("effectStyles", (Tag)effectStyleList(data));
         root.put("spellBindings", (Tag)spellBindingList(data));
@@ -430,6 +453,7 @@ final class PlayerCompanionDataCodec {
         root.put("teamNumbers", teamNumbers(data));
         root.put("teamAutoJoinDisabled", teamAutoJoinDisabled(data));
         root.put("deadRecords", (Tag)deadRecordList(data));
+        root.put("recoveryRecords", (Tag)recoveryRecordList(data));
         ListTag vaultList = new ListTag();
         for (PlayerCompanionData.VaultEntry vaultEntry : data.vault) {
             vaultList.add((Tag)saveVaultEntry(vaultEntry));
@@ -497,6 +521,9 @@ final class PlayerCompanionDataCodec {
             if (!entry.hasUUID("uuid") || !entry.contains("entity", 10)) continue;
             data.storedEntities.put(entry.getUUID("uuid"), CompanionStorageService.sanitizedStoredTag(entry.getCompound("entity")));
         }
+        data.criticalCompanions.clear();
+        data.criticalCompanions.addAll(readUuidList(root.getList("criticalCompanions", 10)));
+        data.criticalCompanions.removeIf(uuid -> !data.contains(uuid) && !data.storedEntities.containsKey(uuid));
         data.displayNames.clear();
         ListTag nameList = root.getList("displayNames", 10);
         for (int i = 0; i < nameList.size(); ++i) {
@@ -561,6 +588,7 @@ final class PlayerCompanionDataCodec {
                 root.getList("bindingCinematicSeenTypes", 10), "entityType"));
         data.lifecycleStates.clear();
         readLifecycleStates(root, data);
+        readRecoveryRecords(root, data);
         data.spellBindings.clear();
         readSpellBindings(root, data);
         readPendingSpellItemReturns(root, data);
@@ -603,6 +631,47 @@ final class PlayerCompanionDataCodec {
         for (DeadCompanionRecord record : records) {
             list.add(record.save());
         }
+        return list;
+    }
+
+    private static void readRecoveryRecords(CompoundTag root, PlayerCompanionData data) {
+        data.recoveryRecords.clear();
+        ListTag records = root.getList("recoveryRecords", 10);
+        for (int i = 0; i < records.size(); i++) {
+            RecoveryCompanionRecord record = RecoveryCompanionRecord.load(records.getCompound(i));
+            if (data.contains(record.sourceEntityId())
+                    && data.lifecycleState(record.sourceEntityId()) == CompanionLifecycleState.RECOVERY) {
+                data.recoveryRecords.put(record.sourceEntityId(), record);
+            }
+        }
+        for (CompanionKind kind : CompanionKind.values()) {
+            for (UUID uuid : data.companions.get(kind)) {
+                if (data.lifecycleStates.get(uuid) != CompanionLifecycleState.RECOVERY
+                        || data.recoveryRecords.containsKey(uuid)) continue;
+                CompoundTag stored = data.storedEntities.get(uuid);
+                String entityType = stored == null ? "" : CompanionEntitySnapshots.storedEntityType(stored);
+                String name = data.displayNames.getOrDefault(uuid,
+                        stored == null ? uuid.toString().substring(0, 8)
+                                : CompanionEntitySnapshots.storedEntityName(stored, uuid));
+                SavedPosition position = data.lastKnownPositions.get(uuid);
+                UUID recordId = UUID.nameUUIDFromBytes(("find_me:legacy_recovery:" + uuid)
+                        .getBytes(StandardCharsets.UTF_8));
+                data.recoveryRecords.put(uuid, new RecoveryCompanionRecord(recordId, uuid, name, entityType,
+                        kind, data.teamIndexOf(uuid), 0L, 0L,
+                        position == null ? "" : position.dimension().location().toString(),
+                        position == null ? 0.0 : position.x(), position == null ? 0.0 : position.y(),
+                        position == null ? 0.0 : position.z(), "legacy_unresolved",
+                        "No authoritative live entity or valid stored snapshot was recorded.",
+                        CompanionLifecycleState.RECOVERY));
+            }
+        }
+    }
+
+    private static ListTag recoveryRecordList(PlayerCompanionData data) {
+        ListTag list = new ListTag();
+        ArrayList<RecoveryCompanionRecord> records = new ArrayList<>(data.recoveryRecords());
+        records.sort(Comparator.comparing(RecoveryCompanionRecord::sourceEntityId));
+        for (RecoveryCompanionRecord record : records) list.add(record.save());
         return list;
     }
 

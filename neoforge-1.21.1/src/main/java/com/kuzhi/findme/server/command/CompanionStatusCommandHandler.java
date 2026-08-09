@@ -5,6 +5,7 @@ import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.lifecycle.CompanionEscortService;
 import com.kuzhi.findme.server.lifecycle.CompanionRegistrationService;
 import com.kuzhi.findme.server.ui.CompanionSyncService;
+import com.kuzhi.findme.server.safety.CompanionRecoveryService;
 import net.minecraft.server.level.ServerPlayer;
 
 public final class CompanionStatusCommandHandler {
@@ -23,6 +24,7 @@ public final class CompanionStatusCommandHandler {
         CompanionRegistrationService.sweepDeadEntriesAndSync(player, data, CompanionKind.MOUNT);
         CompanionRegistrationService.sweepDeadEntriesAndSync(player, data, CompanionKind.COMPANION);
         CompanionSyncService.syncDeadToClient(player);
+        CompanionRecoveryService.syncToClient(player);
     }
 
     public static void syncList(ServerPlayer player, CompanionKind kind) {

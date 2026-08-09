@@ -403,6 +403,7 @@ final class FindMeWheelRenderer {
             case PENDING -> 0xFF8B9294;
             case DEPLOYED -> 0xFF20C6E8;
             case SWITCHING -> 0xFFFFC247;
+            case CRITICAL -> 0xFFFF7052;
             case DEAD -> 0xFFE34850;
             case AVAILABLE -> 0xFFCCD6D6;
         };

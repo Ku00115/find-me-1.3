@@ -34,8 +34,9 @@ public record PackAnimationPresetStylePacket(List<String> entityTypes, Companion
     }
 
     public static PackAnimationPresetStylePacket decode(FriendlyByteBuf buffer) {
-        int size = buffer.readVarInt();
-        ArrayList<String> entityTypes = new ArrayList<>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_PRESET_ENTRIES,
+                "animation preset style entity");
+        ArrayList<String> entityTypes = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; i++) {
             entityTypes.add(buffer.readUtf(128));
         }

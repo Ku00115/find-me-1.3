@@ -32,8 +32,8 @@ public record WaystoneDestinationListPacket(UUID mountUuid, List<WaystoneDestina
     }
     private static WaystoneDestinationListPacket decode(FriendlyByteBuf buffer) {
         UUID mount = buffer.readUUID();
-        int size = Math.min(1024, buffer.readVarInt());
-        ArrayList<WaystoneDestination> values = new ArrayList<>(size);
+        int size = PacketDecodeLimits.readCount(buffer, 1024, "waystone destination");
+        ArrayList<WaystoneDestination> values = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; i++) {
             values.add(new WaystoneDestination(buffer.readUUID(), buffer.readUtf(256),
                     ResourceKey.create(Registries.DIMENSION, buffer.readResourceLocation()), buffer.readBlockPos()));

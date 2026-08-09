@@ -75,8 +75,9 @@ public record VehicleListPacket(long revision, int activeIndex, List<Entry> whee
     }
 
     private static List<Entry> readEntries(FriendlyByteBuf buffer) {
-        int size = buffer.readVarInt();
-        ArrayList<Entry> entries = new ArrayList<Entry>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_ROSTER_ENTRIES,
+                "vehicle roster entry");
+        ArrayList<Entry> entries = new ArrayList<Entry>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; ++i) {
             entries.add(new Entry(buffer.readUUID(), buffer.readInt(), buffer.readUtf(128), buffer.readUtf(128),
                     buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(),

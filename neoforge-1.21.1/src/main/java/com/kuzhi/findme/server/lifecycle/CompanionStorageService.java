@@ -49,6 +49,11 @@ public final class CompanionStorageService {
     private CompanionStorageService() {
     }
 
+    public static void resetServerState() {
+        INTENTIONAL_STORAGE_REMOVALS.clear();
+        PENDING_STORAGE_EFFECTS.clear();
+    }
+
     public static boolean consumeIntentionalStorageRemoval(MinecraftServer server, UUID uuid) {
         Long expiresAt = INTENTIONAL_STORAGE_REMOVALS.remove(uuid);
         if (expiresAt == null) {
@@ -100,10 +105,13 @@ public final class CompanionStorageService {
         CompanionTransientStateService.cancelTarget(player, data, uuid, CompanionTransientStateService.Reason.AUTO_STORE);
         CompanionHomeResidentService.clearResident(living);
         FindMeDebugLogger.lifecycle("STORE_REQUEST", player, uuid, living, "ACTIVE", "HOME_RETURNING", "send_home_after_storage", data.storedEntity(uuid).isPresent(), true);
-        if (!storeEntity(player, data, living)) {
+        if (!saveEntitySnapshot(player, data, living, true, false)) {
             CompanionOperationLockService.end(player, uuid, CompanionOperationLockService.Operation.STORE, "snapshot_failed");
             return false;
         }
+        data.kindOf(uuid).ifPresent(companionKind -> data.clearDeployed(companionKind, uuid));
+        data.setLifecycleState(uuid, CompanionLifecycleState.STORED);
+        CompanionDataService.save(player, data);
         beginStorageEffect(player, living);
         living.stopRiding();
         PENDING_STORAGE_EFFECTS.removeIf(pending -> pending.entityUuid.equals(uuid));
@@ -123,6 +131,9 @@ public final class CompanionStorageService {
             PendingStorageEffect pending = iterator.next();
             Entity entity = CompanionEntityLookup.findEntity(server, pending.entityUuid).orElse(null);
             if (!(entity instanceof LivingEntity living) || !living.isAlive()) {
+                ServerPlayer owner = server.getPlayerList().getPlayer(pending.playerUuid);
+                CompanionOperationLockService.end(owner, pending.entityUuid,
+                        CompanionOperationLockService.Operation.STORE, "storage_entity_removed_while_protected");
                 iterator.remove();
                 continue;
             }
@@ -158,6 +169,19 @@ public final class CompanionStorageService {
 
     public static boolean isStoragePending(UUID uuid) {
         return uuid != null && PENDING_STORAGE_EFFECTS.stream().anyMatch(pending -> pending.entityUuid.equals(uuid));
+    }
+
+    /** Reasserts protection while a live entity is in the storage presentation. */
+    public static boolean protectStorageTransition(LivingEntity living) {
+        if (living == null || !isStoragePending(living.getUUID())) {
+            return false;
+        }
+        PendingStorageEffect pending = pendingStorage(living.getUUID());
+        stabilizePendingStorage(living, pending == null ? PendingStorageEffect.snapshot(living) : pending);
+        if (living.getHealth() <= 0.0F) {
+            living.setHealth(1.0F);
+        }
+        return true;
     }
 
     public static void freezeForStorageTransition(LivingEntity living) {
@@ -369,48 +393,73 @@ public final class CompanionStorageService {
      */
     public static boolean storeDetachedHomeResident(MinecraftServer server, UUID ownerUuid,
                                                     PlayerCompanionData data, LivingEntity living) {
+        PreparedDetachedHomeResident prepared = prepareDetachedHomeResident(server, ownerUuid, data, living);
+        if (prepared == null) {
+            return false;
+        }
+        CompanionDataService.save(server, ownerUuid, data);
+        commitDetachedHomeResident(server, data, prepared);
+        return true;
+    }
+
+    public static PreparedDetachedHomeResident prepareDetachedHomeResident(MinecraftServer server, UUID ownerUuid,
+                                                                            PlayerCompanionData data,
+                                                                            LivingEntity living) {
         if (server == null || ownerUuid == null || data == null || living == null || !living.isAlive()
                 || !data.contains(living.getUUID())) {
-            return false;
+            return null;
         }
         UUID uuid = living.getUUID();
         CompanionKind kind = data.kindOf(uuid).orElse(CompanionKind.COMPANION);
         CompanionHomeResidentService.clearResident(living);
-        resetLiveStateForStorage(living);
         CompoundTag tag = new CompoundTag();
         if (!living.save(tag)) {
             FindMeDebugLogger.info("house", "broken house resident snapshot failed owner={} companion={} entity={}",
                     ownerUuid, uuid, FindMeDebugLogger.entity(living));
-            return false;
+            return null;
         }
         writeStoredEntitySnapshot(data, living, tag, server.overworld().getGameTime());
         if (!hasValidStoredSnapshot(data, uuid)) {
             FindMeDebugLogger.info("house", "broken house resident snapshot invalid owner={} companion={} entity={}",
                     ownerUuid, uuid, FindMeDebugLogger.entity(living));
-            return false;
+            return null;
         }
         data.clearDeployed(kind, uuid);
         data.clearHomePosition(uuid);
         data.setLifecycleState(uuid, CompanionLifecycleState.STORED);
-        CompanionDataService.save(server, ownerUuid, data);
-        ServerPlayer owner = server.getPlayerList().getPlayer(ownerUuid);
         int delay = storageDelay(data, living);
+        return new PreparedDetachedHomeResident(ownerUuid, living, kind, delay);
+    }
+
+    public static void commitDetachedHomeResident(MinecraftServer server, PlayerCompanionData data,
+                                                   PreparedDetachedHomeResident prepared) {
+        if (server == null || data == null || prepared == null) {
+            return;
+        }
+        UUID uuid = prepared.living.getUUID();
+        LivingEntity living = prepared.living;
+        CompanionKind kind = prepared.kind;
+        int delay = prepared.delay;
+        ServerPlayer owner = server.getPlayerList().getPlayer(prepared.ownerUuid);
         beginStorageEffect(server, data, owner, living);
         living.stopRiding();
         markIntentionalStorageRemoval(server, uuid);
         if (delay <= 0) {
             living.discard();
             FindMeDebugLogger.info("house", "broken house resident stored immediately owner={} companion={} kind={}",
-                    ownerUuid, uuid, kind);
-            return true;
+                    prepared.ownerUuid, uuid, kind);
+            return;
         }
         PENDING_STORAGE_EFFECTS.removeIf(pending -> pending.entityUuid.equals(uuid));
-        PendingStorageEffect pending = PendingStorageEffect.detached(living, ownerUuid, delay);
+        PendingStorageEffect pending = PendingStorageEffect.detached(living, prepared.ownerUuid, delay);
         freezePendingStorage(living, pending);
         PENDING_STORAGE_EFFECTS.add(pending);
         FindMeDebugLogger.info("house", "broken house resident storage animation queued owner={} companion={} kind={} ticks={}",
-                ownerUuid, uuid, kind, delay);
-        return true;
+                prepared.ownerUuid, uuid, kind, delay);
+    }
+
+    public record PreparedDetachedHomeResident(UUID ownerUuid, LivingEntity living,
+                                                CompanionKind kind, int delay) {
     }
 
     public static CompoundTag storedShoulderTag(ServerPlayer player, UUID uuid, CompoundTag source) {
@@ -446,6 +495,9 @@ public final class CompanionStorageService {
 
     public static CompoundTag healedStoredEntity(ServerPlayer player, PlayerCompanionData data, UUID uuid, CompoundTag storedTag) {
         CompoundTag tag = sanitizedStoredTag(storedTag);
+        if (data != null && data.isCritical(uuid)) {
+            return tag;
+        }
         float health = tag.getFloat("CompanionRescueHealth");
         float maxHealth = tag.getFloat("CompanionRescueMaxHealth");
         long storedAt = tag.getLong("CompanionRescueStoredAt");
@@ -587,6 +639,7 @@ public final class CompanionStorageService {
         living.setDeltaMovement(Vec3.ZERO);
         living.noPhysics = true;
         living.setNoGravity(true);
+        living.setInvulnerable(true);
         living.fallDistance = 0.0f;
         living.invulnerableTime = Math.max(living.invulnerableTime, 12);
         living.hurtMarked = true;
@@ -601,6 +654,7 @@ public final class CompanionStorageService {
     private static void restorePendingStorage(LivingEntity living, PendingStorageEffect pending) {
         living.noPhysics = pending.originalNoPhysics;
         living.setNoGravity(pending.originalNoGravity);
+        living.setInvulnerable(pending.originalInvulnerable);
         if (living instanceof Mob mob) {
             mob.setNoAi(pending.originalNoAi);
             mob.getNavigation().stop();
@@ -698,6 +752,11 @@ public final class CompanionStorageService {
 
     private static boolean saveEntitySnapshot(ServerPlayer player, PlayerCompanionData data, LivingEntity living,
                                               boolean resetLiveState) {
+        return saveEntitySnapshot(player, data, living, resetLiveState, true);
+    }
+
+    private static boolean saveEntitySnapshot(ServerPlayer player, PlayerCompanionData data, LivingEntity living,
+                                              boolean resetLiveState, boolean persist) {
         CompoundTag tag;
         if (resetLiveState) {
             resetLiveStateForStorage(living);
@@ -705,7 +764,7 @@ public final class CompanionStorageService {
         if (living.save(tag = new CompoundTag())) {
             writeStoredEntitySnapshot(player, data, living, tag);
             boolean valid = hasValidStoredSnapshot(data, living.getUUID());
-            if (valid) {
+            if (valid && persist) {
                 CompanionDataService.save(player, data);
             }
             return valid;
@@ -805,11 +864,13 @@ public final class CompanionStorageService {
         final boolean originalNoGravity;
         final boolean originalNoPhysics;
         final boolean originalNoAi;
+        final boolean originalInvulnerable;
         int age;
 
         private PendingStorageEffect(UUID entityUuid, UUID playerUuid, int durationTicks, CompanionKind kind, SavedPosition homeTarget,
                                      boolean continueWithoutPlayer,
-                                     boolean originalNoGravity, boolean originalNoPhysics, boolean originalNoAi) {
+                                     boolean originalNoGravity, boolean originalNoPhysics, boolean originalNoAi,
+                                     boolean originalInvulnerable) {
             this.entityUuid = entityUuid;
             this.playerUuid = playerUuid;
             this.durationTicks = durationTicks;
@@ -819,26 +880,27 @@ public final class CompanionStorageService {
             this.originalNoGravity = originalNoGravity;
             this.originalNoPhysics = originalNoPhysics;
             this.originalNoAi = originalNoAi;
+            this.originalInvulnerable = originalInvulnerable;
         }
 
         static PendingStorageEffect snapshot(LivingEntity living) {
             return new PendingStorageEffect(living.getUUID(), null, 0, null, null, false,
-                    living.isNoGravity(), living.noPhysics, living instanceof Mob mob && mob.isNoAi());
+                    living.isNoGravity(), living.noPhysics, living instanceof Mob mob && mob.isNoAi(), living.isInvulnerable());
         }
 
         static PendingStorageEffect normal(LivingEntity living, UUID playerUuid, int durationTicks) {
             return new PendingStorageEffect(living.getUUID(), playerUuid, durationTicks, null, null, false,
-                    living.isNoGravity(), living.noPhysics, living instanceof Mob mob && mob.isNoAi());
+                    living.isNoGravity(), living.noPhysics, living instanceof Mob mob && mob.isNoAi(), living.isInvulnerable());
         }
 
         static PendingStorageEffect detached(LivingEntity living, UUID playerUuid, int durationTicks) {
             return new PendingStorageEffect(living.getUUID(), playerUuid, durationTicks, null, null, true,
-                    living.isNoGravity(), living.noPhysics, living instanceof Mob mob && mob.isNoAi());
+                    living.isNoGravity(), living.noPhysics, living instanceof Mob mob && mob.isNoAi(), living.isInvulnerable());
         }
 
         static PendingStorageEffect homeReturn(LivingEntity living, UUID playerUuid, int durationTicks, CompanionKind kind, SavedPosition homeTarget) {
             return new PendingStorageEffect(living.getUUID(), playerUuid, durationTicks, kind, homeTarget, false,
-                    living.isNoGravity(), living.noPhysics, living instanceof Mob mob && mob.isNoAi());
+                    living.isNoGravity(), living.noPhysics, living instanceof Mob mob && mob.isNoAi(), living.isInvulnerable());
         }
     }
 }

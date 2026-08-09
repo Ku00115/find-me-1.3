@@ -145,7 +145,7 @@ extends FindMeScreen {
             if (entry.deployed() || entry.ridden()) deployedMask |= bit;
             if (entry.ridden()) riddenMask |= bit;
             CompanionWheelVisualState state = ClientCompanionWheelController.state(this.kind, entry.uuid(),
-                    entry.alive(), entry.deployed(), entry.ridden(), activeUuid);
+                    entry.alive(), entry.critical(), entry.deployed(), entry.ridden(), activeUuid);
             stateCode |= state.ordinal() << ((i - pageState.start()) * 3);
         }
         FindMeWheelRenderer.drawFieldScrim(graphics, this.width, this.height, openFade);
@@ -176,7 +176,7 @@ extends FindMeScreen {
             boolean selected = i == active;
             boolean deployed = entry.ridden() || entry.deployed();
             CompanionWheelVisualState visualState = ClientCompanionWheelController.state(this.kind, entry.uuid(),
-                    entry.alive(), entry.deployed(), entry.ridden(), activeUuid);
+                    entry.alive(), entry.critical(), entry.deployed(), entry.ridden(), activeUuid);
             if (!auiBackdrop) {
                 if (layout == FindMeWheelStyle.CLASSIC_RADIAL) {
                     FindMeWheelRenderer.drawSlotSegment(graphics, centerX, centerY, local,
@@ -233,7 +233,7 @@ extends FindMeScreen {
             if (focused >= 0 && focused < entries.size()) {
                 CompanionListPacket.Entry focus = entries.get(focused);
                 CompanionWheelVisualState visualState = ClientCompanionWheelController.state(this.kind,
-                        focus.uuid(), focus.alive(), focus.deployed(), focus.ridden(), activeUuid);
+                        focus.uuid(), focus.alive(), focus.critical(), focus.deployed(), focus.ridden(), activeUuid);
                 Component state = wheelStateLabel(visualState, focus.ridden());
                 FindMeWheelRenderer.drawFocusedDossier(graphics, layout, this.width, this.height, centerX, centerY,
                         displayName(focus), focused + 1, entries.size(), state, fade);
@@ -818,7 +818,7 @@ extends FindMeScreen {
     }
 
     private CompanionWheelVisualState visualState(CompanionListPacket.Entry entry) {
-        return ClientCompanionWheelController.state(this.kind, entry.uuid(), entry.alive(), entry.deployed(),
+        return ClientCompanionWheelController.state(this.kind, entry.uuid(), entry.alive(), entry.critical(), entry.deployed(),
                 entry.ridden(), ClientCompanionState.activeUuid(this.kind));
     }
 
@@ -829,7 +829,7 @@ extends FindMeScreen {
         if (ClientMountRosterTransactionState.switching(entry.source(), entry.uuid())) {
             return CompanionWheelVisualState.SWITCHING;
         }
-        return ClientCompanionWheelController.state(CompanionKind.MOUNT, entry.uuid(), entry.alive(),
+        return ClientCompanionWheelController.state(CompanionKind.MOUNT, entry.uuid(), entry.alive(), entry.critical(),
                 entry.deployed(), entry.ridden(), activeUuid);
     }
 
@@ -841,6 +841,7 @@ extends FindMeScreen {
             case PENDING -> Component.translatable("screen.find_me.wheel_state_pending");
             case DEPLOYED -> Component.translatable("screen.find_me.wheel_state_deployed");
             case SWITCHING -> Component.translatable("screen.find_me.wheel_state_switching");
+            case CRITICAL -> Component.translatable("screen.find_me.wheel_state_critical");
             case DEAD -> Component.translatable("screen.find_me.wheel_state_dead");
             case AVAILABLE -> Component.translatable("screen.find_me.wheel_state_ready");
         };
@@ -975,6 +976,10 @@ extends FindMeScreen {
         boolean alive() {
             return this.vehicle != null ? this.vehicle.alive()
                     : this.findMe != null && this.findMe.alive();
+        }
+
+        boolean critical() {
+            return this.findMe != null && this.findMe.critical();
         }
 
         String name() {

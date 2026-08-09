@@ -10,6 +10,8 @@ import net.blay09.mods.waystones.api.WaystoneTeleportContext;
 import net.blay09.mods.waystones.api.WaystonesAPI;
 import net.blay09.mods.waystones.api.error.WaystoneTeleportError;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket;
+import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -58,5 +60,11 @@ final class WaystonesApiBridge {
                         result.ifRight(error -> failure.accept(error.getComponent()));
                     }
                 })));
+    }
+
+    static void syncMountedState(ServerPlayer player, LivingEntity mount) {
+        if (player == null || mount == null || player.getVehicle() != mount) return;
+        player.connection.send(new ClientboundSetPassengersPacket(mount));
+        player.connection.send(new ClientboundMoveVehiclePacket(mount));
     }
 }

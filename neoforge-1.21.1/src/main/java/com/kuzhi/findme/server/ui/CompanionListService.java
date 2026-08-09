@@ -111,8 +111,9 @@ public final class CompanionListService {
         CompanionKind targetKind = otherKind(fromKind);
         CompanionCategoryTransferService.Result result =
                 CompanionCategoryTransferService.transfer(player, data, uuid, targetKind);
-        player.displayClientMessage(Component.literal(result.message()).withStyle(
-                result.success() ? ChatFormatting.GREEN : ChatFormatting.RED), true);
+        if (!result.success()) {
+            player.displayClientMessage(Component.literal(result.message()).withStyle(ChatFormatting.RED), true);
+        }
     }
 
     public static boolean releaseAndRemove(ServerPlayer player, PlayerCompanionData data, CompanionKind kind, int index, UUID uuid) {

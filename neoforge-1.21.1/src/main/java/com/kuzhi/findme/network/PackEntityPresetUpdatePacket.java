@@ -34,8 +34,9 @@ public record PackEntityPresetUpdatePacket(List<String> entityTypes, PackEntityP
     }
 
     public static PackEntityPresetUpdatePacket decode(FriendlyByteBuf buffer) {
-        int size = buffer.readVarInt();
-        ArrayList<String> entityTypes = new ArrayList<>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_PRESET_ENTRIES,
+                "entity preset update");
+        ArrayList<String> entityTypes = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; i++) {
             entityTypes.add(buffer.readUtf(128));
         }

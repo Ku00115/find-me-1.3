@@ -91,8 +91,7 @@ public final class CompanionCategoryTransferService {
         CompanionTeamService.syncToClient(player);
         FindMeDebugLogger.lifecycle("CATEGORY_TRANSFER_COMMITTED", player, uuid, null,
                 sourceKind.name(), targetKind.name(), "warehouse:category_transfer", true, false);
-        return Result.success(targetKind == CompanionKind.MOUNT
-                ? "Moved to mounts." : "Moved to companions.");
+        return Result.success("");
     }
 
     private static void logRejected(ServerPlayer player, PlayerCompanionData data, UUID uuid,

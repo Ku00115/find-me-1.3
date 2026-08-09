@@ -2,6 +2,7 @@ package com.kuzhi.findme.server.lifecycle;
 
 import com.kuzhi.findme.server.ui.CompanionMessageService;
 import com.kuzhi.findme.server.data.CompanionDataService;
+import com.kuzhi.findme.server.data.CompanionRuntimeIndex;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.ui.CompanionSummonLineService;
 import com.kuzhi.findme.common.CompanionKind;
@@ -28,6 +29,7 @@ import com.kuzhi.findme.server.ui.CompanionSyncService;
 public final class CompanionEscortService {
     private static final double TELEPORT_DISTANCE_SQR = 48.0 * 48.0;
     private static final double CANCEL_DISTANCE_SQR = 160.0 * 160.0;
+    private static final int POSITION_SAVE_INTERVAL_TICKS = 20 * 10;
     private static final Map<UUID, EscortState> ESCORTS = new HashMap<>();
 
     private CompanionEscortService() {
@@ -60,28 +62,32 @@ public final class CompanionEscortService {
         return state != null && uuid != null && state.uuid().equals(uuid);
     }
 
+    public static boolean isEscorting(UUID uuid) {
+        return uuid != null && ESCORTS.values().stream().anyMatch(state -> state.uuid().equals(uuid));
+    }
+
     public static void tick(ServerPlayer player) {
         EscortState state = ESCORTS.get(player.getUUID());
         if (state == null) {
             return;
         }
-        PlayerCompanionData data = CompanionDataService.data(player);
-        if (!data.contains(state.kind(), state.uuid())) {
+        CompanionRuntimeIndex runtime = CompanionDataService.runtimeIndex(player);
+        if (!runtime.contains(state.kind(), state.uuid())) {
             ESCORTS.remove(player.getUUID());
             return;
         }
         if (CompanionStorageService.isStoragePending(state.uuid())) {
-            stop(player, data, state, false, false);
+            stop(player, CompanionDataService.data(player), state, false, false);
             return;
         }
-        Entity entity = CompanionEntityLookup.locateEntity(player.getServer(), data, state.uuid()).orElse(null);
+        Entity entity = CompanionEntityLookup.findEntity(player.getServer(), state.uuid()).orElse(null);
         if (!(entity instanceof LivingEntity living) || !living.isAlive()) {
-            stop(player, data, state, false, false);
+            ESCORTS.remove(player.getUUID());
             return;
         }
         Entity anchor = player.getVehicle() != null && !player.getVehicle().getUUID().equals(state.uuid()) ? player.getVehicle() : player;
         if (anchor.getUUID().equals(state.uuid())) {
-            stop(player, data, state, false, false);
+            stop(player, CompanionDataService.data(player), state, false, false);
             return;
         }
         if (CompanionArrivalSequenceService.isPending(living)) {
@@ -91,11 +97,13 @@ public final class CompanionEscortService {
         Vec3 target = CompanionEscortMovementService.followPosition(player, anchor, living, moveType, state.side());
         double distanceSqr = living.position().distanceToSqr(target);
         if (!living.level().dimension().equals(player.level().dimension()) || distanceSqr > TELEPORT_DISTANCE_SQR || distanceSqr > CANCEL_DISTANCE_SQR) {
+            PlayerCompanionData data = CompanionDataService.data(player);
             CompanionEscortMovementService.moveNearPlayer(player, data, living, target, moveType);
             return;
         }
         CompanionEscortMovementService.control(living, target, moveType);
-        if ((++state.age & 31) == 0) {
+        if (++state.age % POSITION_SAVE_INTERVAL_TICKS == 0) {
+            PlayerCompanionData data = CompanionDataService.data(player);
             data.setLastKnownPosition(state.uuid(), SavedPosition.of(living.level(), living.getX(), living.getY(), living.getZ(), living.getYRot(), living.getXRot()));
             CompanionDataService.save(player, data);
         }
@@ -133,7 +141,7 @@ public final class CompanionEscortService {
             return;
         }
         ESCORTS.remove(player.getUUID());
-        Entity entity = CompanionEntityLookup.locateEntity(player.getServer(), data, state.uuid()).orElse(null);
+        Entity entity = CompanionEntityLookup.findEntity(player.getServer(), state.uuid()).orElse(null);
         if (entity instanceof LivingEntity living) {
             CompanionStorageService.freezeForStorageTransition(living);
             data.setLastKnownPosition(state.uuid(), SavedPosition.of(living.level(), living.getX(), living.getY(), living.getZ(), living.getYRot(), living.getXRot()));
@@ -187,7 +195,7 @@ public final class CompanionEscortService {
     }
 
     private static Optional<LivingEntity> resolveLivingForEscort(ServerPlayer player, PlayerCompanionData data, CompanionKind kind, UUID uuid) {
-        Entity loaded = CompanionEntityLookup.locateEntity(player.getServer(), data, uuid).orElse(null);
+        Entity loaded = CompanionEntityLookup.findLoadedEntity(player.getServer(), data, uuid).orElse(null);
         if (loaded instanceof LivingEntity living) {
             return Optional.of(living);
         }
@@ -206,7 +214,7 @@ public final class CompanionEscortService {
 
     private static void stop(ServerPlayer player, PlayerCompanionData data, EscortState state, boolean collect, boolean forceCollect) {
         ESCORTS.remove(player.getUUID());
-        Entity entity = CompanionEntityLookup.locateEntity(player.getServer(), data, state.uuid()).orElse(null);
+        Entity entity = CompanionEntityLookup.findEntity(player.getServer(), state.uuid()).orElse(null);
         if (entity instanceof LivingEntity living) {
             if (collect && (forceCollect || state.spawnedForEscort())) {
                 CompanionDeploymentService.collectLiving(player, data, state.kind(), living);

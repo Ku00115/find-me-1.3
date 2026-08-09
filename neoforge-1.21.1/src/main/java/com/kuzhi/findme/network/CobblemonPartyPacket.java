@@ -48,8 +48,9 @@ public record CobblemonPartyPacket(long serverRevision, int activeSlot, List<Ent
     private static CobblemonPartyPacket decode(FriendlyByteBuf buffer) {
         long serverRevision = buffer.readLong();
         int activeSlot = buffer.readInt();
-        int size = buffer.readVarInt();
-        List<Entry> entries = new ArrayList<>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_ROSTER_ENTRIES,
+                "Cobblemon party entry");
+        List<Entry> entries = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; i++) {
             entries.add(new Entry(
                     buffer.readVarInt(),

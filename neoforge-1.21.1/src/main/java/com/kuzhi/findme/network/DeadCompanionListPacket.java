@@ -56,8 +56,9 @@ public record DeadCompanionListPacket(List<Entry> entries) implements CustomPack
     }
 
     public static DeadCompanionListPacket decode(FriendlyByteBuf buffer) {
-        int size = buffer.readVarInt();
-        ArrayList<Entry> entries = new ArrayList<Entry>(size);
+        int size = PacketDecodeLimits.readCount(buffer, PacketDecodeLimits.MAX_ROSTER_ENTRIES,
+                "dead companion");
+        ArrayList<Entry> entries = new ArrayList<Entry>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; ++i) {
             UUID uuid = buffer.readUUID();
             CompanionKind kind = buffer.readEnum(CompanionKind.class);

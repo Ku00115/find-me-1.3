@@ -31,6 +31,8 @@ public final class ModNetwork {
         registrar.playToClient(CobblemonPartyPacket.TYPE, CobblemonPartyPacket.STREAM_CODEC, (packet, context) -> CobblemonPartyPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(ExternalRideHandoffPacket.TYPE, ExternalRideHandoffPacket.STREAM_CODEC, (packet, context) -> ExternalRideHandoffPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(DeadCompanionListPacket.TYPE, DeadCompanionListPacket.STREAM_CODEC, (packet, context) -> DeadCompanionListPacket.handle(packet, legacyContext(context)));
+        registrar.playToClient(RecoveryCompanionListPacket.TYPE, RecoveryCompanionListPacket.STREAM_CODEC, (packet, context) -> RecoveryCompanionListPacket.handle(packet, legacyContext(context)));
+        registrar.playToClient(BackupWarehousePacket.TYPE, BackupWarehousePacket.STREAM_CODEC, (packet, context) -> BackupWarehousePacket.handle(packet, legacyContext(context)));
         registrar.playToClient(ContractCameraPacket.TYPE, ContractCameraPacket.STREAM_CODEC, (packet, context) -> ContractCameraPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(RideHomeCameraPacket.TYPE, RideHomeCameraPacket.STREAM_CODEC, (packet, context) -> RideHomeCameraPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(RideHomeDestinationPacket.TYPE, RideHomeDestinationPacket.STREAM_CODEC, (packet, context) -> RideHomeDestinationPacket.handle(packet, legacyContext(context)));
@@ -72,6 +74,8 @@ public final class ModNetwork {
         registrar.playToServer(FindMeServerSettingsCommandPacket.TYPE, FindMeServerSettingsCommandPacket.STREAM_CODEC, (packet, context) -> FindMeServerSettingsCommandPacket.handle(packet, legacyContext(context)));
         registrar.playToClient(FindMeModuleStatePacket.TYPE, FindMeModuleStatePacket.STREAM_CODEC, (packet, context) -> FindMeModuleStatePacket.handle(packet, legacyContext(context)));
         registrar.playToClient(OpenFindMeManageScreenPacket.TYPE, OpenFindMeManageScreenPacket.STREAM_CODEC, (packet, context) -> OpenFindMeManageScreenPacket.handle(packet, legacyContext(context)));
+        registrar.playToClient(OpenFindMeHudEditorPacket.TYPE, OpenFindMeHudEditorPacket.STREAM_CODEC, (packet, context) -> OpenFindMeHudEditorPacket.handle(packet, legacyContext(context)));
+        registrar.playToServer(CompanionForwardTravelTeleportPacket.TYPE, CompanionForwardTravelTeleportPacket.STREAM_CODEC, (packet, context) -> CompanionForwardTravelTeleportPacket.handle(packet, legacyContext(context)));
     }
 
     private static Supplier<FindMeNetworkContext.Context> legacyContext(IPayloadContext context) {
@@ -114,6 +118,7 @@ public final class ModNetwork {
     public static void sendToServer(RideHomeReadyPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(WaystoneDestinationRequestPacket packet) { PacketDistributor.sendToServer(packet); }
     public static void sendToServer(WaystoneJourneyRequestPacket packet) { PacketDistributor.sendToServer(packet); }
+    public static void sendToServer(CompanionForwardTravelTeleportPacket packet) { PacketDistributor.sendToServer(packet); }
 
     public static void sendToServer(VehicleCommandPacket packet) {
         PacketDistributor.sendToServer(packet);
@@ -179,7 +184,19 @@ public final class ModNetwork {
         PacketDistributor.sendToPlayer(player, packet);
     }
 
+    public static void sendToPlayer(ServerPlayer player, OpenFindMeHudEditorPacket packet) {
+        PacketDistributor.sendToPlayer(player, packet);
+    }
+
     public static void sendToPlayer(ServerPlayer player, DeadCompanionListPacket packet) {
+        PacketDistributor.sendToPlayer(player, packet);
+    }
+
+    public static void sendToPlayer(ServerPlayer player, RecoveryCompanionListPacket packet) {
+        PacketDistributor.sendToPlayer(player, packet);
+    }
+
+    public static void sendToPlayer(ServerPlayer player, BackupWarehousePacket packet) {
         PacketDistributor.sendToPlayer(player, packet);
     }
 

@@ -20,6 +20,7 @@ public record CompanionActionRequest(
 
     public enum Action {
         DEPLOY,
+        TASK_DEPLOY,
         STORE
     }
 

@@ -50,7 +50,7 @@ repositories {
 }
 
 base {
-    archivesName = mod_id
+    archivesName = "findme-${minecraft_version}-neoforge"
 }
 
 // Mojang ships Java 21 to end users in 1.21.1, so mods should target Java 21.
@@ -146,8 +146,8 @@ dependencies {
     // compileOnly "mezz.jei:jei-${mc_version}-neoforge-api:${jei_version}"
     // We add the full version to localRuntime, not runtimeOnly, so that we do not publish a dependency on it
     // localRuntime "mezz.jei:jei-${mc_version}-neoforge:${jei_version}"
-    compileOnly "com.sighs:ApricityUI-neoforge-1.21.1:1.1.5-dev"
-    localRuntime "com.sighs:ApricityUI-neoforge-1.21.1:1.1.5-dev"
+    compileOnly "com.sighs:ApricityUI-neoforge-1.21.1:1.2.0.2"
+    localRuntime "com.sighs:ApricityUI-neoforge-1.21.1:1.2.0.2"
     compileOnly "maven.modrinth:cobblemon:S1TrAn8c"
     compileOnly "maven.modrinth:waystones:OL8Mnbav"
     compileOnly "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.20"

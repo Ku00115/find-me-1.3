@@ -20,15 +20,16 @@ public final class CompanionSpellSlotService {
     private CompanionSpellSlotService() {
     }
 
-    public static void sendCandidates(ServerPlayer player, UUID uuid) {
-        if (player == null || uuid == null) {
+    public static void sendCandidates(ServerPlayer player, UUID uuid, int companionSlot, UUID requestId) {
+        if (player == null || uuid == null || requestId == null || !validSlot(companionSlot)) {
             return;
         }
         PlayerCompanionData data = CompanionDataService.data(player);
         Optional<CompanionKind> kind = validTarget(data, uuid);
         if (kind.isEmpty()) {
             player.displayClientMessage(Component.translatable("message.find_me.spell_slot.invalid_target"), true);
-            ModNetwork.sendToPlayer(player, new CompanionSpellSlotCandidatesPacket(uuid, List.of()));
+            ModNetwork.sendToPlayer(player, new CompanionSpellSlotCandidatesPacket(uuid, companionSlot,
+                    requestId, List.of()));
             return;
         }
         List<CompanionSpellSlotCandidatesPacket.Entry> entries = new ArrayList<>();
@@ -40,9 +41,10 @@ public final class CompanionSpellSlotService {
             }
             entries.add(new CompanionSpellSlotCandidatesPacket.Entry(slot, binding.get().displayName(),
                     binding.get().spellLevel(), stack.getCount(), binding.get().iconResource(),
-                    binding.get().role(), binding.get().itemTag()));
+                    binding.get().role()));
         }
-        ModNetwork.sendToPlayer(player, new CompanionSpellSlotCandidatesPacket(uuid, entries));
+        ModNetwork.sendToPlayer(player, new CompanionSpellSlotCandidatesPacket(uuid, companionSlot,
+                requestId, entries));
     }
 
     public static void bindFromHeldScroll(ServerPlayer player, UUID uuid, int companionSlot) {

@@ -4,6 +4,7 @@ import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.SavedPosition;
+import com.kuzhi.findme.network.RescueMagicPacket;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
@@ -11,7 +12,6 @@ import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
 import com.kuzhi.findme.server.home.CompanionHomeResidentService;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
-import com.kuzhi.findme.server.profile.CompanionEntityVisualBoundsService;
 import com.kuzhi.findme.server.ui.CompanionSyncService;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,7 +20,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.phys.Vec3;
 
 /** Shared summon-first boundary for features that need a selected creature deployed. */
 public final class CompanionDeployRequestService {
@@ -42,6 +41,20 @@ public final class CompanionDeployRequestService {
 
     public static Result request(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
                                  UUID uuid, Mode mode, String source, CompanionDeploymentPlan plan) {
+        return request(player, data, kind, uuid, mode, source, plan, true);
+    }
+
+    public static Result requestExternalTask(ServerPlayer player, PlayerCompanionData data,
+                                             CompanionKind kind, UUID uuid, String source) {
+        return request(player, data, kind, uuid, Mode.AUTONOMOUS, source, null, false);
+    }
+
+    private static Result request(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
+                                  UUID uuid, Mode mode, String source, CompanionDeploymentPlan plan,
+                                  boolean countTowardDeploymentLimit) {
+        if (data.isRecovery(uuid)) {
+            return new Result(State.REJECTED, null);
+        }
         LivingEntity ready = readyEntity(player, data, uuid, mode);
         if (ready != null && !CompanionLifecycleFacade.isBusy(player, data, uuid)) {
             return new Result(State.READY, ready);
@@ -58,7 +71,7 @@ public final class CompanionDeployRequestService {
             CompanionSyncService.syncToClient(player, kind);
         }
         if (mode == Mode.AUTONOMOUS) {
-            return deployDirect(player, data, kind, uuid, source, plan);
+            return deployDirect(player, data, kind, uuid, source, plan, countTowardDeploymentLimit);
         }
         boolean accepted = mode == Mode.AUTONOMOUS
                 ? CompanionLifecycleFacade.summonActiveForTacticalOrder(player, data, kind, source)
@@ -85,7 +98,8 @@ public final class CompanionDeployRequestService {
     }
 
     private static Result deployDirect(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
-                                       UUID uuid, String source, CompanionDeploymentPlan plan) {
+                                       UUID uuid, String source, CompanionDeploymentPlan plan,
+                                       boolean countTowardDeploymentLimit) {
         Entity found = CompanionEntityLookup.locateEntity(player.getServer(), data, uuid).orElse(null);
         if (found instanceof LivingEntity resident && CompanionHomeResidentService.isResident(uuid)) {
             if (!CompanionStorageService.snapshotAndDiscardHomeResidentForSummon(player, data, resident)) {
@@ -103,24 +117,9 @@ public final class CompanionDeployRequestService {
                 ? CompanionEntityClassifier.moveType(living, kind)
                 : CompanionEntityClassifier.moveType(
                         stored.map(CompanionEntitySnapshots::storedEntityType).orElse(""), kind);
-        String entityType = found instanceof LivingEntity living
-                ? net.minecraft.world.entity.EntityType.getKey(living.getType()).toString()
-                : stored.map(CompanionEntitySnapshots::storedEntityType).orElse("");
-        boolean animatedArrival = plan != null && kind == CompanionKind.COMPANION
-                && data.uiSettings().companionSummonAnimations();
-        CompanionEntityVisualBoundsService.VisualDimensions dimensions = found instanceof LivingEntity living
-                ? CompanionEntityVisualBoundsService.effectDimensions(living)
-                : stored.flatMap(CompanionEntityVisualBoundsService::storedEffectDimensions).orElse(null);
         BlockPos destination = plan != null && plan.destination() != null ? plan.destination()
                 : CompanionSpawnPlacementService.findSummonSpot(player, kind, moveType);
-        Vec3 origin = plan == null ? null : plan.origin();
-        if (animatedArrival && plan.overheadArrival()) {
-            double radius = dimensions == null ? 1.0 : Math.max(dimensions.width(), dimensions.depth()) * 0.5;
-            origin = Vec3.atBottomCenterOf(destination).add(0.0, Math.max(3.0, radius * 1.65), 0.0);
-        }
-        BlockPos spawn = animatedArrival ? origin != null ? BlockPos.containing(origin)
-                : CompanionSpawnPlacementService.findArrivalSpawn(player, moveType, false,
-                entityType, null, dimensions) : destination;
+        BlockPos spawn = destination;
         LivingEntity deployed;
         if (found instanceof LivingEntity living) {
             deployed = CompanionEntityTransferService.moveEntityTo(living, player.serverLevel(), spawn,
@@ -141,20 +140,19 @@ public final class CompanionDeployRequestService {
             }
             CompanionAnimationHelper.forceFlyingAnimationPose(deployed);
         }
-        CompanionDeploymentService.rememberDeployedWithinLimit(player, data, kind, uuid);
+        if (countTowardDeploymentLimit) {
+            CompanionDeploymentService.rememberDeployedWithinLimit(player, data, kind, uuid);
+        } else {
+            data.clearDeployed(kind, uuid);
+        }
         data.setLifecycleState(uuid, CompanionLifecycleState.DEPLOYED);
         data.setLastKnownPosition(uuid, SavedPosition.of(deployed.level(), deployed.getX(), deployed.getY(),
                 deployed.getZ(), deployed.getYRot(), deployed.getXRot()));
         CompanionDataService.save(player, data);
         if (plan == null) CompanionSyncService.syncToClient(player, kind);
-        if (animatedArrival) {
-            CompanionDeploymentPlan resolvedPlan = new CompanionDeploymentPlan(plan.operationUuid(), plan.intent(),
-                    moveType, destination, origin, plan.targetUuid(), plan.revealOffsetTicks(), plan.overheadArrival());
-            if (plan.revealOffsetTicks() == 0) {
-                CompanionDeploymentPresentationService.sendSingle(player, deployed, resolvedPlan);
-            }
-            CompanionSummonApproachService.start(player, deployed, resolvedPlan, plan.revealOffsetTicks() == 0);
-            return new Result(State.WAITING, null);
+        if (kind == CompanionKind.COMPANION) {
+            CompanionArrivalMagicService.openEffectAt(player, deployed, deployed.position(), player.position(), 42,
+                    RescueMagicPacket.Style.GROUND_CIRCLE, RescueMagicPacket.Purpose.SUMMON);
         }
         return new Result(State.READY, deployed);
     }
@@ -171,6 +169,9 @@ public final class CompanionDeployRequestService {
         REJECTED
     }
 
-    public record Result(State state, LivingEntity entity) {
+    public record Result(State state, LivingEntity entity, boolean operationStarted) {
+        public Result(State state, LivingEntity entity) {
+            this(state, entity, state == State.STARTED);
+        }
     }
 }

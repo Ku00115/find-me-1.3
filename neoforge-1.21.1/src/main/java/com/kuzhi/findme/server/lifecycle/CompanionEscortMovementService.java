@@ -15,6 +15,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -186,6 +187,8 @@ final class CompanionEscortMovementService {
 
     private static Vec3 findGroundFollowPosition(ServerPlayer player, Vec3 base, double anchorY,
                                                  LivingEntity escort) {
+        BlockPos probe = BlockPos.containing(base.x, anchorY, base.z);
+        if (!player.serverLevel().hasChunkAt(probe)) return escort.position();
         double nearbyY = CompanionCinematicLandingService.walkGroundY(
                 player.serverLevel(), base.x, anchorY, base.z, anchorY);
         BlockPos nearby = BlockPos.containing(base.x, nearbyY, base.z);
@@ -214,12 +217,15 @@ final class CompanionEscortMovementService {
                     if (radius > 0 && Math.abs(dx) != radius && Math.abs(dz) != radius) continue;
                     for (int dy = 5; dy >= -2; dy--) {
                         BlockPos candidate = origin.offset(dx, dy, dz);
-                        if (!player.serverLevel().getFluidState(candidate).is(FluidTags.WATER)) continue;
+                        if (!player.serverLevel().hasChunkAt(candidate)
+                                || !player.serverLevel().getFluidState(candidate).is(FluidTags.WATER)) continue;
                         double x = candidate.getX() + 0.5;
                         double y = candidate.getY() + 0.2;
                         double z = candidate.getZ() + 0.5;
-                        if (!player.serverLevel().noCollision(escort,
-                                escort.getBoundingBox().move(x - escort.getX(), y - escort.getY(), z - escort.getZ()))) {
+                        AABB movedBox = escort.getBoundingBox().move(
+                                x - escort.getX(), y - escort.getY(), z - escort.getZ());
+                        if (!CompanionPlacementFinder.hasLoadedChunks(player.serverLevel(), movedBox)
+                                || !player.serverLevel().noCollision(escort, movedBox)) {
                             continue;
                         }
                         double distance = candidate.distSqr(origin);

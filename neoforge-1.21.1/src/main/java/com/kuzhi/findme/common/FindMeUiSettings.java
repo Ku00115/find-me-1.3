@@ -28,7 +28,8 @@ public record FindMeUiSettings(
         boolean autoPromoteRiddenCompanions,
         SummonedOutlineMode summonedOutlineMode,
         boolean mountSummonAnimations,
-        boolean companionSummonAnimations) {
+        boolean companionSummonAnimations,
+        boolean hideRiddenMountWhenLookingDown) {
 
     public static final int TEAM_CAPACITY = 6;
 
@@ -36,8 +37,8 @@ public record FindMeUiSettings(
         return new FindMeUiSettings(true, false, true, false, true, 300, true, true,
                 true, true, 0, false, 32, FindMeWheelStyle.CLASSIC_RADIAL,
                 FindMeTextMode.PRACTICAL, true, FindMeFontFamily.DEFAULT, FindMeFontSize.MEDIUM,
-                FindMeRidingCameraMode.NONE, BindingAnimationPolicy.FIRST_TYPE, false, true,
-                SummonedOutlineMode.OFF, true, true);
+                FindMeRidingCameraMode.NONE, BindingAnimationPolicy.NEVER, true, true,
+                SummonedOutlineMode.OFF, true, false, true);
     }
 
     public FindMeUiSettings normalized() {
@@ -51,10 +52,10 @@ public record FindMeUiSettings(
                 this.fontSize == null ? FindMeFontSize.MEDIUM : this.fontSize,
                 this.ridingCameraMode == null ? FindMeRidingCameraMode.NONE : this.ridingCameraMode,
                 this.bindingAnimationPolicy == null || this.bindingAnimationPolicy == BindingAnimationPolicy.INHERIT
-                        ? BindingAnimationPolicy.FIRST_TYPE : this.bindingAnimationPolicy,
+                        ? BindingAnimationPolicy.NEVER : this.bindingAnimationPolicy,
                 this.preferNativeMountInteraction, this.autoPromoteRiddenCompanions,
                 this.summonedOutlineMode == null ? SummonedOutlineMode.OFF : this.summonedOutlineMode,
-                this.mountSummonAnimations, this.companionSummonAnimations);
+                this.mountSummonAnimations, false, this.hideRiddenMountWhenLookingDown);
     }
 
     /** Compact numeric mapping used by AUI setting-card payloads. */
@@ -68,7 +69,7 @@ public record FindMeUiSettings(
                 case 4 -> withPreferNativeMountInteraction(!this.preferNativeMountInteraction);
                 case 5 -> withAutoPromoteRiddenCompanions(!this.autoPromoteRiddenCompanions);
                 case 6 -> withMountSummonAnimations(!this.mountSummonAnimations);
-                case 7 -> withCompanionSummonAnimations(!this.companionSummonAnimations);
+                case 7 -> withHideRiddenMountWhenLookingDown(!this.hideRiddenMountWhenLookingDown);
                 default -> this;
             };
             case 1 -> switch (row) {
@@ -96,21 +97,22 @@ public record FindMeUiSettings(
                     this.allowNameColors, this.nameMaxLength, d.wheelStyle, this.textMode, d.uiAnimations,
                     this.fontFamily, this.fontSize, d.ridingCameraMode, d.bindingAnimationPolicy,
                     d.preferNativeMountInteraction, d.autoPromoteRiddenCompanions, d.summonedOutlineMode,
-                    d.mountSummonAnimations, d.companionSummonAnimations);
+                    d.mountSummonAnimations, d.companionSummonAnimations, d.hideRiddenMountWhenLookingDown);
             case 1 -> new FindMeUiSettings(this.showCustomNames, this.showOriginalNames, this.showHealth,
                     this.rotateModels, this.reduceBackgroundAnimation, this.dragHoldMillis, this.operationSounds,
                     this.controlHints, d.autoJoinTeams, d.autoCreateTeams, d.defaultTeamIndex,
                     this.allowNameColors, this.nameMaxLength, this.wheelStyle, this.textMode, this.uiAnimations,
                     this.fontFamily, this.fontSize, this.ridingCameraMode, this.bindingAnimationPolicy,
                     this.preferNativeMountInteraction, this.autoPromoteRiddenCompanions, this.summonedOutlineMode,
-                    this.mountSummonAnimations, this.companionSummonAnimations);
+                    this.mountSummonAnimations, this.companionSummonAnimations, this.hideRiddenMountWhenLookingDown);
             case 2 -> new FindMeUiSettings(d.showCustomNames, d.showOriginalNames, d.showHealth,
                     this.rotateModels, this.reduceBackgroundAnimation, this.dragHoldMillis, this.operationSounds,
                     this.controlHints, this.autoJoinTeams, this.autoCreateTeams, this.defaultTeamIndex,
                     d.allowNameColors, d.nameMaxLength, this.wheelStyle, d.textMode, this.uiAnimations,
                     d.fontFamily, d.fontSize, this.ridingCameraMode, this.bindingAnimationPolicy,
                     this.preferNativeMountInteraction, this.autoPromoteRiddenCompanions,
-                    this.summonedOutlineMode, this.mountSummonAnimations, this.companionSummonAnimations);
+                    this.summonedOutlineMode, this.mountSummonAnimations, this.companionSummonAnimations,
+                    this.hideRiddenMountWhenLookingDown);
             default -> this;
         };
     }
@@ -132,7 +134,7 @@ public record FindMeUiSettings(
                 this.allowNameColors, this.nameMaxLength, this.wheelStyle, this.textMode, this.uiAnimations,
                 this.fontFamily, this.fontSize, this.ridingCameraMode, this.bindingAnimationPolicy, value,
                 this.autoPromoteRiddenCompanions, this.summonedOutlineMode,
-                this.mountSummonAnimations, this.companionSummonAnimations);
+                this.mountSummonAnimations, this.companionSummonAnimations, this.hideRiddenMountWhenLookingDown);
     }
     public FindMeUiSettings withAutoPromoteRiddenCompanions(boolean value) {
         return new FindMeUiSettings(this.showCustomNames, this.showOriginalNames, this.showHealth,
@@ -141,7 +143,7 @@ public record FindMeUiSettings(
                 this.allowNameColors, this.nameMaxLength, this.wheelStyle, this.textMode, this.uiAnimations,
                 this.fontFamily, this.fontSize, this.ridingCameraMode, this.bindingAnimationPolicy,
                 this.preferNativeMountInteraction, value, this.summonedOutlineMode,
-                this.mountSummonAnimations, this.companionSummonAnimations);
+                this.mountSummonAnimations, this.companionSummonAnimations, this.hideRiddenMountWhenLookingDown);
     }
     public FindMeUiSettings withSummonedOutlineMode(SummonedOutlineMode value) {
         return new FindMeUiSettings(this.showCustomNames, this.showOriginalNames, this.showHealth,
@@ -151,7 +153,7 @@ public record FindMeUiSettings(
                 this.fontFamily, this.fontSize, this.ridingCameraMode, this.bindingAnimationPolicy,
                 this.preferNativeMountInteraction, this.autoPromoteRiddenCompanions,
                 value == null ? SummonedOutlineMode.OFF : value,
-                this.mountSummonAnimations, this.companionSummonAnimations);
+                this.mountSummonAnimations, this.companionSummonAnimations, this.hideRiddenMountWhenLookingDown);
     }
     public FindMeUiSettings withMountSummonAnimations(boolean value) {
         return new FindMeUiSettings(this.showCustomNames, this.showOriginalNames, this.showHealth,
@@ -160,16 +162,25 @@ public record FindMeUiSettings(
                 this.allowNameColors, this.nameMaxLength, this.wheelStyle, this.textMode, this.uiAnimations,
                 this.fontFamily, this.fontSize, this.ridingCameraMode, this.bindingAnimationPolicy,
                 this.preferNativeMountInteraction, this.autoPromoteRiddenCompanions,
-                this.summonedOutlineMode, value, this.companionSummonAnimations);
+                this.summonedOutlineMode, value, this.companionSummonAnimations, this.hideRiddenMountWhenLookingDown);
     }
-    public FindMeUiSettings withCompanionSummonAnimations(boolean value) {
+    public FindMeUiSettings withCompanionSummonAnimations(boolean ignored) {
         return new FindMeUiSettings(this.showCustomNames, this.showOriginalNames, this.showHealth,
                 this.rotateModels, this.reduceBackgroundAnimation, this.dragHoldMillis, this.operationSounds,
                 this.controlHints, this.autoJoinTeams, this.autoCreateTeams, this.defaultTeamIndex,
                 this.allowNameColors, this.nameMaxLength, this.wheelStyle, this.textMode, this.uiAnimations,
                 this.fontFamily, this.fontSize, this.ridingCameraMode, this.bindingAnimationPolicy,
                 this.preferNativeMountInteraction, this.autoPromoteRiddenCompanions,
-                this.summonedOutlineMode, this.mountSummonAnimations, value);
+                this.summonedOutlineMode, this.mountSummonAnimations, false, this.hideRiddenMountWhenLookingDown);
+    }
+    public FindMeUiSettings withHideRiddenMountWhenLookingDown(boolean value) {
+        return new FindMeUiSettings(this.showCustomNames, this.showOriginalNames, this.showHealth,
+                this.rotateModels, this.reduceBackgroundAnimation, this.dragHoldMillis, this.operationSounds,
+                this.controlHints, this.autoJoinTeams, this.autoCreateTeams, this.defaultTeamIndex,
+                this.allowNameColors, this.nameMaxLength, this.wheelStyle, this.textMode, this.uiAnimations,
+                this.fontFamily, this.fontSize, this.ridingCameraMode, this.bindingAnimationPolicy,
+                this.preferNativeMountInteraction, this.autoPromoteRiddenCompanions, this.summonedOutlineMode,
+                this.mountSummonAnimations, this.companionSummonAnimations, value);
     }
     private FindMeUiSettings withRotateModels(boolean value) { return copy(null, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null); }
     private FindMeUiSettings withReducedBackgroundAnimation(boolean value) { return copy(null, null, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null); }
@@ -199,7 +210,7 @@ public record FindMeUiSettings(
                 binding == null ? this.bindingAnimationPolicy : binding,
                 this.preferNativeMountInteraction, this.autoPromoteRiddenCompanions,
                 this.summonedOutlineMode, this.mountSummonAnimations,
-                this.companionSummonAnimations).normalized();
+                this.companionSummonAnimations, this.hideRiddenMountWhenLookingDown).normalized();
     }
 
     public CompoundTag save() {
@@ -229,6 +240,7 @@ public record FindMeUiSettings(
         tag.putString("summonedOutlineMode", this.summonedOutlineMode.name());
         tag.putBoolean("mountSummonAnimations", this.mountSummonAnimations);
         tag.putBoolean("companionSummonAnimations", this.companionSummonAnimations);
+        tag.putBoolean("hideRiddenMountWhenLookingDown", this.hideRiddenMountWhenLookingDown);
         return tag;
     }
 
@@ -253,7 +265,8 @@ public record FindMeUiSettings(
                 enumValue(tag, "summonedOutlineMode", SummonedOutlineMode.class,
                         d.summonedOutlineMode),
                 value(tag, "mountSummonAnimations", d.mountSummonAnimations),
-                value(tag, "companionSummonAnimations", d.companionSummonAnimations)).normalized();
+                value(tag, "companionSummonAnimations", d.companionSummonAnimations),
+                value(tag, "hideRiddenMountWhenLookingDown", d.hideRiddenMountWhenLookingDown)).normalized();
     }
 
     private static <E extends Enum<E>> E enumValue(CompoundTag tag, String key, Class<E> type, E fallback) {

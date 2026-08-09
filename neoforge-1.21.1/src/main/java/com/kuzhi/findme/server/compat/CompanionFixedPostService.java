@@ -19,7 +19,9 @@ public final class CompanionFixedPostService {
         HOME,
         GUARD,
         PROTECT,
-        ARRIVAL
+        ARRIVAL,
+        EXTERNAL_ACTION,
+        TACTICAL
     }
 
     private static final Map<UUID, Suspension> SUSPENDED = new HashMap<>();
@@ -33,9 +35,15 @@ public final class CompanionFixedPostService {
         }
         Suspension existing = SUSPENDED.get(entity.getUUID());
         if (existing != null) {
-            existing.reasons().add(reason);
-            mob.getNavigation().stop();
-            return;
+            if (existing.mob() == mob) {
+                if (existing.reasons().add(reason)) {
+                    mob.getNavigation().stop();
+                }
+                applyDragonFixedPostCommand(mob, reason);
+                return;
+            }
+            SUSPENDED.remove(entity.getUUID());
+            restoreGoals(existing);
         }
 
         List<GoalEntry> removed = new ArrayList<>();
@@ -57,6 +65,7 @@ public final class CompanionFixedPostService {
         }
         mob.getNavigation().stop();
         SUSPENDED.put(entity.getUUID(), new Suspension(mob, EnumSet.of(reason), List.copyOf(removed)));
+        applyDragonFixedPostCommand(mob, reason);
     }
 
     public static void release(LivingEntity entity, Reason reason) {
@@ -72,20 +81,38 @@ public final class CompanionFixedPostService {
         }
         suspension.reasons().remove(reason);
         if (!suspension.reasons().isEmpty()) {
+            IceAndFireRescueCompatibility.applyFixedPostCommand(suspension.mob(), "remaining_fixed_post");
             return;
         }
         SUSPENDED.remove(entityUuid);
-        if (!suspension.mob().isRemoved()) {
-            for (GoalEntry entry : suspension.goals()) {
-                suspension.mob().goalSelector.addGoal(entry.priority(), entry.goal());
-            }
-        }
+        restoreGoals(suspension);
+        IceAndFireRescueCompatibility.clearFixedPostCommand(suspension.mob());
         FindMeDebugLogger.info("fixed-post", "restored entity={} goals={}",
                 FindMeDebugLogger.entity(suspension.mob()), suspension.goals().size());
     }
 
     public static void reset() {
+        for (Suspension suspension : List.copyOf(SUSPENDED.values())) {
+            restoreGoals(suspension);
+            IceAndFireRescueCompatibility.clearFixedPostCommand(suspension.mob());
+        }
         SUSPENDED.clear();
+    }
+
+    private static void applyDragonFixedPostCommand(Mob mob, Reason reason) {
+        if (reason != Reason.GUARD && reason != Reason.PROTECT && reason != Reason.TACTICAL) {
+            return;
+        }
+        IceAndFireRescueCompatibility.applyFixedPostCommand(mob, reason.name());
+    }
+
+    private static void restoreGoals(Suspension suspension) {
+        if (suspension == null || suspension.mob().isRemoved()) {
+            return;
+        }
+        for (GoalEntry entry : suspension.goals()) {
+            suspension.mob().goalSelector.addGoal(entry.priority(), entry.goal());
+        }
     }
 
     private static boolean isOwnerFollowGoal(Goal goal) {

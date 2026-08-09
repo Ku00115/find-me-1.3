@@ -30,8 +30,8 @@ class FindMeUiSettingsTest {
     }
 
     @Test
-    void bindingAnimationPolicyRoundTripsAndOldSettingsUseFirstType() {
-        assertEquals(BindingAnimationPolicy.FIRST_TYPE,
+    void bindingAnimationPolicyDefaultsOffAndExplicitChoiceRoundTrips() {
+        assertEquals(BindingAnimationPolicy.NEVER,
                 FindMeUiSettings.load(new CompoundTag()).bindingAnimationPolicy());
 
         FindMeUiSettings settings = FindMeUiSettings.defaults()
@@ -57,12 +57,12 @@ class FindMeUiSettingsTest {
     }
 
     @Test
-    void nativeMountInteractionDefaultsOffAndRoundTrips() {
-        assertFalse(FindMeUiSettings.load(new CompoundTag()).preferNativeMountInteraction());
+    void nativeMountInteractionDefaultsOnAndRoundTrips() {
+        assertTrue(FindMeUiSettings.load(new CompoundTag()).preferNativeMountInteraction());
 
-        FindMeUiSettings enabled = FindMeUiSettings.defaults().changed(0, 4);
-        assertTrue(FindMeUiSettings.load(enabled.save()).preferNativeMountInteraction());
-        assertFalse(enabled.resetSection(0).preferNativeMountInteraction());
+        FindMeUiSettings disabled = FindMeUiSettings.defaults().changed(0, 4);
+        assertFalse(FindMeUiSettings.load(disabled.save()).preferNativeMountInteraction());
+        assertTrue(disabled.resetSection(0).preferNativeMountInteraction());
     }
 
     @Test
@@ -73,6 +73,18 @@ class FindMeUiSettingsTest {
         assertFalse(FindMeUiSettings.load(disabled.save()).autoPromoteRiddenCompanions());
         assertTrue(disabled.resetSection(0).autoPromoteRiddenCompanions());
     }
+
+    @Test
+    void riddenMountHidingDefaultsOnAndRoundTrips() {
+        FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
+        assertTrue(defaults.hideRiddenMountWhenLookingDown());
+
+        FindMeUiSettings disabled = defaults.changed(0, 7);
+        assertFalse(disabled.hideRiddenMountWhenLookingDown());
+        assertFalse(FindMeUiSettings.load(disabled.save()).hideRiddenMountWhenLookingDown());
+        assertTrue(disabled.resetSection(0).hideRiddenMountWhenLookingDown());
+    }
+
     @Test
     void summonedOutlineDefaultsOffAndColorRoundTrips() {
         assertEquals(SummonedOutlineMode.OFF, FindMeUiSettings.load(new CompoundTag()).summonedOutlineMode());
@@ -82,20 +94,21 @@ class FindMeUiSettingsTest {
     }
 
     @Test
-    void summonAnimationPreferencesAreIndependentAndDefaultOn() {
+    void companionSummonAnimationSettingIsRetiredAndLegacyValuesAreIgnored() {
         FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
         assertTrue(defaults.mountSummonAnimations());
-        assertTrue(defaults.companionSummonAnimations());
+        assertFalse(defaults.companionSummonAnimations());
 
         FindMeUiSettings changed = defaults.changed(0, 6);
         assertFalse(changed.mountSummonAnimations());
-        assertTrue(changed.companionSummonAnimations());
+        assertFalse(changed.companionSummonAnimations());
 
-        changed = changed.changed(0, 7);
-        FindMeUiSettings loaded = FindMeUiSettings.load(changed.save());
+        CompoundTag legacy = changed.save();
+        legacy.putBoolean("companionSummonAnimations", true);
+        FindMeUiSettings loaded = FindMeUiSettings.load(legacy).changed(0, 7);
         assertFalse(loaded.mountSummonAnimations());
         assertFalse(loaded.companionSummonAnimations());
         assertTrue(loaded.resetSection(0).mountSummonAnimations());
-        assertTrue(loaded.resetSection(0).companionSummonAnimations());
+        assertFalse(loaded.resetSection(0).companionSummonAnimations());
     }
 }

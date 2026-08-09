@@ -2,6 +2,7 @@ package com.kuzhi.findme.server.lifecycle;
 
 import com.kuzhi.findme.Config;
 import com.kuzhi.findme.common.CompanionMoveType;
+import com.kuzhi.findme.common.HouseResidentMode;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -19,8 +20,8 @@ import net.minecraft.world.phys.Vec3;
 public final class CompanionGuardPostService {
     static final double PATROL_RADIUS = 12.0;
     static final double HARD_RADIUS = 36.0;
-    public static final double DEFAULT_HOME_PATROL_RADIUS = 64.0;
-    public static final double DEFAULT_HOME_HARD_RADIUS = 128.0;
+    public static final double DEFAULT_HOME_PATROL_RADIUS = 24.0;
+    public static final double DEFAULT_HOME_HARD_RADIUS = 32.0;
     private static final int GOAL_PRIORITY = 1;
     private static final Map<UUID, GuardLease> ACTIVE = new HashMap<>();
     private static final Map<UUID, HomeRequest> HOMES = new HashMap<>();
@@ -30,20 +31,27 @@ public final class CompanionGuardPostService {
 
     static void acquire(Mob mob, BlockPos center, CompanionMoveType moveType) {
         removeActive(mob.getUUID(), "guard_replaced");
-        install(mob, center, moveType, false, LeaseType.GUARD, PATROL_RADIUS, HARD_RADIUS);
+        install(mob, center, moveType, false, LeaseType.GUARD, PATROL_RADIUS, HARD_RADIUS,
+                HouseResidentMode.GUARD);
     }
 
     public static void acquireHome(Mob mob, BlockPos center, CompanionMoveType moveType,
                                    boolean forceAirborne) {
+        acquireHome(mob, center, moveType, forceAirborne, HouseResidentMode.WANDER);
+    }
+
+    public static void acquireHome(Mob mob, BlockPos center, CompanionMoveType moveType,
+                                   boolean forceAirborne, HouseResidentMode mode) {
         if (mob == null || center == null || moveType == null) {
             return;
         }
         boolean airborne = forceAirborne
                 || moveType == CompanionMoveType.FLY && (!mob.onGround() || mob.isNoGravity());
-        double patrolRadius = Math.max(DEFAULT_HOME_PATROL_RADIUS, Config.housePatrolRadius);
-        double hardRadius = Math.max(Math.max(DEFAULT_HOME_HARD_RADIUS, Config.houseHardRadius), patrolRadius);
+        HouseResidentMode residentMode = mode == null ? HouseResidentMode.WANDER : mode;
+        double patrolRadius = homePatrolRadius(residentMode, Config.housePatrolRadius);
+        double hardRadius = homeHardRadius(patrolRadius, Config.houseHardRadius);
         HomeRequest request = new HomeRequest(mob, center.immutable(), moveType, airborne,
-                patrolRadius, hardRadius);
+                patrolRadius, hardRadius, residentMode);
         HOMES.put(mob.getUUID(), request);
         GuardLease active = ACTIVE.get(mob.getUUID());
         if (active != null && active.type == LeaseType.GUARD) {
@@ -53,7 +61,7 @@ public final class CompanionGuardPostService {
             return;
         }
         removeActive(mob.getUUID(), "home_updated");
-        install(mob, center, moveType, airborne, LeaseType.HOME, patrolRadius, hardRadius);
+        install(mob, center, moveType, airborne, LeaseType.HOME, patrolRadius, hardRadius, residentMode);
     }
 
     public static void releaseHome(UUID uuid, String reason) {
@@ -69,11 +77,11 @@ public final class CompanionGuardPostService {
 
     private static void install(Mob mob, BlockPos center, CompanionMoveType moveType,
                                 boolean forceAirborne, LeaseType type,
-                                double patrolRadius, double hardRadius) {
+                                double patrolRadius, double hardRadius, HouseResidentMode mode) {
         boolean airborne = forceAirborne
                 || moveType == CompanionMoveType.FLY && (!mob.onGround() || mob.isNoGravity());
         GuardLease lease = new GuardLease(mob, Vec3.atBottomCenterOf(center), moveType, airborne,
-                type, patrolRadius, hardRadius);
+                type, patrolRadius, hardRadius, mode);
         ACTIVE.put(mob.getUUID(), lease);
         mob.goalSelector.addGoal(GOAL_PRIORITY, lease.goal);
         FindMeDebugLogger.info("guard-ai",
@@ -91,7 +99,7 @@ public final class CompanionGuardPostService {
         HomeRequest home = HOMES.get(uuid);
         if (home != null && home.mob.isAlive() && !home.mob.isRemoved()) {
             install(home.mob, home.center, home.moveType, home.airborne, LeaseType.HOME,
-                    home.patrolRadius, home.hardRadius);
+                    home.patrolRadius, home.hardRadius, home.mode);
         }
     }
 
@@ -115,6 +123,22 @@ public final class CompanionGuardPostService {
         HOMES.clear();
     }
 
+    static double homePatrolRadius(HouseResidentMode mode, double configuredRadius) {
+        return Math.max(4.0, configuredRadius);
+    }
+
+    static double homeHardRadius(double patrolRadius, double configuredRadius) {
+        return Math.max(Math.max(8.0, configuredRadius), patrolRadius);
+    }
+
+    static boolean allowsCombat(HouseResidentMode mode) {
+        return mode == HouseResidentMode.GUARD;
+    }
+
+    static boolean holdsPosition(HouseResidentMode mode) {
+        return mode == HouseResidentMode.REST;
+    }
+
     private static final class GuardLease {
         private final Mob mob;
         private final Vec3 center;
@@ -123,10 +147,11 @@ public final class CompanionGuardPostService {
         private final LeaseType type;
         private final double patrolRadius;
         private final double hardRadius;
+        private final HouseResidentMode mode;
         private final GuardPostGoal goal;
 
         private GuardLease(Mob mob, Vec3 center, CompanionMoveType moveType, boolean airborne,
-                           LeaseType type, double patrolRadius, double hardRadius) {
+                           LeaseType type, double patrolRadius, double hardRadius, HouseResidentMode mode) {
             this.mob = mob;
             this.center = center;
             this.moveType = moveType;
@@ -134,12 +159,14 @@ public final class CompanionGuardPostService {
             this.type = type;
             this.patrolRadius = patrolRadius;
             this.hardRadius = hardRadius;
+            this.mode = mode == null ? HouseResidentMode.WANDER : mode;
             this.goal = new GuardPostGoal(this);
         }
 
         private boolean matches(HomeRequest request) {
             return type == LeaseType.HOME && mob == request.mob && moveType == request.moveType
                     && airborne == request.airborne
+                    && mode == request.mode
                     && patrolRadius == request.patrolRadius && hardRadius == request.hardRadius
                     && center.equals(Vec3.atBottomCenterOf(request.center));
         }
@@ -174,6 +201,10 @@ public final class CompanionGuardPostService {
             if (ACTIVE.get(mob.getUUID()) != lease || !mob.isAlive() || mob.isVehicle()) {
                 return false;
             }
+            if (!allowsCombat(lease.mode)) {
+                if (mob.getTarget() != null) mob.setTarget(null);
+                return true;
+            }
             double distance = horizontalDistanceSqr(mob.position(), lease.center);
             if (distance > lease.hardRadius * lease.hardRadius) {
                 if (mob.getTarget() != null) {
@@ -189,6 +220,10 @@ public final class CompanionGuardPostService {
 
         @Override
         public void start() {
+            if (holdsPosition(lease.mode)) {
+                lease.mob.getNavigation().stop();
+                return;
+            }
             chooseDestination(true);
         }
 
@@ -201,6 +236,10 @@ public final class CompanionGuardPostService {
         @Override
         public void tick() {
             Mob mob = lease.mob;
+            if (holdsPosition(lease.mode)) {
+                if (!mob.getNavigation().isDone()) mob.getNavigation().stop();
+                return;
+            }
             double centerDistance = Math.sqrt(horizontalDistanceSqr(mob.position(), lease.center));
             boolean outsidePatrol = centerDistance > lease.patrolRadius;
             if (outsidePatrol && !returning) {
@@ -318,6 +357,7 @@ public final class CompanionGuardPostService {
     }
 
     private record HomeRequest(Mob mob, BlockPos center, CompanionMoveType moveType,
-                               boolean airborne, double patrolRadius, double hardRadius) {
+                               boolean airborne, double patrolRadius, double hardRadius,
+                               HouseResidentMode mode) {
     }
 }

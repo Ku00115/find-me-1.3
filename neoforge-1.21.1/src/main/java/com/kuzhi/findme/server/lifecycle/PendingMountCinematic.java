@@ -18,6 +18,8 @@ public final class PendingMountCinematic {
     private final boolean originalNoAi;
     private final boolean externalMount;
     private final RideHandoffService.Source rideSource;
+    private Vec3 flyingStageTarget;
+    private Vec3 introAnchor;
     private RescueFlightMode rescueFlightMode = RescueFlightMode.HOVER;
     private Vec3 rescueLandingPosition;
     private Vec3 rescueHoverPosition;
@@ -109,6 +111,22 @@ public final class PendingMountCinematic {
         return this.rideSource;
     }
 
+    public Vec3 flyingStageTarget() {
+        return this.flyingStageTarget;
+    }
+
+    public void setFlyingStageTarget(Vec3 flyingStageTarget) {
+        this.flyingStageTarget = flyingStageTarget;
+    }
+
+    public Vec3 introAnchor() {
+        return this.introAnchor;
+    }
+
+    public void setIntroAnchor(Vec3 introAnchor) {
+        this.introAnchor = introAnchor;
+    }
+
     public RescueFlightMode rescueFlightMode() {
         return this.rescueFlightMode;
     }
@@ -189,6 +207,10 @@ public final class PendingMountCinematic {
         this.waitPosition = waitPosition;
     }
 
+    public void updateWaitPosition(Vec3 waitPosition) {
+        this.waitPosition = waitPosition;
+    }
+
     public Vec3 crossSpaceRendezvous() {
         return this.crossSpaceRendezvous;
     }
@@ -235,6 +257,10 @@ public final class PendingMountCinematic {
 
     public boolean flyingRescueStaged() {
         return this.flyingRescueStaged;
+    }
+
+    public boolean requiresFlyingIntroLock() {
+        return this.moveType == CompanionMoveType.FLY && !this.mode.isRescue();
     }
 
     public void setFlyingRescueStaged() {

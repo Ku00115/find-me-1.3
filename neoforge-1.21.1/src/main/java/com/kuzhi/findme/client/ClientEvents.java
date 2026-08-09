@@ -13,6 +13,7 @@ import com.kuzhi.findme.common.ModParticles;
 import com.kuzhi.findme.common.FindMeModule;
 import com.kuzhi.findme.common.MountRosterAction;
 import com.kuzhi.findme.network.CompanionCommandPacket;
+import com.kuzhi.findme.network.CompanionForwardTravelTeleportPacket;
 import com.kuzhi.findme.network.CobblemonCommandPacket;
 import com.kuzhi.findme.network.ModNetwork;
 import com.kuzhi.findme.network.VehicleCommandPacket;
@@ -72,6 +73,15 @@ public final class ClientEvents {
     private static boolean iceAndFireRenderingRidersResolved;
 
     private ClientEvents() {
+    }
+
+    static String keyName(CompanionKind kind) {
+        KeyMapping key = kind == CompanionKind.MOUNT ? MOUNT_KEY : COMPANION_KEY;
+        return key.getTranslatedKeyMessage().getString();
+    }
+
+    static String commandKeyName() {
+        return COMMAND_KEY.getTranslatedKeyMessage().getString();
     }
 
     public static void register(IEventBus modEventBus) {
@@ -184,7 +194,17 @@ public final class ClientEvents {
             return;
         }
         if (kind == CompanionKind.MOUNT) {
+            UUID forwardTravelUuid = findForwardTravelTarget(kind);
+            if (forwardTravelUuid != null) {
+                ModNetwork.sendToServer(new CompanionForwardTravelTeleportPacket(kind, forwardTravelUuid));
+                return;
+            }
             handleMountShortPress(minecraft);
+            return;
+        }
+        UUID forwardTravelUuid = findForwardTravelTarget(kind);
+        if (forwardTravelUuid != null) {
+            ModNetwork.sendToServer(new CompanionForwardTravelTeleportPacket(kind, forwardTravelUuid));
             return;
         }
         UUID pendingUuid = ClientCompanionWheelController.pendingUuid(kind);
@@ -196,6 +216,25 @@ public final class ClientEvents {
         } else {
             ClientEvents.send(kind, CompanionAction.SUMMON, -1);
         }
+    }
+
+    private static UUID findForwardTravelTarget(CompanionKind kind) {
+        if (kind == null) return null;
+        if (kind == CompanionKind.MOUNT) {
+            ClientMountRosterState.Entry selected = ClientMountRosterState.selectedEntry();
+            if (selected != null && selected.source() == com.kuzhi.findme.common.MountRosterSource.FIND_ME
+                    && selected.findMe() != null
+                    && selected.findMe().tacticalAction()
+                    == com.kuzhi.findme.common.CompanionTacticalAction.MOVE_FORWARD) {
+                return selected.uuid();
+            }
+        }
+        return ClientCompanionState.allEntries(kind).stream()
+                .filter(entry -> entry.tacticalAction()
+                        == com.kuzhi.findme.common.CompanionTacticalAction.MOVE_FORWARD
+                        && entry.alive() && entry.deployed())
+                .map(com.kuzhi.findme.network.CompanionListPacket.Entry::uuid)
+                .findFirst().orElse(null);
     }
 
     private static void handleMountShortPress(Minecraft minecraft) {
@@ -611,6 +650,10 @@ public final class ClientEvents {
                 event.setCanceled(true);
                 return;
             }
+            if (ClientRiddenMountRenderPolicy.shouldHide(minecraft, event.getEntity())) {
+                event.setCanceled(true);
+                return;
+            }
             if (minecraft.screen instanceof FindMeAuiHouseScreen
                     && !ClientEntityPreviewRenderGuard.active()
                     && ClientHouseState.isCurrentHouseResident(event.getEntity().getUUID())) {
@@ -682,6 +725,13 @@ public final class ClientEvents {
             if ((screen instanceof CompanionWheelScreen || screen instanceof VehicleWheelScreen || screen instanceof CompanionCommandWheelScreen)
                     && event.getName().equals(VanillaGuiLayers.CROSSHAIR)) {
                 event.setCanceled(true);
+            }
+        }
+
+        @SubscribeEvent
+        public static void onRenderGuiLayerPost(RenderGuiLayerEvent.Post event) {
+            if (event.getName().equals(VanillaGuiLayers.HOTBAR)) {
+                FindMeHudRenderer.render(event.getGuiGraphics());
             }
         }
 

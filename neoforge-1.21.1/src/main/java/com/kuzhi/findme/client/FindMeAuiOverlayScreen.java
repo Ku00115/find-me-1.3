@@ -2,7 +2,7 @@ package com.kuzhi.findme.client;
 
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
-import com.sighs.apricityui.instance.ApricityScreen;
+import com.sighs.apricityui.screen.ApricityScreen;
 import com.sighs.apricityui.render.Base;
 import com.sighs.apricityui.style.Animation;
 import com.sighs.apricityui.style.Cursor;
@@ -108,6 +108,11 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         contextOverlayMarkup = next;
     }
 
+    protected final boolean overlayMarkupEquals(String markup) {
+        String next = markup == null ? "" : markup;
+        return next.equals(contextOverlayMarkup);
+    }
+
     protected final void clearOverlayMarkup() {
         setOverlayMarkup("");
     }
@@ -168,6 +173,13 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         return ClientWheelPresentationState.uiAnimations() && transitionController.isRunning();
     }
 
+    /** Network-driven page updates must not leave the old fold animation active. */
+    protected final void settlePageTransition() {
+        if (transitionController.isRunning()) {
+            transitionController.forceSettle(transitionHost);
+        }
+    }
+
     @Override
     public void tick() {
         super.tick();
@@ -202,7 +214,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
             FindMeAuiPerformanceMonitor.record(this, "render.overlay_document", overlayStartedAt, 5.0);
         }
         Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
-        Cursor.drawPseudoCursor(graphics);
+        Cursor.drawPseudoCursor(graphics.pose());
         FindMeAuiPerformanceMonitor.record(this, "render.total", totalStartedAt, 16.0);
     }
 

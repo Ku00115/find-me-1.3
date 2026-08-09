@@ -3,6 +3,7 @@ package com.kuzhi.findme.server.home;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.HouseCommandAction;
+import com.kuzhi.findme.common.HouseResidentMode;
 import com.kuzhi.findme.common.FindMeModule;
 import com.kuzhi.findme.server.module.FindMeModuleService;
 import com.kuzhi.findme.common.ModBlocks;
@@ -21,7 +22,6 @@ import com.kuzhi.findme.server.lifecycle.CompanionStorageService;
 import com.kuzhi.findme.server.lifecycle.CompanionDeploymentService;
 import com.kuzhi.findme.server.lifecycle.CompanionLifecycleFacade;
 import com.kuzhi.findme.server.lifecycle.CompanionTransientStateService;
-import com.kuzhi.findme.server.safety.CompanionSafetyService;
 import com.kuzhi.findme.server.ui.CompanionSyncService;
 import com.kuzhi.findme.server.ui.WarehouseEntityService;
 import java.util.ArrayList;
@@ -42,6 +42,8 @@ import net.minecraft.world.level.Level;
 
 /** Server-side data and permission facade for the AUI small-house page. */
 public final class HousePageService {
+    private static final double MAX_INTERACTION_DISTANCE_SQR = 8.0 * 8.0;
+
     private HousePageService() {
     }
 
@@ -54,6 +56,12 @@ public final class HousePageService {
         FindMeWorldSavedData world = FindMeWorldSavedData.get(player.server);
         FindMeWorldSavedData.HouseRecord house = world.house(blockEntity.houseId()).orElse(null);
         if (blockEntity.owner() == null) {
+            UUID legacyOwner = uniqueLegacyOwner(player, clickedPos, world);
+            if (!player.getUUID().equals(legacyOwner) && !player.hasPermissions(2)) {
+                com.kuzhi.findme.server.ui.CompanionMessageService.tell(player,
+                        "message.find_me.house_unclaimed", ChatFormatting.YELLOW);
+                return;
+            }
             blockEntity.initializeOwner(player);
         } else if (house == null) {
             blockEntity.refreshWorldRecord();
@@ -76,6 +84,21 @@ public final class HousePageService {
                     packet.action(), packet.houseId(), packet.companionId());
             return;
         }
+        ServerLevel houseLevel = houseLevel(player, house);
+        if (houseLevel == null || !(houseLevel.getBlockEntity(house.position().blockPos()) instanceof SmallHouseBlockEntity blockEntity)
+                || !blockEntity.houseId().equals(house.houseId()) || !houseLevel.getBlockState(house.position().blockPos()).is(ModBlocks.SMALL_HOUSE.get())) {
+            FindMeDebugLogger.info("house", "command rejected reason=invalid_house_block action={} house={} companion={}",
+                    packet.action(), packet.houseId(), packet.companionId());
+            return;
+        }
+        if (!withinInteractionDistance(player.serverLevel() == houseLevel, player.getX(), player.getY(),
+                player.getZ(), house.position())) {
+            FindMeDebugLogger.info("house", "command rejected reason=too_far action={} house={} companion={}",
+                    packet.action(), packet.houseId(), packet.companionId());
+            com.kuzhi.findme.server.ui.CompanionMessageService.tell(player,
+                    "message.find_me.house_too_far", ChatFormatting.YELLOW);
+            return;
+        }
         if (packet.action() == HouseCommandAction.REFRESH) {
             send(player, house);
             return;
@@ -85,18 +108,13 @@ public final class HousePageService {
                     packet.action(), packet.houseId(), packet.companionId());
             return;
         }
-        ServerLevel houseLevel = houseLevel(player, house);
-        if (houseLevel == null || !(houseLevel.getBlockEntity(house.position().blockPos()) instanceof SmallHouseBlockEntity blockEntity)
-                || !blockEntity.houseId().equals(house.houseId()) || !houseLevel.getBlockState(house.position().blockPos()).is(ModBlocks.SMALL_HOUSE.get())) {
-            FindMeDebugLogger.info("house", "command rejected reason=invalid_house_block action={} house={} companion={}",
-                    packet.action(), packet.houseId(), packet.companionId());
-            return;
-        }
         PlayerCompanionData data = CompanionDataService.data(player);
         boolean changed = switch (packet.action()) {
             case RENAME -> rename(blockEntity, packet.value());
             case ASSIGN -> assign(player, data, world, house, packet.companionId(), houseLevel);
             case REMOVE -> remove(player, data, world, house, packet.companionId());
+            case SET_RESIDENT_MODE -> setResidentMode(player, data, world, house,
+                    packet.companionId(), packet.value());
             case REFRESH -> false;
             case RENAME_RESIDENT -> WarehouseEntityService.renameEntity(player, data, packet.companionId(), packet.value());
         };
@@ -119,11 +137,51 @@ public final class HousePageService {
         return true;
     }
 
+    static boolean withinInteractionDistance(boolean sameDimension, double playerX, double playerY,
+                                             double playerZ, SavedPosition housePosition) {
+        if (!sameDimension || housePosition == null) {
+            return false;
+        }
+        double dx = playerX - (housePosition.x() + 0.5);
+        double dy = playerY - (housePosition.y() + 0.5);
+        double dz = playerZ - (housePosition.z() + 0.5);
+        return dx * dx + dy * dy + dz * dz <= MAX_INTERACTION_DISTANCE_SQR;
+    }
+
+    private static boolean setResidentMode(ServerPlayer player, PlayerCompanionData data,
+                                           FindMeWorldSavedData world,
+                                           FindMeWorldSavedData.HouseRecord house, UUID uuid,
+                                           String value) {
+        if (uuid == null || !houseResidents(data, house).contains(uuid)) {
+            return false;
+        }
+        HouseResidentMode mode;
+        try {
+            mode = HouseResidentMode.valueOf(value == null ? "" : value.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+        if (!house.residents().contains(uuid)) {
+            world.addResident(house.houseId(), uuid);
+        }
+        if (!world.setResidentMode(house.houseId(), uuid, mode)) {
+            return false;
+        }
+        CompanionHomeResidentService.refreshResidentMode(player, data, uuid, mode);
+        return true;
+    }
+
     private static boolean assign(ServerPlayer player, PlayerCompanionData data, FindMeWorldSavedData world,
                                   FindMeWorldSavedData.HouseRecord house, UUID uuid, ServerLevel houseLevel) {
         CompanionKind kind = uuid == null ? null : data.kindOf(uuid).orElse(null);
         if (kind == null || data.deadList().contains(uuid)) return false;
-        if (data.homeHouseId(uuid).filter(house.houseId()::equals).isPresent()) return false;
+        if (houseResidents(data, house).contains(uuid)) return false;
+        if (!CompanionHomeService.hasResidentCapacity(house, uuid, data)) {
+            com.kuzhi.findme.server.ui.CompanionMessageService.tell(player,
+                    "message.find_me.house_full", ChatFormatting.YELLOW,
+                    com.kuzhi.findme.Config.houseResidentCapacity);
+            return false;
+        }
         UUID oldHouse = data.homeHouseId(uuid).orElse(null);
         SavedPosition oldHome = data.homePosition(uuid).orElse(null);
         SavedPosition oldNest = data.homeNestBlock(uuid).orElse(null);
@@ -154,7 +212,7 @@ public final class HousePageService {
                     house.houseId(), uuid, oldHouse);
             return false;
         }
-        if (oldHouse != null) world.removeResident(oldHouse, uuid);
+        world.removeResidentFromAllHouses(uuid);
         world.addResident(house.houseId(), uuid);
         return true;
     }
@@ -177,21 +235,30 @@ public final class HousePageService {
         }
         UUID assignedHouse = data.homeHouseId(uuid).orElse(null);
         boolean listedByHouse = house.residents().contains(uuid);
-        boolean mappedToHouse = house.houseId().equals(assignedHouse);
+        boolean mappedToHouse = houseResidents(data, house).contains(uuid);
         if (!listedByHouse && !mappedToHouse) {
             FindMeDebugLogger.info("house", "remove rejected reason=not_resident house={} companion={} assignedHouse={}",
                     house.houseId(), uuid, assignedHouse);
             return false;
         }
+        if (!mappedToHouse) {
+            world.removeResident(house.houseId(), uuid);
+            FindMeDebugLogger.info("house",
+                    "remove repaired stale index house={} companion={} assignedHouse={} listed={}",
+                    house.houseId(), uuid, assignedHouse, listedByHouse);
+            return true;
+        }
         CompanionKind kind = data.kindOf(uuid).orElse(null);
         if (kind == null) {
-            FindMeDebugLogger.info("house", "remove rejected reason=missing_kind house={} companion={}", house.houseId(), uuid);
-            return false;
+            data.clearHomePosition(uuid);
+            CompanionHomeResidentService.clearResident(uuid);
+            world.removeResident(house.houseId(), uuid);
+            FindMeDebugLogger.info("house",
+                    "remove repaired unregistered assignment house={} companion={}", house.houseId(), uuid);
+            return true;
         }
-        CompanionLifecycleState previousState = data.lifecycleState(uuid);
-        boolean removeAuthoritativeAssignment = mappedToHouse || assignedHouse == null;
         Entity entity = CompanionEntityLookup.findEntity(player.getServer(), uuid).orElse(null);
-        if (removeAuthoritativeAssignment && entity instanceof LivingEntity living && living.isAlive()) {
+        if (entity instanceof LivingEntity living && living.isAlive()) {
             if (!CompanionLifecycleFacade.storeLiving(player, data, living,
                     CompanionTransientStateService.Reason.AUTO_STORE, "house:remove_resident")) {
                 FindMeDebugLogger.info("house", "remove rejected reason=resident_store_failed house={} companion={} entity={}",
@@ -200,40 +267,50 @@ public final class HousePageService {
             }
             data.clearDeployed(kind, uuid);
         }
-        if (removeAuthoritativeAssignment) {
-            data.clearHomePosition(uuid);
-            if (previousState == CompanionLifecycleState.HOME_ACTIVE
-                    || previousState == CompanionLifecycleState.HOME_STORED) {
-                data.setLifecycleState(uuid, data.isDeployed(kind, uuid)
-                        ? CompanionLifecycleState.DEPLOYED
-                        : CompanionLifecycleState.STORED);
-            }
+        data.clearHomePosition(uuid);
+        CompanionLifecycleState detachedState = detachedLifecycleState(data.deadList().contains(uuid),
+                data.isDeployed(kind, uuid), data.hasStoredEntity(uuid));
+        if (detachedState != CompanionLifecycleState.DEPLOYED) {
+            data.clearDeployed(kind, uuid);
         }
+        data.setLifecycleState(uuid, detachedState);
         world.removeResident(house.houseId(), uuid);
         FindMeDebugLogger.info("house", "remove accepted house={} companion={} assignedHouse={} listed={} clearedAssignment={}",
-                house.houseId(), uuid, assignedHouse, listedByHouse, removeAuthoritativeAssignment);
+                house.houseId(), uuid, assignedHouse, listedByHouse, true);
         return true;
+    }
+
+    static boolean hasAuthoritativeHouseAssignment(UUID assignedHouse, UUID houseId) {
+        return assignedHouse != null && assignedHouse.equals(houseId);
+    }
+
+    static CompanionLifecycleState detachedLifecycleState(boolean dead, boolean deployed,
+                                                           boolean storedSnapshot) {
+        if (dead) return CompanionLifecycleState.DEAD;
+        if (deployed) return CompanionLifecycleState.DEPLOYED;
+        return storedSnapshot ? CompanionLifecycleState.STORED : CompanionLifecycleState.RECOVERY;
     }
 
     private static void send(ServerPlayer player, FindMeWorldSavedData.HouseRecord house) {
         FindMeWorldSavedData world = FindMeWorldSavedData.get(player.server);
         PlayerCompanionData data = registryData(player, house.owner());
-        if (player.getUUID().equals(house.owner()) && repairHouseAssignments(player, data, world)) {
-            CompanionDataService.save(player, data);
-            house = world.house(house.houseId()).orElse(house);
-        }
+        Set<UUID> houseResidents = houseResidents(data, house);
         List<HousePagePacket.Resident> residents = new ArrayList<>();
-        for (UUID uuid : house.residents()) {
-            if (data.kindOf(uuid).isPresent()) residents.add(resident(player, data, uuid, false));
+        for (UUID uuid : houseResidents) {
+            if (data.kindOf(uuid).isPresent()) {
+                residents.add(resident(player, data, uuid, false, house.residentMode(uuid)));
+            }
         }
         List<HousePagePacket.Resident> available = new ArrayList<>();
         if (player.getUUID().equals(house.owner())) {
             for (CompanionKind kind : CompanionKind.values()) {
                 for (UUID uuid : data.list(kind)) {
-                    UUID assignedHouse = data.homeHouseId(uuid).orElse(null);
-                    if (!data.deadList().contains(uuid) && !house.residents().contains(uuid)
+                    UUID assignedHouse = assignedHouseId(world, data, uuid);
+                    if (!data.deadList().contains(uuid) && !houseResidents.contains(uuid)
                             && !house.houseId().equals(assignedHouse)) {
-                        available.add(resident(player, data, uuid, assignedHouse != null));
+                        HouseResidentMode mode = assignedHouse == null ? HouseResidentMode.WANDER
+                                : world.residentMode(assignedHouse, uuid);
+                        available.add(resident(player, data, uuid, assignedHouse != null, mode));
                     }
                 }
             }
@@ -243,77 +320,42 @@ public final class HousePageService {
         ServerPlayer owner = player.getServer().getPlayerList().getPlayer(house.owner());
         if (owner != null) ownerName = owner.getGameProfile().getName();
         ModNetwork.sendToPlayer(player, new HousePagePacket(house.houseId(), house.owner(), ownerName,
-                house.displayName().isBlank() ? "Small House" : house.displayName(), !player.getUUID().equals(house.owner()), residents, available));
+                house.displayName().isBlank() ? "Small House" : house.displayName(),
+                !player.getUUID().equals(house.owner()), Math.max(1, com.kuzhi.findme.Config.houseResidentCapacity),
+                residents, available));
     }
 
-    private static boolean repairHouseAssignments(ServerPlayer owner, PlayerCompanionData data,
-                                                  FindMeWorldSavedData world) {
-        List<FindMeWorldSavedData.HouseRecord> houses = world.housesOwnedBy(owner.getUUID());
-        Set<UUID> registered = new LinkedHashSet<>();
-        for (CompanionKind kind : CompanionKind.values()) registered.addAll(data.list(kind));
-        int missingIds = 0;
-        int membershipChanges = 0;
-        for (UUID uuid : registered) {
-            FindMeWorldSavedData.HouseRecord desired = desiredHouse(data, uuid, houses);
-            if (desired == null) continue;
-            if (data.homeHouseId(uuid).isEmpty()) missingIds++;
-            for (FindMeWorldSavedData.HouseRecord candidate : houses) {
-                boolean shouldContain = candidate.houseId().equals(desired.houseId());
-                if (candidate.residents().contains(uuid) != shouldContain) membershipChanges++;
-            }
+    private static Set<UUID> houseResidents(PlayerCompanionData data,
+                                             FindMeWorldSavedData.HouseRecord house) {
+        if (data == null || house == null) {
+            return Set.of();
         }
-        if (missingIds <= 0 && membershipChanges <= 0) return false;
-        if (!CompanionSafetyService.createForcedBackup(owner, data, "before_house_assignment_repair")) {
-            FindMeDebugLogger.info("house", "assignment repair rejected reason=backup_failed owner={} missingIds={} membershipChanges={}",
-                    owner.getUUID(), missingIds, membershipChanges);
-            return false;
-        }
-        int repairedIds = 0;
-        int addedMemberships = 0;
-        int removedMemberships = 0;
-        for (UUID uuid : registered) {
-            FindMeWorldSavedData.HouseRecord desired = desiredHouse(data, uuid, houses);
-            if (desired == null) continue;
-            if (data.homeHouseId(uuid).isEmpty()) {
-                data.setHomeHouseId(uuid, desired.houseId());
-                repairedIds++;
-            }
-            for (FindMeWorldSavedData.HouseRecord candidate : houses) {
-                boolean listed = candidate.residents().contains(uuid);
-                if (candidate.houseId().equals(desired.houseId())) {
-                    if (!listed) {
-                        world.addResident(candidate.houseId(), uuid);
-                        addedMemberships++;
-                    }
-                } else if (listed) {
-                    world.removeResident(candidate.houseId(), uuid);
-                    removedMemberships++;
+        Set<UUID> residents = new LinkedHashSet<>();
+        for (CompanionKind kind : CompanionKind.values()) {
+            for (UUID uuid : data.list(kind)) {
+                boolean assignedById = data.homeHouseId(uuid).filter(house.houseId()::equals).isPresent();
+                boolean assignedByLegacyPosition = data.homeHouseId(uuid).isEmpty()
+                        && data.homeNestBlock(uuid)
+                        .filter(nest -> nest.dimension().equals(house.position().dimension())
+                                && nest.blockPos().equals(house.position().blockPos()))
+                        .isPresent();
+                if (assignedById || assignedByLegacyPosition) {
+                    residents.add(uuid);
                 }
             }
         }
-        FindMeDebugLogger.info("house", "assignment repair completed owner={} repairedIds={} addedMemberships={} removedMemberships={}",
-                owner.getUUID(), repairedIds, addedMemberships, removedMemberships);
-        return repairedIds > 0 || addedMemberships > 0 || removedMemberships > 0;
+        return Set.copyOf(residents);
     }
 
-    private static FindMeWorldSavedData.HouseRecord desiredHouse(PlayerCompanionData data, UUID uuid,
-                                                                 List<FindMeWorldSavedData.HouseRecord> houses) {
-        UUID assigned = data.homeHouseId(uuid).orElse(null);
-        if (assigned != null) {
-            for (FindMeWorldSavedData.HouseRecord house : houses) {
-                if (house.houseId().equals(assigned)) return house;
-            }
-            return null;
+    private static UUID assignedHouseId(FindMeWorldSavedData world, PlayerCompanionData data, UUID uuid) {
+        UUID explicit = data.homeHouseId(uuid).orElse(null);
+        if (explicit != null) {
+            return explicit;
         }
-        SavedPosition nest = data.homeNestBlock(uuid).orElse(null);
-        if (nest == null) return null;
-        for (FindMeWorldSavedData.HouseRecord house : houses) {
-            if (nest.dimension().equals(house.position().dimension())
-                    && nest.blockPos().equals(house.position().blockPos())) {
-                return house;
-            }
-        }
-        return null;
+        return data.homeNestBlock(uuid)
+                .flatMap(world::houseAt)
+                .map(FindMeWorldSavedData.HouseRecord::houseId)
+                .orElse(null);
     }
 
     private static PlayerCompanionData registryData(ServerPlayer viewer, UUID owner) {
@@ -326,22 +368,55 @@ public final class HousePageService {
         return PlayerCompanionData.load(container);
     }
 
+    private static UUID uniqueLegacyOwner(ServerPlayer viewer, BlockPos housePos,
+                                          FindMeWorldSavedData world) {
+        Set<UUID> possibleOwners = new LinkedHashSet<>(world.playerUuids());
+        for (ServerPlayer online : viewer.getServer().getPlayerList().getPlayers()) {
+            possibleOwners.add(online.getUUID());
+        }
+        UUID match = null;
+        for (UUID candidate : possibleOwners) {
+            ServerPlayer online = viewer.getServer().getPlayerList().getPlayer(candidate);
+            PlayerCompanionData data = online == null
+                    ? CompanionDataService.data(viewer.getServer(), candidate)
+                    : CompanionDataService.data(online);
+            boolean assigned = false;
+            for (CompanionKind kind : CompanionKind.values()) {
+                for (UUID uuid : data.list(kind)) {
+                    SavedPosition nest = data.homeNestBlock(uuid).orElse(null);
+                    if (nest != null && nest.dimension().equals(viewer.serverLevel().dimension())
+                            && nest.blockPos().equals(housePos)) {
+                        assigned = true;
+                        break;
+                    }
+                }
+                if (assigned) break;
+            }
+            if (!assigned) continue;
+            if (match != null && !match.equals(candidate)) {
+                return null;
+            }
+            match = candidate;
+        }
+        return match;
+    }
+
     private static HousePagePacket.Resident resident(ServerPlayer player, PlayerCompanionData data, UUID uuid,
-                                                     boolean otherHouse) {
+                                                     boolean otherHouse, HouseResidentMode mode) {
         CompanionKind kind = data.kindOf(uuid).orElse(CompanionKind.COMPANION);
         Entity entity = CompanionEntityLookup.findEntity(player.getServer(), uuid).orElse(null);
-        CompoundTag stored = data.storedEntity(uuid).orElse(null);
-        String type = entity == null ? stored == null ? "" : CompanionEntitySnapshots.storedEntityType(stored)
+        String type = entity == null ? data.storedEntityType(uuid).orElse("")
                 : net.minecraft.world.entity.EntityType.getKey(entity.getType()).toString();
         String name = data.displayName(uuid).orElseGet(() -> entity != null
                 ? entity.getDisplayName().getString()
-                : stored == null ? uuid.toString().substring(0, 8) : CompanionEntitySnapshots.storedEntityName(stored, uuid));
+                : data.storedEntityName(uuid).orElse(uuid.toString().substring(0, 8)));
         boolean active = data.isDeployed(kind, uuid) || CompanionHomeResidentService.isResident(uuid);
         // The house page creates at most eight visible preview elements. Sending a full entity NBT snapshot
         // for every off-screen resident defeats that virtualization and stalls the first page open. The
         // owner's normal companion sync already supplies exact preview data; read-only viewers use a
         // lightweight type-based preview for the visible cards.
-        return new HousePagePacket.Resident(uuid, name, type, kind, active, data.deadList().contains(uuid), otherHouse, null);
+        return new HousePagePacket.Resident(uuid, name, type, kind, active, data.deadList().contains(uuid),
+                otherHouse, mode, null);
     }
 
     private static ServerLevel houseLevel(ServerPlayer player, FindMeWorldSavedData.HouseRecord house) {

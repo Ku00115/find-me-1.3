@@ -27,6 +27,8 @@ import com.kuzhi.findme.server.data.FindMeWorldSavedData;
 import com.kuzhi.findme.server.lifecycle.CompanionPlacementFinder;
 import com.kuzhi.findme.server.safety.CompanionSafetyService;
 import java.util.LinkedHashSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -37,6 +39,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
@@ -82,10 +85,6 @@ public final class CompanionHomeService {
     }
 
     public static int setIndexHomeAtHouse(ServerPlayer player, PlayerCompanionData data, CompanionKind kind, int index, ServerLevel houseLevel, BlockPos housePos) {
-        if (kind != CompanionKind.COMPANION) {
-            CompanionMessageService.tell(player, "message.find_me.house_companion_only", ChatFormatting.YELLOW);
-            return 0;
-        }
         Optional<UUID> maybeUuid = data.wheelUuidAt(kind, index);
         if (maybeUuid.isEmpty()) {
             CompanionMessageService.tell(player, "message.find_me.invalid_index", ChatFormatting.RED, CompanionMessageService.label(kind));
@@ -93,16 +92,20 @@ public final class CompanionHomeService {
         }
         UUID uuid = maybeUuid.get();
         FindMeWorldSavedData world = FindMeWorldSavedData.get(player.server);
-        UUID oldHouseId = data.homeHouseId(uuid).orElse(null);
+        SmallHouseBlockEntity targetHouse = houseLevel.getBlockEntity(housePos) instanceof SmallHouseBlockEntity value
+                ? value : null;
+        if (targetHouse == null || !hasResidentCapacity(world.house(targetHouse.houseId()).orElse(null), uuid, data)) {
+            CompanionMessageService.tell(player, "message.find_me.house_full", ChatFormatting.YELLOW,
+                    Config.houseResidentCapacity);
+            return 0;
+        }
         SavedPosition home = SavedPosition.of(houseLevel, housePos.getX() + 0.5, housePos.getY() + 1.0, housePos.getZ() + 0.5, player.getYRot(), 0.0f);
         SavedPosition source = SavedPosition.of(houseLevel, housePos.getX(), housePos.getY(), housePos.getZ(), 0.0f, 0.0f);
         data.setHomePosition(uuid, home);
         data.setHomeNestBlock(uuid, source);
         if (houseLevel.getBlockEntity(housePos) instanceof SmallHouseBlockEntity house) {
             data.setHomeHouseId(uuid, house.houseId());
-            if (oldHouseId != null) {
-                world.removeResident(oldHouseId, uuid);
-            }
+            world.removeResidentFromAllHouses(uuid);
             world.addResident(house.houseId(), uuid);
         }
         CompanionDataService.save(player, data);
@@ -227,39 +230,44 @@ public final class CompanionHomeService {
         int stored = 0;
         int dead = 0;
         int recovered = 0;
+        int deployed = 0;
+        int ignored = 0;
         int failed = 0;
+        List<CompanionStorageService.PreparedDetachedHomeResident> preparedResidents = new ArrayList<>();
         for (UUID uuid : residents) {
             if (uuid == null) continue;
-            if (data.deadList().contains(uuid)) {
-                data.clearHomePosition(uuid);
-                data.setLifecycleState(uuid, CompanionLifecycleState.DEAD);
-                CompanionHomeResidentService.clearResident(uuid);
-                dead++;
-            } else {
-                Entity entity = CompanionEntityLookup.findEntity(level.getServer(), uuid).orElse(null);
-                if (entity instanceof LivingEntity living && living.isAlive()) {
-                    if (CompanionStorageService.storeDetachedHomeResident(level.getServer(), ownerUuid, data, living)) {
-                        stored++;
-                    } else {
-                        data.clearHomePosition(uuid);
-                        data.setLifecycleState(uuid, CompanionLifecycleState.RECOVERY);
-                        failed++;
-                    }
-                } else {
-                    data.clearHomePosition(uuid);
-                    CompanionHomeResidentService.clearResident(uuid);
-                    if (data.storedEntity(uuid).isPresent()) {
-                        data.setLifecycleState(uuid, CompanionLifecycleState.STORED);
-                        stored++;
-                    } else {
-                        data.setLifecycleState(uuid, CompanionLifecycleState.RECOVERY);
-                        recovered++;
-                    }
+            CompanionKind kind = data.kindOf(uuid).orElse(null);
+            Entity entity = kind == null ? null
+                    : CompanionEntityLookup.findEntity(level.getServer(), uuid).orElse(null);
+            LivingEntity living = entity instanceof LivingEntity candidate && candidate.isAlive() ? candidate : null;
+            boolean isDead = kind != null && data.deadList().contains(uuid);
+            CompanionStorageService.PreparedDetachedHomeResident prepared = null;
+            if (!isDead && kind != null && living != null) {
+                prepared = CompanionStorageService.prepareDetachedHomeResident(
+                        level.getServer(), ownerUuid, data, living);
+            }
+            DetachedResidentDisposition disposition = detachedResidentDisposition(kind != null, isDead,
+                    living != null, prepared != null, data.storedEntity(uuid).isPresent());
+            applyDetachedResidentDisposition(level.getServer(), ownerUuid, data, kind, uuid, living, disposition);
+            if (prepared != null) {
+                preparedResidents.add(prepared);
+            }
+            switch (disposition) {
+                case STORED -> stored++;
+                case DEAD -> dead++;
+                case RECOVERY -> recovered++;
+                case DEPLOYED -> {
+                    deployed++;
+                    failed++;
                 }
+                case IGNORE -> ignored++;
             }
             world.removeResident(record.houseId(), uuid);
         }
         CompanionDataService.save(level.getServer(), ownerUuid, data);
+        for (CompanionStorageService.PreparedDetachedHomeResident prepared : preparedResidents) {
+            CompanionStorageService.commitDetachedHomeResident(level.getServer(), data, prepared);
+        }
         world.removeHouse(record.houseId());
         world.markDestroyedHouse(source);
         world.markDestroyedHousesReconciled(ownerUuid);
@@ -267,8 +275,36 @@ public final class CompanionHomeService {
             CompanionSyncService.syncToClient(owner, CompanionKind.MOUNT);
             CompanionSyncService.syncToClient(owner, CompanionKind.COMPANION);
         }
-        FindMeDebugLogger.info("house", "broken house collected house={} owner={} residents={} stored={} dead={} recovery={} failed={}",
-                record.houseId(), ownerUuid, residents.size(), stored, dead, recovered, failed);
+        FindMeDebugLogger.info("house",
+                "broken house collected house={} owner={} residents={} stored={} deployed={} dead={} recovery={} ignored={} failed={}",
+                record.houseId(), ownerUuid, residents.size(), stored, deployed, dead, recovered, ignored, failed);
+    }
+
+    static boolean hasResidentCapacity(FindMeWorldSavedData.HouseRecord house, UUID uuid) {
+        return house != null && (house.residents().contains(uuid)
+                || house.residents().size() < Math.max(1, Config.houseResidentCapacity));
+    }
+
+    static boolean hasResidentCapacity(FindMeWorldSavedData.HouseRecord house, UUID uuid,
+                                       PlayerCompanionData data) {
+        if (house == null || data == null || uuid == null) {
+            return false;
+        }
+        Set<UUID> assigned = new LinkedHashSet<>();
+        for (CompanionKind kind : CompanionKind.values()) {
+            for (UUID candidate : data.list(kind)) {
+                boolean assignedById = data.homeHouseId(candidate).filter(house.houseId()::equals).isPresent();
+                boolean assignedByLegacyPosition = data.homeHouseId(candidate).isEmpty()
+                        && data.homeNestBlock(candidate)
+                        .filter(nest -> sameBlock(nest, house.position()))
+                        .isPresent();
+                if (assignedById || assignedByLegacyPosition) {
+                    assigned.add(candidate);
+                }
+            }
+        }
+        return assigned.contains(uuid)
+                || assigned.size() < Math.max(1, Config.houseResidentCapacity);
     }
 
     private static void collectLegacyHouseResidents(ServerLevel level, UUID ownerUuid, ServerPlayer owner,
@@ -276,33 +312,37 @@ public final class CompanionHomeService {
         int matched = 0;
         int stored = 0;
         int recovery = 0;
+        int deployed = 0;
+        int dead = 0;
+        List<CompanionStorageService.PreparedDetachedHomeResident> preparedResidents = new ArrayList<>();
         for (CompanionKind kind : CompanionKind.values()) {
             for (UUID uuid : data.list(kind)) {
                 if (data.homeNestBlock(uuid).filter(saved -> sameBlock(saved, source)).isEmpty()) {
                     continue;
                 }
                 matched++;
-                if (data.deadList().contains(uuid)) {
-                    data.clearHomePosition(uuid);
-                    data.setLifecycleState(uuid, CompanionLifecycleState.DEAD);
-                    CompanionHomeResidentService.clearResident(uuid);
-                    continue;
-                }
                 Entity entity = CompanionEntityLookup.findEntity(level.getServer(), uuid).orElse(null);
-                if (entity instanceof LivingEntity living && living.isAlive()
-                        && CompanionStorageService.storeDetachedHomeResident(
-                        level.getServer(), ownerUuid, data, living)) {
-                    stored++;
-                    continue;
+                LivingEntity living = entity instanceof LivingEntity candidate && candidate.isAlive()
+                        ? candidate : null;
+                boolean isDead = data.deadList().contains(uuid);
+                CompanionStorageService.PreparedDetachedHomeResident prepared = null;
+                if (!isDead && living != null) {
+                    prepared = CompanionStorageService.prepareDetachedHomeResident(
+                            level.getServer(), ownerUuid, data, living);
                 }
-                data.clearHomePosition(uuid);
-                CompanionHomeResidentService.clearResident(uuid);
-                if (data.storedEntity(uuid).isPresent()) {
-                    data.setLifecycleState(uuid, CompanionLifecycleState.STORED);
-                    stored++;
-                } else {
-                    data.setLifecycleState(uuid, CompanionLifecycleState.RECOVERY);
-                    recovery++;
+                DetachedResidentDisposition disposition = detachedResidentDisposition(true, isDead,
+                        living != null, prepared != null, data.storedEntity(uuid).isPresent());
+                applyDetachedResidentDisposition(level.getServer(), ownerUuid, data, kind, uuid, living, disposition);
+                if (prepared != null) {
+                    preparedResidents.add(prepared);
+                }
+                switch (disposition) {
+                    case STORED -> stored++;
+                    case DEAD -> dead++;
+                    case RECOVERY -> recovery++;
+                    case DEPLOYED -> deployed++;
+                    case IGNORE -> {
+                    }
                 }
             }
         }
@@ -310,13 +350,76 @@ public final class CompanionHomeService {
             return;
         }
         CompanionDataService.save(level.getServer(), ownerUuid, data);
+        for (CompanionStorageService.PreparedDetachedHomeResident prepared : preparedResidents) {
+            CompanionStorageService.commitDetachedHomeResident(level.getServer(), data, prepared);
+        }
         if (owner != null) {
             CompanionSyncService.syncToClient(owner, CompanionKind.MOUNT);
             CompanionSyncService.syncToClient(owner, CompanionKind.COMPANION);
         }
         FindMeDebugLogger.info("house",
-                "legacy broken house reconciled owner={} position={} matched={} stored={} recovery={}",
-                ownerUuid, source.blockPos(), matched, stored, recovery);
+                "legacy broken house reconciled owner={} position={} matched={} stored={} deployed={} dead={} recovery={}",
+                ownerUuid, source.blockPos(), matched, stored, deployed, dead, recovery);
+    }
+
+    static DetachedResidentDisposition detachedResidentDisposition(boolean registered, boolean dead,
+                                                                    boolean liveEntity, boolean snapshotPrepared,
+                                                                    boolean storedSnapshot) {
+        if (!registered) return DetachedResidentDisposition.IGNORE;
+        if (dead) return DetachedResidentDisposition.DEAD;
+        if (snapshotPrepared) return DetachedResidentDisposition.STORED;
+        if (liveEntity) return DetachedResidentDisposition.DEPLOYED;
+        return storedSnapshot ? DetachedResidentDisposition.STORED : DetachedResidentDisposition.RECOVERY;
+    }
+
+    private static void applyDetachedResidentDisposition(MinecraftServer server, UUID ownerUuid,
+                                                          PlayerCompanionData data, CompanionKind kind, UUID uuid,
+                                                          LivingEntity living,
+                                                          DetachedResidentDisposition disposition) {
+        if (disposition == DetachedResidentDisposition.IGNORE) {
+            CompanionHomeResidentService.clearResident(uuid);
+            return;
+        }
+        if (living != null) {
+            CompanionHomeResidentService.clearResident(living);
+        } else {
+            CompanionHomeResidentService.clearResident(uuid);
+        }
+        data.clearHomePosition(uuid);
+        switch (disposition) {
+            case DEAD -> {
+                data.clearDeployed(kind, uuid);
+                data.setLifecycleState(uuid, CompanionLifecycleState.DEAD);
+            }
+            case DEPLOYED -> {
+                data.removeStoredEntity(uuid);
+                data.setDeployed(kind, uuid);
+                data.setLifecycleState(uuid, CompanionLifecycleState.DEPLOYED);
+                data.setLastKnownPosition(uuid, SavedPosition.of(living.level(), living.getX(), living.getY(),
+                        living.getZ(), living.getYRot(), living.getXRot()));
+            }
+            case STORED -> {
+                data.clearDeployed(kind, uuid);
+                data.setLifecycleState(uuid, CompanionLifecycleState.STORED);
+            }
+            case RECOVERY -> {
+                data.clearDeployed(kind, uuid);
+                data.removeStoredEntity(uuid);
+                data.setLifecycleState(uuid, CompanionLifecycleState.RECOVERY);
+                com.kuzhi.findme.server.safety.CompanionRecoveryService.scheduleRecovery(
+                        server, ownerUuid, uuid);
+            }
+            case IGNORE -> {
+            }
+        }
+    }
+
+    enum DetachedResidentDisposition {
+        IGNORE,
+        DEAD,
+        DEPLOYED,
+        STORED,
+        RECOVERY
     }
 
     private static boolean hasLegacyHouseResidents(PlayerCompanionData data, SavedPosition source) {
@@ -353,6 +456,7 @@ public final class CompanionHomeService {
         if (rejectBusy(player, data, kind, uuid, "home:set")) {
             return 0;
         }
+        detachFromHouse(player, data, kind, uuid);
         SavedPosition home = SavedPosition.of(player.level(), player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
         data.setHomePosition(uuid, home);
         CompanionDataService.save(player, data);
@@ -365,15 +469,45 @@ public final class CompanionHomeService {
         if (rejectBusy(player, data, kind, uuid, "home:clear")) {
             return 0;
         }
-        UUID houseId = data.homeHouseId(uuid).orElse(null);
+        detachFromHouse(player, data, kind, uuid);
         data.clearHomePosition(uuid);
-        if (houseId != null) {
-            FindMeWorldSavedData.get(player.server).removeResident(houseId, uuid);
-        }
         CompanionDataService.save(player, data);
         CompanionSyncService.syncToClient(player, kind);
         CompanionSummonLineService.showHomeCleared(player, displayName(data, uuid));
         return 1;
+    }
+
+    private static void detachFromHouse(ServerPlayer player, PlayerCompanionData data,
+                                        CompanionKind kind, UUID uuid) {
+        FindMeWorldSavedData.get(player.server).removeResidentFromAllHouses(uuid);
+        CompanionLifecycleState state = data.lifecycleState(uuid);
+        boolean homeLifecycle = state == CompanionLifecycleState.HOME_ACTIVE
+                || state == CompanionLifecycleState.HOME_STORED;
+        boolean resident = CompanionHomeResidentService.isResident(uuid);
+        if (!homeLifecycle && !resident) {
+            return;
+        }
+
+        Entity entity = CompanionEntityLookup.findEntity(player.getServer(), uuid).orElse(null);
+        if (entity instanceof LivingEntity living && living.isAlive() && !data.deadList().contains(uuid)) {
+            CompanionHomeResidentService.clearResident(living);
+            data.removeStoredEntity(uuid);
+            data.setDeployed(kind, uuid);
+            data.setLifecycleState(uuid, CompanionLifecycleState.DEPLOYED);
+            data.setLastKnownPosition(uuid, SavedPosition.of(living.level(), living.getX(), living.getY(),
+                    living.getZ(), living.getYRot(), living.getXRot()));
+            return;
+        }
+
+        CompanionHomeResidentService.clearResident(uuid);
+        data.clearDeployed(kind, uuid);
+        if (data.deadList().contains(uuid)) {
+            data.setLifecycleState(uuid, CompanionLifecycleState.DEAD);
+        } else {
+            data.setLifecycleState(uuid, data.hasStoredEntity(uuid)
+                    ? CompanionLifecycleState.STORED
+                    : CompanionLifecycleState.RECOVERY);
+        }
     }
 
     public static int clearHomesForHouse(ServerPlayer player, PlayerCompanionData data, SavedPosition source) {

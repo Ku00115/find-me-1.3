@@ -11,7 +11,10 @@ import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.lifecycle.CompanionCollectionService;
 import com.kuzhi.findme.server.lifecycle.CompanionDeployRequestService;
+import com.kuzhi.findme.server.lifecycle.CompanionStorageService;
+import com.kuzhi.findme.server.lifecycle.CompanionSummonApproachService;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
@@ -23,7 +26,8 @@ public final class CompanionActionRequestService {
     private static final int DEFAULT_TIMEOUT_TICKS = 20 * 30;
     private static final int MAX_TIMEOUT_TICKS = 20 * 60 * 5;
     private static final int TERMINAL_RETENTION_TICKS = 20 * 60 * 5;
-    private static final Map<UUID, Entry> REQUESTS = new HashMap<>();
+    private static final Map<RequestKey, Entry> REQUESTS = new HashMap<>();
+    private static final Map<OwnerKey, java.util.Set<UUID>> TASK_DEPLOYMENTS = new HashMap<>();
 
     private CompanionActionRequestService() {
     }
@@ -35,7 +39,8 @@ public final class CompanionActionRequestService {
         if (requestId == null || companionUuid == null || action == null) {
             return invalid(requestId, owner.getUUID(), companionUuid, action, now);
         }
-        Entry existing = REQUESTS.get(requestId);
+        RequestKey key = new RequestKey(owner.getServer(), owner.getUUID(), requestId);
+        Entry existing = REQUESTS.get(key);
         if (existing != null) {
             if (existing.matches(owner.getServer(), owner.getUUID(), companionUuid, action)) return existing.snapshot();
             return rejected(requestId, owner.getUUID(), companionUuid, action, now, Reason.INVALID_REQUEST);
@@ -50,9 +55,10 @@ public final class CompanionActionRequestService {
                     Reason.DEAD);
         }
         if (satisfied(descriptor, action)) {
+            updateTaskDeploymentOwnership(owner.getServer(), owner.getUUID(), descriptor, action);
             Entry entry = Entry.terminal(owner.getServer(), requestId, owner.getUUID(), companionUuid,
                     action, now, State.SUCCEEDED, Reason.ALREADY_SATISFIED);
-            REQUESTS.put(requestId, entry);
+            REQUESTS.put(key, entry);
             return entry.snapshot();
         }
         if (CompanionOperationLockService.get(companionUuid) != null) {
@@ -64,24 +70,27 @@ public final class CompanionActionRequestService {
                 timeoutTicks <= 0 ? DEFAULT_TIMEOUT_TICKS : timeoutTicks);
         Entry entry = new Entry(owner.getServer(), requestId, owner.getUUID(), companionUuid,
                 action, now, now + duration, State.PENDING, Reason.NONE, 0L);
-        REQUESTS.put(requestId, entry);
+        REQUESTS.put(key, entry);
         PlayerCompanionData data = CompanionDataService.data(owner);
-        if (!start(owner, data, descriptor, action)) {
+        StartResult started = start(owner, data, descriptor, action, requestId);
+        entry.operationOwned = started.operationOwned();
+        if (!started.accepted()) {
             entry.finish(State.REJECTED, Reason.UNAVAILABLE, now);
         } else {
             CompanionDescriptor current = CompanionDescriptorService
                     .describe(owner.getServer(), owner.getUUID(), companionUuid).orElse(null);
             if (current != null && satisfied(current, action)) {
+                updateTaskDeploymentOwnership(owner.getServer(), owner.getUUID(), current, action);
                 entry.finish(State.SUCCEEDED, Reason.NONE, now);
             }
         }
         return entry.snapshot();
     }
 
-    public static Optional<CompanionActionRequest> status(MinecraftServer server, UUID requestId) {
-        Entry entry = requestId == null ? null : REQUESTS.get(requestId);
-        return entry == null || server == null || entry.server != server
-                ? Optional.empty() : Optional.of(entry.snapshot());
+    public static Optional<CompanionActionRequest> status(MinecraftServer server, UUID ownerUuid, UUID requestId) {
+        if (server == null || ownerUuid == null || requestId == null) return Optional.empty();
+        Entry entry = REQUESTS.get(new RequestKey(server, ownerUuid, requestId));
+        return entry == null ? Optional.empty() : Optional.of(entry.snapshot());
     }
 
     public static void tick(MinecraftServer server) {
@@ -97,18 +106,23 @@ public final class CompanionActionRequestService {
             }
             ServerPlayer owner = server.getPlayerList().getPlayer(entry.ownerUuid);
             if (owner == null) {
+                cancelUnderlying(null, entry, "owner_offline");
                 entry.finish(State.REJECTED, Reason.OWNER_OFFLINE, now);
                 continue;
             }
             CompanionDescriptor descriptor = CompanionDescriptorService
                     .describe(server, entry.ownerUuid, entry.companionUuid).orElse(null);
             if (descriptor == null) {
+                cancelUnderlying(owner, entry, "released");
                 entry.finish(State.REJECTED, Reason.RELEASED, now);
             } else if (descriptor.lifecycle() == CompanionLifecycleState.DEAD) {
+                cancelUnderlying(owner, entry, "dead");
                 entry.finish(State.REJECTED, Reason.DEAD, now);
             } else if (satisfied(descriptor, entry.action)) {
+                updateTaskDeploymentOwnership(server, entry.ownerUuid, descriptor, entry.action);
                 entry.finish(State.SUCCEEDED, Reason.NONE, now);
             } else if (entry.expiresAt < now) {
+                cancelUnderlying(owner, entry, "timeout");
                 entry.finish(State.TIMED_OUT, Reason.TIMEOUT, now);
             }
         }
@@ -116,17 +130,55 @@ public final class CompanionActionRequestService {
 
     public static void resetServerState(MinecraftServer server) {
         REQUESTS.values().removeIf(entry -> server == null || entry.server == server);
+        TASK_DEPLOYMENTS.keySet().removeIf(key -> server == null || key.server == server);
     }
 
-    private static boolean start(ServerPlayer owner, PlayerCompanionData data,
-                                 CompanionDescriptor descriptor, Action action) {
-        if (action == Action.STORE) {
-            return CompanionCollectionService.collectUuid(owner, data, descriptor.kind(), descriptor.companionUuid());
+    public static void releaseTaskDeployments(ServerPlayer owner, String reason) {
+        if (owner == null) return;
+        java.util.Set<UUID> companions = TASK_DEPLOYMENTS.remove(
+                new OwnerKey(owner.getServer(), owner.getUUID()));
+        if (companions == null || companions.isEmpty()) return;
+        PlayerCompanionData data = CompanionDataService.data(owner);
+        for (UUID companionUuid : java.util.Set.copyOf(companions)) {
+            CompanionDescriptor descriptor = CompanionDescriptorService
+                    .describe(owner.getServer(), owner.getUUID(), companionUuid).orElse(null);
+            if (descriptor != null && descriptor.live()) {
+                CompanionCollectionService.collectUuid(owner, data, descriptor.kind(), companionUuid);
+            }
         }
-        CompanionDeployRequestService.Result result = CompanionDeployRequestService.request(owner, data,
-                descriptor.kind(), descriptor.companionUuid(), CompanionDeployRequestService.Mode.AUTONOMOUS,
-                "api:external_deploy");
-        return result.state() != CompanionDeployRequestService.State.REJECTED;
+    }
+
+    private static StartResult start(ServerPlayer owner, PlayerCompanionData data,
+                                     CompanionDescriptor descriptor, Action action, UUID requestId) {
+        if (action == Action.STORE) {
+            boolean alreadyPending = CompanionStorageService.isStoragePending(descriptor.companionUuid());
+            boolean accepted = CompanionCollectionService.collectUuid(owner, data, descriptor.kind(),
+                    descriptor.companionUuid());
+            return new StartResult(accepted, accepted && !alreadyPending && CompanionStorageService.isStoragePending(
+                    descriptor.companionUuid()));
+        }
+        CompanionDeployRequestService.Result result = action == Action.TASK_DEPLOY
+                ? CompanionDeployRequestService.requestExternalTask(owner, data, descriptor.kind(),
+                descriptor.companionUuid(), "api:task_deploy:" + requestId)
+                : CompanionDeployRequestService.request(owner, data, descriptor.kind(),
+                descriptor.companionUuid(), CompanionDeployRequestService.Mode.AUTONOMOUS,
+                "api:external_deploy:" + requestId);
+        return new StartResult(result.state() != CompanionDeployRequestService.State.REJECTED,
+                result.operationStarted());
+    }
+
+    private static void cancelUnderlying(ServerPlayer owner, Entry entry, String reason) {
+        if (entry == null || !entry.operationOwned) return;
+        entry.operationOwned = false;
+        CompanionSummonApproachService.cancel(entry.companionUuid, "api_request_" + reason);
+        if (owner != null && (entry.action == Action.DEPLOY || entry.action == Action.TASK_DEPLOY)) {
+            PlayerCompanionData data = CompanionDataService.data(owner);
+            CompanionDescriptor current = CompanionDescriptorService.describe(entry.server, entry.ownerUuid,
+                    entry.companionUuid).orElse(null);
+            if (current != null && current.deployed() && current.live()) {
+                CompanionCollectionService.collectUuid(owner, data, current.kind(), entry.companionUuid);
+            }
+        }
     }
 
     static boolean satisfied(CompanionDescriptor descriptor, Action action) {
@@ -135,10 +187,27 @@ public final class CompanionActionRequestService {
             return descriptor.deployed() && descriptor.live()
                     && descriptor.lifecycle() == CompanionLifecycleState.DEPLOYED;
         }
+        if (action == Action.TASK_DEPLOY) {
+            return descriptor.live() && descriptor.lifecycle() == CompanionLifecycleState.DEPLOYED;
+        }
         return descriptor.stored() && !descriptor.live() && !descriptor.deployed()
                 && (descriptor.lifecycle() == CompanionLifecycleState.STORED
                 || descriptor.lifecycle() == CompanionLifecycleState.HOME_STORED
                 || descriptor.lifecycle() == CompanionLifecycleState.SHOULDER);
+    }
+
+    private static void updateTaskDeploymentOwnership(MinecraftServer server, UUID ownerUuid,
+                                                       CompanionDescriptor descriptor, Action action) {
+        OwnerKey key = new OwnerKey(server, ownerUuid);
+        if (action == Action.TASK_DEPLOY && !descriptor.deployed()) {
+            TASK_DEPLOYMENTS.computeIfAbsent(key, ignored -> new HashSet<>())
+                    .add(descriptor.companionUuid());
+        } else if (action == Action.STORE) {
+            java.util.Set<UUID> companions = TASK_DEPLOYMENTS.get(key);
+            if (companions != null && companions.remove(descriptor.companionUuid()) && companions.isEmpty()) {
+                TASK_DEPLOYMENTS.remove(key);
+            }
+        }
     }
 
     private static CompanionActionRequest invalid(UUID requestId, UUID ownerUuid, UUID companionUuid,
@@ -156,7 +225,7 @@ public final class CompanionActionRequestService {
                                                          UUID companionUuid, Action action, long now, Reason reason) {
         Entry entry = Entry.terminal(server, requestId, ownerUuid, companionUuid, action, now,
                 State.REJECTED, reason);
-        REQUESTS.put(requestId, entry);
+        REQUESTS.put(new RequestKey(server, ownerUuid, requestId), entry);
         return entry.snapshot();
     }
 
@@ -171,6 +240,7 @@ public final class CompanionActionRequestService {
         private State state;
         private Reason reason;
         private long completedAt;
+        private boolean operationOwned;
 
         private Entry(MinecraftServer server, UUID requestId, UUID ownerUuid, UUID companionUuid,
                       Action action, long submittedAt, long expiresAt, State state, Reason reason,
@@ -209,5 +279,14 @@ public final class CompanionActionRequestService {
             return new CompanionActionRequest(requestId, ownerUuid, companionUuid, action, state, reason,
                     submittedAt, expiresAt, completedAt);
         }
+    }
+
+    private record RequestKey(MinecraftServer server, UUID ownerUuid, UUID requestId) {
+    }
+
+    private record OwnerKey(MinecraftServer server, UUID ownerUuid) {
+    }
+
+    private record StartResult(boolean accepted, boolean operationOwned) {
     }
 }

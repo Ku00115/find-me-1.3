@@ -39,6 +39,12 @@ public record CompanionSpellBinding(ResourceLocation providerId, ResourceLocatio
     }
 
     public CompoundTag save() {
+        CompoundTag tag = saveMetadata();
+        tag.put("item", this.itemTag.copy());
+        return tag;
+    }
+
+    public CompoundTag saveMetadata() {
         CompoundTag tag = new CompoundTag();
         tag.putString("providerId", this.providerId.toString());
         tag.putString("spellId", this.spellId.toString());
@@ -46,7 +52,6 @@ public record CompanionSpellBinding(ResourceLocation providerId, ResourceLocatio
         tag.putString("role", this.role.name());
         tag.putString("spellName", this.spellName);
         tag.putInt("spellLevel", this.spellLevel);
-        tag.put("item", this.itemTag.copy());
         return tag;
     }
 
