@@ -4,12 +4,12 @@
 
 <style>
   * { box-sizing: border-box; letter-spacing: 0; }
-  body { width: 100%; height: 100%; margin: 0; overflow: hidden; color: #172027; font-family: minecraft, sans-serif; font-size: 9px; background-color: rgba(229,232,231,0.97); }
+  body { width: 100%; height: 100%; margin: 0; overflow: hidden; color: #172027; font-family: lxgw, sans-serif; font-size: 9px; background-color: rgba(229,232,231,0.97); }
   .editor-root,.editor-page { position: relative; width: 100%; height: 100%; overflow: hidden; }
-  .editor-page { background-color: #e3e7e6; background-image: linear-gradient(106deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 57%,rgba(56,70,75,0.07) 58%,rgba(56,70,75,0.07) 67%,rgba(0,0,0,0) 68%),linear-gradient(106deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 66%,rgba(22,181,223,0.07) 67%,rgba(22,181,223,0.07) 77%,rgba(0,0,0,0) 78%); background-size: 100% 100%,100% 100%; }
+  .editor-page { background-color: #e3e7e6; }
   .ui-button,[data-action] { cursor: pointer; pointer-events: auto; user-select: none; }
 
-  .topbar { position: relative; z-index: 8; width: 100%; height: var(--fm-top); display: flex; align-items: center; padding: 0 7px; border-bottom: 1px solid rgba(57,68,73,0.16); background-color: rgba(237,240,239,0.97); background-image: linear-gradient(106deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 61%,rgba(70,82,88,0.13) 62%,rgba(70,82,88,0.13) 72%,rgba(0,0,0,0) 73%),linear-gradient(106deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 70%,rgba(255,255,255,0.48) 71%,rgba(255,255,255,0.48) 79%,rgba(0,0,0,0) 80%); background-size: 100% 100%,100% 100%; }
+  .topbar { position: relative; z-index: 8; width: 100%; height: var(--fm-top); display: flex; align-items: center; padding: 0 7px; border-bottom: 1px solid rgba(57,68,73,0.16); background-color: rgba(237,240,239,0.97); }
   .back-button { width: 34px; height: 24px; display: flex; flex: 0 0 34px; align-items: center; justify-content: center; margin-right: 5px; padding-right: 3px; color: #ffffff; background-color: #20282d; clip-path: polygon(0 0,100% 0,84% 100%,0 100%); font-size: 10px; line-height: 12px; font-weight: bold; }
   .page-title { width: 135px; display: flex; flex: 0 0 135px; flex-direction: column; }
   .page-title strong { font-size: 34px; line-height: 28px; font-weight: bold; white-space: nowrap; }
@@ -50,7 +50,7 @@
   .selection-bar strong { margin-top: 2px; font-size: 11px; line-height: 12px; }
   .selection-bar > b { font-family: "Arial",sans-serif; font-size: 22px; line-height: 23px; font-weight: normal; }
   .search-row { width: var(--fm-editor-entry-list); height: 22px; display: flex; gap: 2px; padding-top: 4px; }
-  .search { height: 17px; display: block; padding: 2px 5px; border: 0; border-bottom: 1px solid #8f999d; background-color: rgba(255,255,255,0.54); color: #172027; font-family: minecraft,sans-serif; font-size: 9px; }
+  .search { height: 17px; display: block; padding: 2px 5px; border: 0; border-bottom: 1px solid #8f999d; background-color: rgba(255,255,255,0.54); color: #172027; font-family: lxgw,sans-serif; font-size: 9px; }
   .search:focus { background-color: rgba(255,255,255,0.54); color: #172027; border-bottom-color: #16b5df; }
   .search-button { height: 17px; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #59656a; border: 1px solid #9da5a8; background-color: rgba(255,255,255,0.45); font-size: 11px; white-space: nowrap; }
   .filter-toggle.active { color: #102027; border-color: #16bde7; background-color: #16bde7; font-weight: bold; }
@@ -104,10 +104,10 @@
   .option.active { color: #102027; border-color: #16bde7; background-color: #16bde7; font-weight: bold; }
   .field-group { width: 100%; margin-bottom: 6px; }
   .nbt-group { margin-top: 2px; }
-  .nbt-input { width: 100%; height: 58px; display: block; padding: 4px 5px; resize: none; overflow-y: auto; border: 1px solid #9da5a8; border-left: 3px solid #16b5df; background-color: rgba(32,42,47,0.94); color: #edf4f6; font-family: minecraft,sans-serif; font-size: 8px; line-height: 10px; }
+  .nbt-input { width: 100%; height: 58px; display: block; padding: 4px 5px; resize: none; overflow-y: auto; border: 1px solid #9da5a8; border-left: 3px solid #16b5df; background-color: rgba(32,42,47,0.94); color: #edf4f6; font-family: lxgw,sans-serif; font-size: 8px; line-height: 10px; }
   .nbt-input:focus { border-color: #16b5df; background-color: rgba(32,42,47,0.94); color: #ffffff; }
   .binding-nbt-group { margin-top: 4px; }
-  .binding-input { width: 100%; height: 22px; display: block; margin-bottom: 3px; padding: 3px 5px; border: 0; border-bottom: 1px solid #9da5a8; border-left: 3px solid #16b5df; background-color: rgba(32,42,47,0.94); color: #edf4f6; font-family: minecraft,sans-serif; font-size: 8px; }
+  .binding-input { width: 100%; height: 22px; display: block; margin-bottom: 3px; padding: 3px 5px; border: 0; border-bottom: 1px solid #9da5a8; border-left: 3px solid #16b5df; background-color: rgba(32,42,47,0.94); color: #edf4f6; font-family: lxgw,sans-serif; font-size: 8px; }
   .binding-input:focus { border-bottom-color: #16b5df; background-color: rgba(32,42,47,0.94); color: #ffffff; }
   .binding-nbt-input { height: 48px; }
   .nbt-actions { width: 100%; height: 24px; display: flex; gap: 3px; margin-top: 3px; }
@@ -119,7 +119,7 @@
   .preview-action { width: var(--fm-editor-option); height: 24px; display: flex; align-items: center; justify-content: center; margin-top: 8px; color: #ecf8fb; border-left: 3px solid #16b5df; background-color: #27343a; font-size: 11px; }
   .sound-group { margin-bottom: 2px; }
   .sound-entry-row { width: 100%; height: 24px; display: flex; gap: 3px; }
-  .sound-input { width: var(--fm-editor-sound-input); min-width: var(--fm-editor-sound-input); height: 22px; display: block; flex: 0 0 var(--fm-editor-sound-input); padding: 3px 6px; border: 0; border-bottom: 1px solid #9da5a8; background-color: rgba(255,255,255,0.52); color: #172027; font-family: minecraft,sans-serif; font-size: 9px; }
+  .sound-input { width: var(--fm-editor-sound-input); min-width: var(--fm-editor-sound-input); height: 22px; display: block; flex: 0 0 var(--fm-editor-sound-input); padding: 3px 6px; border: 0; border-bottom: 1px solid #9da5a8; background-color: rgba(255,255,255,0.52); color: #172027; font-family: lxgw,sans-serif; font-size: 9px; }
   .sound-input:focus { background-color: rgba(255,255,255,0.52); color: #172027; border-bottom-color: #16b5df; }
   .sound-list-button { width: 35px; height: 22px; display: flex; flex: 0 0 35px; align-items: center; justify-content: center; color: #59666c; border: 1px solid #a6adaf; background-color: rgba(255,255,255,0.46); font-size: 9px; }
   .sound-list-button.active { color: #102027; border-color: #16bde7; background-color: #16bde7; font-weight: bold; }
@@ -127,7 +127,7 @@
   .integration-link { width: 100%; height: 22px; display: flex; align-items: center; padding-left: 8px; border-left: 3px solid #16b5df; color: #eef5f6; background-color: #28363c; font-size: 9px; }
   .sound-picker { position: relative; width: 100%; height: 132px; margin-top: 4px; padding-right: 6px; border-left: 2px solid #16b5df; background-color: rgba(39,52,58,0.96); }
   .sound-picker-search-row { width: 100%; height: 24px; display: flex; gap: 2px; padding: 3px 3px 2px 5px; }
-  .sound-picker-search { min-width: 0; height: 18px; display: block; flex: 1; padding: 2px 4px; border: 0; border-bottom: 1px solid #77868c; background-color: #202a2f; color: #edf4f6; font-family: minecraft,sans-serif; font-size: 8px; }
+  .sound-picker-search { min-width: 0; height: 18px; display: block; flex: 1; padding: 2px 4px; border: 0; border-bottom: 1px solid #77868c; background-color: #202a2f; color: #edf4f6; font-family: lxgw,sans-serif; font-size: 8px; }
   .sound-picker-search:focus { color: #ffffff; border-bottom-color: #16b5df; background-color: #202a2f; }
   .sound-picker-search-button { width: 28px; height: 18px; display: flex; flex: 0 0 28px; align-items: center; justify-content: center; color: #dce4e6; border: 1px solid #68767c; font-size: 8px; }
   .sound-picker-list { width: 100%; height: 108px; overflow: hidden; }
@@ -151,7 +151,8 @@
   .fm-font-size-medium { --fm-type-title:23px; --fm-type-subtitle:8px; --fm-type-heading:16px; --fm-type-body:11px; --fm-type-button:10px; --fm-type-meta:8px; --fm-type-caption:7px; }
   .fm-font-size-large { --fm-type-title:28px; --fm-type-subtitle:10px; --fm-type-heading:19px; --fm-type-body:13px; --fm-type-button:12px; --fm-type-meta:10px; --fm-type-caption:8px; }
   .fm-font-size-extra-large { --fm-type-title:30px; --fm-type-subtitle:10px; --fm-type-heading:20px; --fm-type-body:14px; --fm-type-button:13px; --fm-type-meta:11px; --fm-type-caption:9px; }
-  .fm-font-family-default { font-family: minecraft,sans-serif; }
+  .fm-font-family-default { font-family: lxgw,sans-serif; }
+  .fm-font-family-default input,.fm-font-family-default textarea { font-family: lxgw,sans-serif; }
   .fm-font-family-sans { font-family: Arial,"Microsoft YaHei",sans-serif; }
   .fm-font-family-ui { font-family: "Microsoft YaHei UI","Segoe UI","Microsoft YaHei",ui-sans-serif; }
   .fm-font-family-humanist { font-family: "Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui; }
@@ -173,8 +174,6 @@
   .fm-font-family-kaiti textarea { font-family: KaiTi,"Microsoft YaHei",serif; }
   .fm-font-family-monospace input { font-family: Consolas,"Microsoft YaHei",monospace; }
   .fm-font-family-monospace textarea { font-family: Consolas,"Microsoft YaHei",monospace; }
-  .editor-page .page-title strong { font-size: var(--fm-type-title); line-height: var(--fm-type-title); }
-  .editor-page .page-title small { font-size: var(--fm-type-subtitle); }
   .editor-page .category-button { font-size: var(--fm-type-body); }
   .editor-page .toolbar-button { width: 50px; min-width: 50px; height: 18px; font-size: var(--fm-type-button); }
   .editor-page .side-heading strong { font-size: var(--fm-type-heading); }

@@ -5,7 +5,7 @@
 
 <style>
   * { box-sizing: border-box; letter-spacing: 0; }
-  body { width: 100%; height: 100%; margin: 0; overflow: hidden; color: #1a2328; font-family: minecraft, sans-serif; font-size: 10px; background-color: rgba(229,232,231,0.97); }
+  body { width: 100%; height: 100%; margin: 0; overflow: hidden; color: #1a2328; font-family: lxgw, sans-serif; font-size: 10px; background-color: rgba(229,232,231,0.97); }
   .house-root, .house-page { position: relative; width: 100%; height: 100%; overflow: hidden; }
   .fm-page-transition-layer { position: absolute; z-index: 260; left: 0; top: 0; display: block; overflow: hidden; pointer-events: none; }
   .fm-cinematic-motion { position: absolute; z-index: 1; display: block; overflow: hidden; pointer-events: none; }
@@ -138,7 +138,7 @@
   .house-scroll-thumb { position: absolute; left: 0; top: 0; width: 1px; height: 20px; display: block; border-radius: 1px; background-color: rgba(92,106,112,0.78); }
 
   .house-footer { position: relative; width: 100%; height: var(--fm-house-footer); display: flex; flex: 0 0 var(--fm-house-footer); align-items: center; border-top: 1px solid rgba(96,108,113,0.20); }
-  .house-search { width: 126px; height: 17px; padding: 2px 5px; border: 0; border-bottom: 1px solid #8f999d; background-color: rgba(255,255,255,0.52); color: #172027; font-family: minecraft,sans-serif; font-size: 9px; }
+  .house-search { width: 126px; height: 17px; padding: 2px 5px; border: 0; border-bottom: 1px solid #8f999d; background-color: rgba(255,255,255,0.52); color: #172027; font-family: lxgw,sans-serif; font-size: 9px; }
   .house-search-button { width: 32px; height: 17px; display: flex; align-items: center; justify-content: center; margin-left: 3px; color: #3f4b50; border: 1px solid #939da1; background-color: rgba(255,255,255,0.52); font-size: 9px; }
   .house-count { position: absolute; top: 3px; display: flex; align-items: baseline; color: #737f84; }
   .house-count b { color: #172027; font-family: "Arial",sans-serif; font-size: 18px; font-weight: normal; }
@@ -172,7 +172,8 @@
   .fm-font-size-medium { --fm-type-title:23px; --fm-type-subtitle:8px; --fm-type-heading:16px; --fm-type-body:11px; --fm-type-button:10px; --fm-type-meta:8px; --fm-type-caption:7px; }
   .fm-font-size-large { --fm-type-title:28px; --fm-type-subtitle:10px; --fm-type-heading:19px; --fm-type-body:13px; --fm-type-button:12px; --fm-type-meta:10px; --fm-type-caption:8px; }
   .fm-font-size-extra-large { --fm-type-title:30px; --fm-type-subtitle:10px; --fm-type-heading:20px; --fm-type-body:14px; --fm-type-button:13px; --fm-type-meta:11px; --fm-type-caption:9px; }
-  .fm-font-family-default { font-family: minecraft,sans-serif; }
+  .fm-font-family-default { font-family: lxgw,sans-serif; }
+  .fm-font-family-default input { font-family: lxgw,sans-serif; }
   .fm-font-family-sans { font-family: Arial,"Microsoft YaHei",sans-serif; }
   .fm-font-family-ui { font-family: "Microsoft YaHei UI","Segoe UI","Microsoft YaHei",ui-sans-serif; }
   .fm-font-family-humanist { font-family: "Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui; }
@@ -187,8 +188,6 @@
   .fm-font-family-fangsong input { font-family: FangSong,"Microsoft YaHei",fangsong; }
   .fm-font-family-kaiti input { font-family: KaiTi,"Microsoft YaHei",serif; }
   .fm-font-family-monospace input { font-family: Consolas,"Microsoft YaHei",monospace; }
-  .house-page .page-title strong { font-size: var(--fm-type-title); line-height: var(--fm-type-title); }
-  .house-page .page-title small { font-size: var(--fm-type-subtitle); }
   .house-page .top-action { width: 50px; min-width: 50px; height: 18px; font-size: var(--fm-type-button); }
   .house-page .readonly { font-size: var(--fm-type-button); }
   .house-page .side-heading strong { font-size: var(--fm-type-heading); line-height: var(--fm-type-heading); }
