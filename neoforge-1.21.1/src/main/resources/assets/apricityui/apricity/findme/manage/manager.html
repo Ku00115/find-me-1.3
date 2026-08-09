@@ -5,7 +5,7 @@
 
 <style>
   * { box-sizing: border-box; letter-spacing: 0; }
-  body { width: 100%; height: 100%; margin: 0; overflow: hidden; color: #1a2328; font-family: lxgw, sans-serif; font-size: 9px; background-color: rgba(229, 232, 231, 0.97); }
+  body { width: 100%; height: 100%; margin: 0; overflow: hidden; color: #1a2328; font-family: Arial,"Microsoft YaHei",sans-serif; font-size: 9px; background-color: rgba(229, 232, 231, 0.97); }
   .manager-root { position: relative; width: 100%; height: 240px; overflow: hidden; }
   .fm-page { position: relative; width: 100%; height: 240px; overflow: hidden; }
   .fm-page-transition-layer { position: absolute; z-index: 260; left: 0; top: 0; display: block; overflow: hidden; pointer-events: none; }
@@ -582,8 +582,8 @@
   .fm-font-size-medium { --fm-type-title:23px; --fm-type-subtitle:8px; --fm-type-heading:16px; --fm-type-body:11px; --fm-type-button:10px; --fm-type-meta:8px; --fm-type-caption:7px; }
   .fm-font-size-large { --fm-type-title:28px; --fm-type-subtitle:10px; --fm-type-heading:19px; --fm-type-body:13px; --fm-type-button:12px; --fm-type-meta:10px; --fm-type-caption:8px; }
   .fm-font-size-extra-large { --fm-type-title:30px; --fm-type-subtitle:10px; --fm-type-heading:20px; --fm-type-body:14px; --fm-type-button:13px; --fm-type-meta:11px; --fm-type-caption:9px; }
-  .fm-font-family-default { font-family: lxgw,sans-serif; }
-  .fm-font-family-default input { font-family: lxgw,sans-serif; }
+  .fm-font-family-default { font-family: Arial,"Microsoft YaHei",sans-serif; }
+  .fm-font-family-default input { font-family: Arial,"Microsoft YaHei",sans-serif; }
   .fm-font-family-sans { font-family: Arial,"Microsoft YaHei",sans-serif; }
   .fm-font-family-ui { font-family: "Microsoft YaHei UI","Segoe UI","Microsoft YaHei",ui-sans-serif; }
   .fm-font-family-humanist { font-family: "Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui; }
@@ -603,6 +603,10 @@
   .fm-page .top-link b { font-size: var(--fm-type-meta); }
   .fm-page .side-row strong { font-size: var(--fm-type-body); }
   .fm-page .side-row small { font-size: var(--fm-type-meta); }
+  .fm-page .side-heading strong,.fm-page .profile-side-heading strong,.fm-page .system-side-heading strong { font-size: var(--fm-type-heading); }
+  .fm-page .side-heading small,.fm-page .profile-side-heading small,.fm-page .system-side-heading small { font-size: var(--fm-type-caption); }
+  .fm-page .workspace-head strong,.fm-page .system-head strong,.fm-page .doctor-head strong { font-size: var(--fm-type-heading); line-height: var(--fm-type-heading); }
+  .fm-page .workspace-head small,.fm-page .system-head small,.fm-page .doctor-head small { font-size: var(--fm-type-meta); line-height: var(--fm-type-meta); }
   .fm-page.fm-font-size-extra-small .compact-name { font-size: 7px; line-height: 8px; }
   .fm-page.fm-font-size-extra-small .compact-state { font-size: 5px; line-height: 6px; }
   .fm-page.fm-font-size-small .compact-name { font-size: 8px; line-height: 9px; }

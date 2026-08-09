@@ -2951,6 +2951,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private String layoutStyle() {
         int systemLeft = scaled(88);
         int systemWidth = Math.max(1, width - systemLeft - scaled(12));
+        int settingsGap = scaled(5);
+        int settingsScrollGutter = scaled(8);
+        int settingCardWidth = Math.max(1,
+                (systemWidth - settingsGap - settingsScrollGutter) / 2);
         int doctorLeft = scaled(84);
         int doctorWidth = Math.max(1, width - doctorLeft - scaled(10));
         int profileLeft = scaled(84);
@@ -2998,7 +3002,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-warehouse-footer:" + scaled(21) + "px"
                 + ";--fm-system-left:" + systemLeft + "px"
                 + ";--fm-system-width:" + systemWidth + "px"
-                + ";--fm-setting-card:" + Math.max(1, (systemWidth - scaled(5)) / 2) + "px"
+                + ";--fm-setting-card:" + settingCardWidth + "px"
                 + ";--fm-content-top:" + scaled(43) + "px"
                 + ";--fm-content-height:" + Math.max(1, height - scaled(43) - scaled(8)) + "px"
                 + ";--fm-doctor-left:" + doctorLeft + "px"

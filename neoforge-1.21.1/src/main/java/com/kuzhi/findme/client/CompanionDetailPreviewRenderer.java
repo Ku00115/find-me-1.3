@@ -1,5 +1,6 @@
 package com.kuzhi.findme.client;
 
+import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.compat.cobblemon.CobblemonCompat;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -57,8 +58,12 @@ final class CompanionDetailPreviewRenderer {
         stabilizeStoredPreviewPose(entity, yaw, pitch);
         float scale = CompanionPreviewScaler.detailScale(entry, entity, baseSize, padding) * zoom;
         graphics.enableScissor(x + 2, y + 2, x + w - 2, y + h - 2);
-        CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2 + Math.round(cameraOffsetX), y + h - 12 + Math.round(cameraOffsetY), scale, yaw, pitch);
-        graphics.disableScissor();
+        try {
+            renderPreviewEntitySafely(graphics, entry, entity, x + w / 2 + Math.round(cameraOffsetX),
+                    y + h - 12 + Math.round(cameraOffsetY), scale, yaw, pitch);
+        } finally {
+            graphics.disableScissor();
+        }
     }
 
     void renderWheel(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, String fallbackType) {
@@ -77,7 +82,7 @@ final class CompanionDetailPreviewRenderer {
         }
         float scale = CompanionPreviewScaler.wheelScale(entry, entity, Math.max(clipRadius, radius + 4)) * 0.75f;
         int bottomY = y + CompanionPreviewScaler.wheelBottomOffset(entry, entity, scale, clipRadius);
-        CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x, bottomY, scale, DEFAULT_PREVIEW_YAW, 0.0f);
+        renderPreviewEntitySafely(graphics, entry, entity, x, bottomY, scale, DEFAULT_PREVIEW_YAW, 0.0f);
     }
 
     void renderCard(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, int w, int h, String fallbackType) {
@@ -107,7 +112,7 @@ final class CompanionDetailPreviewRenderer {
         int bottomY = y + h - 5;
         float yaw = ClientWheelPresentationState.rotateModels()
                 ? (System.currentTimeMillis() % 12000L) * 0.03f : DEFAULT_PREVIEW_YAW;
-        CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2, bottomY, scale, yaw, 0.0f);
+        renderPreviewEntitySafely(graphics, entry, entity, x + w / 2, bottomY, scale, yaw, 0.0f);
     }
 
     void renderFitted(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, int w, int h,
@@ -125,7 +130,7 @@ final class CompanionDetailPreviewRenderer {
         }
         stabilizeStoredPreviewPose(entity, DEFAULT_PREVIEW_YAW, 0.0f);
         float scale = CompanionPreviewScaler.fittedScale(entry, entity, w - 2.0f, h - 2.0f);
-        CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2, y + h - 1,
+        renderPreviewEntitySafely(graphics, entry, entity, x + w / 2, y + h - 1,
                 scale, DEFAULT_PREVIEW_YAW, 0.0f);
     }
 
@@ -146,6 +151,10 @@ final class CompanionDetailPreviewRenderer {
             discardPreview(entry.uuid());
             return null;
         }
+        String key = previewKey(entry);
+        if (key.equals(FAILED_PREVIEW_KEYS.get(entry.uuid()))) {
+            return null;
+        }
         boolean liveMirror = isLiveMirror(entry);
         Entity live = null;
         Entity cached = PREVIEW_ENTITIES.get(entry.uuid());
@@ -164,13 +173,12 @@ final class CompanionDetailPreviewRenderer {
         if (!liveMirror) {
             removeLiveMirror(entry.uuid());
         }
-        String key = previewKey(entry);
         if (cached != null && key.equals(PREVIEW_KEYS.get(entry.uuid()))) {
             stabilizeStoredPreviewPose(cached, DEFAULT_PREVIEW_YAW, 0.0f);
             touchCache(entry.uuid());
             return cached;
         }
-        if (!createIfMissing || key.equals(FAILED_PREVIEW_KEYS.get(entry.uuid()))) {
+        if (!createIfMissing) {
             return null;
         }
         Entity created = null;
@@ -325,6 +333,38 @@ final class CompanionDetailPreviewRenderer {
             graphics.pose().popPose();
             original.restore(entity);
             RenderSystem.disableDepthTest();
+        }
+    }
+
+    private static void renderPreviewEntitySafely(GuiGraphics graphics, CompanionListPacket.Entry entry,
+                                                   Entity entity, int x, int bottomY, float scale,
+                                                   float yaw, float pitch) {
+        try {
+            renderPreviewEntity(graphics, entity, x, bottomY, scale, yaw, pitch);
+        } catch (RuntimeException exception) {
+            quarantineFailedPreview(entry, entity, exception);
+        }
+    }
+
+    private static void quarantineFailedPreview(CompanionListPacket.Entry entry, Entity entity,
+                                                RuntimeException exception) {
+        UUID uuid = entry.uuid();
+        String key = previewKey(entry);
+        boolean firstFailure = !key.equals(FAILED_PREVIEW_KEYS.get(uuid));
+        Entity cached = PREVIEW_ENTITIES.remove(uuid);
+        PREVIEW_KEYS.remove(uuid);
+        PENDING_KEYS.remove(uuid);
+        WARM_QUEUE.removeIf(warmEntry -> uuid.equals(warmEntry.entry().uuid()));
+        CACHE_ORDER.remove(uuid);
+        FAILED_PREVIEW_KEYS.put(uuid, key);
+        if (cached != null) {
+            releasePreviewEntity(cached);
+        } else if (!isLiveWorldEntity(entity)) {
+            releasePreviewEntity(entity);
+        }
+        if (firstFailure) {
+            FindMeMod.LOGGER.warn("Disabled preview for {} ({}) after its renderer failed",
+                    uuid, entry.entityType(), exception);
         }
     }
 
