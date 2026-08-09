@@ -46,7 +46,9 @@ final class FindMeWheelRenderer {
         int outline = state == CompanionWheelVisualState.AVAILABLE
                 ? (hovered ? 0xE6F2F5F4 : 0x8CCCD6D6) : accent;
         drawSector(graphics, centerX, centerY, index, visibleSize, guiColor(fill, fade));
-        drawSectorOutline(graphics, centerX, centerY, index, visibleSize, guiColor(outline, fade));
+        if (hovered || state != CompanionWheelVisualState.AVAILABLE) {
+            drawSectorOutline(graphics, centerX, centerY, index, visibleSize, guiColor(outline, fade));
+        }
     }
 
     static void drawSlotNumber(GuiGraphics graphics, int centerX, int centerY, int index, int visibleSize, float fade) {

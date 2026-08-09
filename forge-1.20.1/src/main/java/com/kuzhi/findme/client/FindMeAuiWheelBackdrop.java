@@ -169,7 +169,7 @@ final class FindMeAuiWheelBackdrop {
             g.setColor(state == CompanionWheelVisualState.AVAILABLE
                     ? (hovered ? new Color(244, 247, 246, 225) : new Color(204, 214, 214, 142))
                     : stateColor(state, 238));
-            g.draw(sector);
+            if (hovered || state != CompanionWheelVisualState.AVAILABLE) g.draw(sector);
         }
 
         g.setStroke(new BasicStroke(1.5f));

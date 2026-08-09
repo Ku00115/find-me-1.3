@@ -96,6 +96,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private TeamMenuPage teamMenuPage = TeamMenuPage.MAIN;
     private CompanionAnimationPurpose warehouseAnimationPurpose;
     private CompanionEffectPurpose warehouseEffectPurpose;
+    private double teamScrollTop;
     private double warehouseScrollTop;
     private double settingsScrollTop;
     private boolean resetSettingsScrollOnRefresh;
@@ -178,15 +179,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     public static void open() {
         boolean managementEnabled = ClientFindMeModuleState.enabled(FindMeModule.MANAGEMENT);
-        if (!managementEnabled && !ClientFindMeModuleState.canManage()) {
-            return;
-        }
+        if (!managementEnabled) return;
         if (cachedScreen == null) cachedScreen = new FindMeAuiManageScreen();
         cachedScreen.prepareForOpen();
-        if (!managementEnabled) {
-            cachedScreen.view = View.SETTINGS;
-            cachedScreen.settingsSection = 3;
-        }
         current = cachedScreen;
         MinecraftAccess.setScreen(cachedScreen);
     }
@@ -310,19 +305,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     public static void updateModuleState() {
         if (current == null) return;
         if (!ClientFindMeModuleState.enabled(FindMeModule.MANAGEMENT)) {
-            if (ClientFindMeModuleState.canManage()) {
-                current.clearDrag();
-                current.contextOpen = false;
-                current.view = View.SETTINGS;
-                current.settingsSection = 3;
-                current.scheduleRefresh(0);
-            } else if (net.minecraft.client.Minecraft.getInstance().screen == current) {
+            if (net.minecraft.client.Minecraft.getInstance().screen == current) {
                 net.minecraft.client.Minecraft.getInstance().setScreen(null);
             }
             return;
-        }
-        if (!ClientFindMeModuleState.canManage() && current.settingsSection > 2) {
-            current.settingsSection = 0;
         }
         if (current.view == View.SETTINGS) {
             current.scheduleRefresh(0);
@@ -703,6 +689,39 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 FindMeSettingsAction.SAVE, settings, true, ""));
     }
 
+    private void resetVisibleSettingsSection() {
+        FindMeUiSettings defaults = FindMeUiSettings.defaults();
+        if (settingsSection == 0) {
+            if (settings.rotateModels() != defaults.rotateModels()) settings = settings.changed(0, 0);
+            if (settings.reduceBackgroundAnimation() != defaults.reduceBackgroundAnimation()) settings = settings.changed(0, 1);
+            if (settings.operationSounds() != defaults.operationSounds()) settings = settings.changed(0, 2);
+            if (settings.controlHints() != defaults.controlHints()) settings = settings.changed(0, 3);
+            settings = settings.withUiAnimations(defaults.uiAnimations())
+                    .withWheelStyle(defaults.wheelStyle())
+                    .withDragHoldMillis(defaults.dragHoldMillis());
+            return;
+        }
+        if (settingsSection == 1) {
+            if (settings.autoJoinTeams() != defaults.autoJoinTeams()) settings = settings.changed(1, 0);
+            if (settings.autoCreateTeams() != defaults.autoCreateTeams()) settings = settings.changed(1, 1);
+            settings = settings.withDefaultTeamIndex(defaults.defaultTeamIndex());
+            return;
+        }
+        if (settings.preferNativeMountInteraction() != defaults.preferNativeMountInteraction()) {
+            settings = settings.changed(0, 4);
+        }
+        if (settings.autoPromoteRiddenCompanions() != defaults.autoPromoteRiddenCompanions()) {
+            settings = settings.changed(0, 5);
+        }
+        if (settings.mountSummonAnimations() != defaults.mountSummonAnimations()) settings = settings.changed(0, 6);
+        if (settings.hideRiddenMountWhenLookingDown() != defaults.hideRiddenMountWhenLookingDown()) {
+            settings = settings.changed(0, 7);
+        }
+        settings = settings.withRidingCameraMode(defaults.ridingCameraMode())
+                .withBindingAnimationPolicy(defaults.bindingAnimationPolicy())
+                .withSummonedOutlineMode(defaults.summonedOutlineMode());
+    }
+
     private void syncAll() {
         long now = System.nanoTime();
         if (lastFullSyncAtNanos != 0L && now - lastFullSyncAtNanos < MIN_SYNC_INTERVAL_NANOS) return;
@@ -904,6 +923,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 }
                 if (list != null) {
                     list.setScrollTop(list.getTargetScrollTop() + delta);
+                    teamScrollTop = list.getTargetScrollTop();
                     event.preventDefault();
                     updateTeamScrollThumb();
                     return;
@@ -1591,8 +1611,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             return;
         }
         if (action.startsWith("settings-page:")) {
-            int maxSection = ClientFindMeModuleState.canManage() ? 3 : 2;
-            int targetSection = Math.max(0, Math.min(maxSection, parseInt(action.substring("settings-page:".length()), 0)));
+            int targetSection = Math.max(0, Math.min(2, parseInt(action.substring("settings-page:".length()), 0)));
             if (targetSection == settingsSection) return;
             boolean forward = targetSection > settingsSection;
             transitionSibling(() -> {
@@ -1836,7 +1855,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         if (action.equals("settings-reset")) {
             transitionSibling(() -> {
-                settings = settings.resetSection(settingsSection);
+                resetVisibleSettingsSection();
                 markSettingsDirty();
                 refreshDocument();
             }, true);
@@ -2361,6 +2380,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         Element oldWarehouseGrid = document.getElementById("findme-warehouse-grid");
         if (oldWarehouseGrid != null) warehouseScrollTop = oldWarehouseGrid.getScrollTop();
+        Element oldTeamList = document.getElementById("findme-team-list");
+        if (oldTeamList != null) teamScrollTop = oldTeamList.getTargetScrollTop();
         Element oldSettingsGrid = document.getElementById("findme-settings-grid");
         if (oldSettingsGrid != null && !resetSettingsScrollOnRefresh) {
             settingsScrollTop = oldSettingsGrid.getTargetScrollTop();
@@ -2444,6 +2465,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         postworkPhaseStartedAt = FindMeAuiPerformanceMonitor.start();
         Element warehouseGrid = document.getElementById("findme-warehouse-grid");
         if (warehouseGrid != null) warehouseGrid.setScrollTop(warehouseScrollTop);
+        Element teamList = document.getElementById("findme-team-list");
+        if (teamList != null) teamList.setScrollTop(teamScrollTop);
         Element settingsGrid = document.getElementById("findme-settings-grid");
         if (settingsGrid != null) settingsGrid.setScrollTop(settingsScrollTop);
         Element backupRecords = document.getElementById("findme-doctor-backup-records");
@@ -2517,6 +2540,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         double viewport = Math.max(rowHeight, Box.of(list).innerSize().height());
         double targetTop = Math.max(0.0, teamIndex * rowHeight - Math.max(0.0, viewport - rowHeight));
         list.setScrollTop(targetTop);
+        teamScrollTop = list.getTargetScrollTop();
         updateTeamScrollThumb();
     }
 
@@ -2553,7 +2577,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
         double contentHeight = Math.max(TEAM_SCROLL_VIEWPORT_HEIGHT, teams().size() * TEAM_ROW_HEIGHT);
         double scrollLimit = Math.max(0.0, contentHeight - TEAM_SCROLL_VIEWPORT_HEIGHT);
-        double ratio = scrollLimit <= 0.0 ? 0.0 : Math.max(0.0, Math.min(1.0, list.getScrollTop() / scrollLimit));
+        teamScrollTop = Math.max(0.0, Math.min(scrollLimit, list.getTargetScrollTop()));
+        double ratio = scrollLimit <= 0.0 ? 0.0 : teamScrollTop / scrollLimit;
 
         Element rail = document.getElementById("findme-team-scroll-rail");
         Element thumb = document.getElementById("findme-team-scroll-thumb");
@@ -2570,7 +2595,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
         Element marker = document.getElementById("findme-team-selection-marker");
         if (marker != null) {
-            int markerTop = 37 + (int) Math.round(selectedTeam * TEAM_ROW_HEIGHT - list.getScrollTop());
+            int markerTop = 37 + (int) Math.round(selectedTeam * TEAM_ROW_HEIGHT - teamScrollTop);
             boolean visible = markerTop >= 37 && markerTop + TEAM_ROW_HEIGHT <= 163;
             String markerStyle = "top:" + markerTop + "px;visibility:" + (visible ? "visible" : "hidden");
             if (!markerStyle.equals(lastTeamSelectionMarkerStyle)) {
@@ -2782,7 +2807,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         StringBuilder html = new StringBuilder("<div class='fm-page ").append(pageClass).append(" ").append(typographyClasses())
                 .append(isPageRevealing() ? " fm-page-reveal" : "")
                 .append("' style='height:").append(Math.max(1, height)).append("px'>")
-                .append(foldDecoration()).append(headerMarkup(title, subtitle, true));
+                .append(headerMarkup(title, subtitle, true));
         html.append(sidebarMarkup(teams));
         html.append("<div class='fm-workspace'>").append(workspaceHeader(teams, visibleCards.size()));
         if (view == View.DEAD || view == View.RECOVERY) html.append(deathGridMarkup(visibleCards));
@@ -2821,14 +2846,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         StringBuilder html = new StringBuilder("<div class='fm-page ").append(pageClass).append(" ").append(typographyClasses())
                 .append(isPageRevealing() ? " fm-page-reveal" : "")
                 .append("' style='height:").append(Math.max(1, height)).append("px'>")
-                .append(foldDecoration()).append(headerMarkup(title, subtitle, false)).append(content);
+                .append(headerMarkup(title, subtitle, false)).append(content);
         if (!status.isBlank()) html.append("<div class='status'>").append(escape(status)).append("</div>");
         return html.append("</div>").toString();
-    }
-
-    private String foldDecoration() {
-        return "<i class='fm-fold-crease'></i><i class='fm-fold-shard fm-fold-shard-dark'></i>"
-                + "<i class='fm-fold-shard fm-fold-shard-light'></i>";
     }
 
     private String sidebarMarkup(List<ClientCompanionTeamState.TeamEntry> teams) {
@@ -3395,22 +3415,22 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     private String settingsMarkup() {
-        boolean showModules = ClientFindMeModuleState.canManage();
         int systemWidth = Math.max(1, width - scaled(88) - scaled(12));
         int contentHeight = Math.max(1, height - scaled(43) - scaled(8));
         int settingsViewportWidth = Math.max(1, systemWidth - 8);
         int settingsViewportHeight = Math.max(1, contentHeight - 59);
-        String[] sectionLabelKeys = showModules
-                ? new String[]{"screen.find_me.aui.settings.control_short", "screen.find_me.aui.settings.teams_short",
-                "screen.find_me.aui.settings.text_short", "screen.find_me.aui.settings.modules_short"}
-                : new String[]{"screen.find_me.aui.settings.control_short", "screen.find_me.aui.settings.teams_short",
-                "screen.find_me.aui.settings.text_short"};
-        String[] sectionKeys = showModules
-                ? new String[]{"screen.find_me.aui.settings.control", "screen.find_me.aui.settings.teams", "screen.find_me.aui.settings.text", "screen.find_me.aui.settings.modules"}
-                : new String[]{"screen.find_me.aui.settings.control", "screen.find_me.aui.settings.teams", "screen.find_me.aui.settings.text"};
-        String[] descriptionKeys = showModules
-                ? new String[]{"screen.find_me.aui.settings.control_note", "screen.find_me.aui.settings.teams_note", "screen.find_me.aui.settings.text_note", "screen.find_me.aui.settings.modules_note"}
-                : new String[]{"screen.find_me.aui.settings.control_note", "screen.find_me.aui.settings.teams_note", "screen.find_me.aui.settings.text_note"};
+        String[] sectionLabelKeys = {
+                "screen.find_me.aui.settings.interface_short",
+                "screen.find_me.aui.settings.teams_short",
+                "screen.find_me.aui.settings.riding_short"};
+        String[] sectionKeys = {
+                "screen.find_me.aui.settings.interface",
+                "screen.find_me.aui.settings.teams",
+                "screen.find_me.aui.settings.riding"};
+        String[] descriptionKeys = {
+                "screen.find_me.aui.settings.interface_note",
+                "screen.find_me.aui.settings.teams_note",
+                "screen.find_me.aui.settings.riding_note"};
         settingsSection = Math.max(0, Math.min(sectionLabelKeys.length - 1, settingsSection));
         StringBuilder html = new StringBuilder("<div class='system-sidebar'><div class='system-sidebar-sheet'></div><div class='system-sidebar-content'>")
                 .append("<div class='system-side-heading system-side-stage-0'><small>")
@@ -3428,93 +3448,53 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 .append(escape(tr("screen.find_me.aui.settings.section_heading", tr(sectionLabelKeys[settingsSection]))))
                 .append("</small><strong>")
                 .append(escape(tr(sectionKeys[settingsSection]))).append("</strong></span>")
-                .append(button(settingsSection == 3 ? "settings-modules-reset" : "settings-reset",
-                        tr("screen.find_me.config_reset"), "settings-reset"));
-        if (showModules) {
-            html.append(button("settings-export-defaults",
-                    tr("screen.find_me.aui.setting.export_defaults"), "settings-export"));
-        }
+                .append(button("settings-reset", tr("screen.find_me.config_reset"), "settings-reset"));
         html.append("</div><div class='settings-head-note settings-description'>")
                 .append(escape(tr(descriptionKeys[settingsSection]))).append("</div><div id='findme-settings-grid-viewport' class='settings-grid-viewport' style='width:")
                 .append(settingsViewportWidth).append("px;height:").append(settingsViewportHeight).append("px'>")
                 .append("<div id='findme-settings-grid' class='settings-grid' style='width:")
                 .append(systemWidth).append("px;height:").append(settingsViewportHeight).append("px'>");
-        if (settingsSection == 3) {
-            int index = 0;
-            FindMeModule[] modules = FindMeModule.values();
-            for (int i = 0; i < modules.length; i += 2) {
-                html.append("<div class='settings-pair'>")
-                        .append(moduleSettingCardMarkup(modules[i], index++));
-                if (i + 1 < modules.length) html.append(moduleSettingCardMarkup(modules[i + 1], index++));
-                else html.append("<div class='setting-card-spacer'></div>");
-                html.append("</div>");
-            }
-            html.append("<div class='settings-pair'>")
-                    .append(companionLimitSettingCardMarkup(index))
-                    .append("<div class='setting-card-spacer'></div></div>");
-            return finishSettingsMarkup(html);
-        }
-        List<String[]> visibleRows = switch (settingsSection) {
-            case 0 -> List.<String[]>of(
-                    new String[]{"9", "0", "screen.find_me.aui.setting.drag_hold", tr("screen.find_me.aui.milliseconds", settings.dragHoldMillis())},
-                    new String[]{"0", "0", "screen.find_me.aui.setting.rotate_models", bool(settings.rotateModels())},
-                    new String[]{"0", "1", "screen.find_me.aui.setting.reduce_background", bool(settings.reduceBackgroundAnimation())},
-                    new String[]{"0", "2", "screen.find_me.aui.setting.operation_sounds", bool(settings.operationSounds())},
-                    new String[]{"0", "3", "screen.find_me.aui.setting.control_hints", bool(settings.controlHints())},
-                    new String[]{"0", "4", "screen.find_me.aui.setting.prefer_native_mount_interaction", bool(settings.preferNativeMountInteraction())},
-                    new String[]{"0", "5", "screen.find_me.aui.setting.auto_promote_ridden_companions", bool(settings.autoPromoteRiddenCompanions())},
-                    new String[]{"0", "6", "screen.find_me.aui.setting.mount_summon_animations", bool(settings.mountSummonAnimations()), "screen.find_me.aui.setting.note.mount_summon_animations"},
-                    new String[]{"0", "7", "screen.find_me.aui.setting.hide_ridden_mount_when_looking_down", bool(settings.hideRiddenMountWhenLookingDown()), "screen.find_me.aui.setting.note.hide_ridden_mount_when_looking_down"});
-            case 1 -> List.of(
-                    new String[]{"1", "0", "screen.find_me.aui.setting.auto_join", bool(settings.autoJoinTeams())},
-                    new String[]{"1", "1", "screen.find_me.aui.setting.auto_create", bool(settings.autoCreateTeams())},
-                    new String[]{"1", "2", "screen.find_me.aui.setting.default_team", defaultTeamLabel()});
-            default -> List.of(
-                    new String[]{"2", "0", "screen.find_me.aui.setting.show_custom_names", bool(settings.showCustomNames())},
-                    new String[]{"2", "1", "screen.find_me.aui.setting.show_original_names", bool(settings.showOriginalNames())},
-                    new String[]{"2", "2", "screen.find_me.aui.setting.show_health", bool(settings.showHealth())},
-                    new String[]{"2", "3", "screen.find_me.aui.setting.name_colors", bool(settings.allowNameColors())},
-                    new String[]{"2", "4", "screen.find_me.aui.setting.name_length", Integer.toString(settings.nameMaxLength())},
-                    new String[]{"5", "0", "screen.find_me.aui.setting.text_mode", tr("screen.find_me.aui.text_mode." + settings.textMode().name().toLowerCase(Locale.ROOT))},
-                    new String[]{"6", "0", "screen.find_me.aui.setting.font_family", tr("screen.find_me.aui.font_family." + settings.fontFamily().name().toLowerCase(Locale.ROOT))},
-                    new String[]{"6", "1", "screen.find_me.aui.setting.font_size", tr("screen.find_me.aui.font_size." + settings.fontSize().name().toLowerCase(Locale.ROOT))});
-        };
         if (settingsSection == 0) {
             html.append("<div class='settings-pair'>")
                     .append(animationSettingCardMarkup(0))
-                    .append(settingCardMarkup(visibleRows.get(0), 1))
+                    .append(wheelStyleSelectorMarkup(1))
                     .append("</div>");
             html.append("<div class='settings-pair'>")
-                    .append(wheelStyleSelectorMarkup(2))
-                    .append(ridingCameraSelectorMarkup(3)).append("</div>");
+                    .append(hudVisibilitySettingCardMarkup(2))
+                    .append(settingCardMarkup(new String[]{"0", "2", "screen.find_me.aui.setting.operation_sounds", bool(settings.operationSounds())}, 3))
+                    .append("</div>");
             html.append("<div class='settings-pair'>")
-                    .append(bindingAnimationSelectorMarkup(4))
-                    .append(bindingHistoryResetMarkup(5)).append("</div>");
+                    .append(settingCardMarkup(new String[]{"0", "3", "screen.find_me.aui.setting.control_hints", bool(settings.controlHints())}, 4))
+                    .append(settingCardMarkup(new String[]{"0", "1", "screen.find_me.aui.setting.reduce_background", bool(settings.reduceBackgroundAnimation())}, 5))
+                    .append("</div>");
             html.append("<div class='settings-pair'>")
-                    .append(summonedOutlineSelectorMarkup(6))
-                    .append("<div class='setting-card-spacer'></div></div>");
-            html.append("<div class='settings-pair'>")
-                    .append(settingCardMarkup(visibleRows.get(7), 7))
-                    .append(settingCardMarkup(visibleRows.get(8), 8)).append("</div>");
-            html.append("<div class='settings-pair'>")
-                    .append(hudVisibilitySettingCardMarkup(9))
-                    .append("<div class='setting-card-spacer'></div></div>");
-            for (int i = 1; i < visibleRows.size(); i += 2) {
-                if (i >= 7) continue;
-                html.append("<div class='settings-pair'>").append(settingCardMarkup(visibleRows.get(i), i + 9));
-                if (i + 1 < visibleRows.size()) html.append(settingCardMarkup(visibleRows.get(i + 1), i + 10));
-                else html.append("<div class='setting-card-spacer'></div>");
-                html.append("</div>");
-            }
+                    .append(settingCardMarkup(new String[]{"0", "0", "screen.find_me.aui.setting.rotate_models", bool(settings.rotateModels())}, 6))
+                    .append(settingCardMarkup(new String[]{"9", "0", "screen.find_me.aui.setting.drag_hold", tr("screen.find_me.aui.milliseconds", settings.dragHoldMillis())}, 7))
+                    .append("</div>");
             return finishSettingsMarkup(html);
         }
-        for (int i = 0; i < visibleRows.size(); i += 2) {
-            html.append("<div class='settings-pair'>");
-            html.append(settingCardMarkup(visibleRows.get(i), i));
-            if (i + 1 < visibleRows.size()) html.append(settingCardMarkup(visibleRows.get(i + 1), i + 1));
-            else html.append("<div class='setting-card-spacer'></div>");
-            html.append("</div>");
+        if (settingsSection == 1) {
+            html.append("<div class='settings-pair'>")
+                    .append(settingCardMarkup(new String[]{"1", "0", "screen.find_me.aui.setting.auto_join", bool(settings.autoJoinTeams())}, 0))
+                    .append(settingCardMarkup(new String[]{"1", "1", "screen.find_me.aui.setting.auto_create", bool(settings.autoCreateTeams())}, 1))
+                    .append("</div><div class='settings-pair'>")
+                    .append(settingCardMarkup(new String[]{"1", "2", "screen.find_me.aui.setting.default_team", defaultTeamLabel()}, 2))
+                    .append("<div class='setting-card-spacer'></div></div>");
+            return finishSettingsMarkup(html);
         }
+        html.append("<div class='settings-pair'>")
+                .append(ridingCameraSelectorMarkup(0))
+                .append(settingCardMarkup(new String[]{"0", "4", "screen.find_me.aui.setting.prefer_native_mount_interaction", bool(settings.preferNativeMountInteraction())}, 1))
+                .append("</div><div class='settings-pair'>")
+                .append(settingCardMarkup(new String[]{"0", "5", "screen.find_me.aui.setting.auto_promote_ridden_companions", bool(settings.autoPromoteRiddenCompanions())}, 2))
+                .append(settingCardMarkup(new String[]{"0", "7", "screen.find_me.aui.setting.hide_ridden_mount_when_looking_down", bool(settings.hideRiddenMountWhenLookingDown()), "screen.find_me.aui.setting.note.hide_ridden_mount_when_looking_down"}, 3))
+                .append("</div><div class='settings-pair'>")
+                .append(settingCardMarkup(new String[]{"0", "6", "screen.find_me.aui.setting.mount_summon_animations", bool(settings.mountSummonAnimations()), "screen.find_me.aui.setting.note.mount_summon_animations"}, 4))
+                .append(summonedOutlineSelectorMarkup(5))
+                .append("</div><div class='settings-pair'>")
+                .append(bindingAnimationSelectorMarkup(6))
+                .append(bindingHistoryResetMarkup(7))
+                .append("</div>");
         return finishSettingsMarkup(html);
     }
 
