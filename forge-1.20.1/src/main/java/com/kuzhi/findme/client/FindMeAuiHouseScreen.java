@@ -471,7 +471,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
 
         String nextLayoutStyle = layoutStyle();
         String nextMarkup = markup();
-        String nextMarkupKey = nextMarkup.replace(" fm-page-reveal", "");
+        String nextMarkupKey = nextMarkup;
         boolean layoutChanged = !nextLayoutStyle.equals(renderedLayoutStyle);
         boolean markupChanged = !nextMarkupKey.equals(renderedMarkupKey);
         if (layoutChanged) {
@@ -484,8 +484,6 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
             document.reapplyStylesFromCache();
             bind();
             renderedMarkupKey = nextMarkupKey;
-        } else if (isPageRevealing()) {
-            addClass(document.querySelector(".house-page"), "fm-page-reveal");
         }
         if (layoutChanged && !markupChanged) {
             document.reapplyStylesFromCache();
@@ -576,11 +574,8 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
 
         StringBuilder html = new StringBuilder("<div class='house-page ")
                 .append(ClientWheelPresentationState.typographyClasses())
-                .append(isPageRevealing() ? " fm-page-reveal" : "")
                 .append("' style='height:")
-                .append(Math.max(1, height)).append("px'><i class='fm-fold-crease'></i>")
-                .append("<i class='fm-fold-shard fm-fold-shard-dark'></i>")
-                .append("<i class='fm-fold-shard fm-fold-shard-light'></i><div class='topbar'>")
+                .append(Math.max(1, height)).append("px'><div class='topbar'>")
                 .append(button("back", "\u2039", "back-button"))
                 .append("<div class='page-title'><strong>")
                 .append(escape(tr("screen.find_me.aui.house.house_label")))
@@ -857,10 +852,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-house-entry:" + scaled(34) + "px"
                 + ";--fm-house-partner-card-width:" + partnerCardWidth + "px"
                 + ";--fm-house-partner-card-height:" + scaled(72) + "px"
-                + ";--fm-house-footer:" + scaled(21) + "px"
-                + ";--fm-fold-left:" + Math.max(0, scaled(75) - 10) + "px"
-                + ";--fm-fold-dark-top:" + Math.max(0, scaled(35) - 5) + "px"
-                + ";--fm-fold-light-top:" + scaled(39) + "px";
+                + ";--fm-house-footer:" + scaled(21) + "px";
     }
 
     private int scaled(int base) {

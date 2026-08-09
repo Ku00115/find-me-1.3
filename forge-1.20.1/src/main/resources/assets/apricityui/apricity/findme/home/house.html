@@ -76,7 +76,8 @@
   [data-action], [data-house-entry] { cursor: pointer; pointer-events: auto; user-select: none; }
 
   .topbar { position: relative; z-index: 8; width: 100%; height: var(--fm-top); display: flex; align-items: center; padding: 0 7px; border-bottom: 1px solid rgba(57,68,73,0.16); background-color: rgba(237,240,239,0.97); background-image: linear-gradient(106deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 61%,rgba(70,82,88,0.13) 62%,rgba(70,82,88,0.13) 72%,rgba(0,0,0,0) 73%),linear-gradient(106deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 70%,rgba(255,255,255,0.48) 71%,rgba(255,255,255,0.48) 79%,rgba(0,0,0,0) 80%); background-repeat: no-repeat,no-repeat; background-size: 100% 100%,100% 100%; }
-  .back-button { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex: 0 0 24px; margin-right: 5px; padding-right: 3px; color: #ffffff; background-color: #20282d; clip-path: polygon(0 0,100% 0,80% 100%,0 100%); font-size: 22px; line-height: 20px; }
+  .back-button { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex: 0 0 24px; margin-right: 5px; padding-right: 3px; color: #ffffff; background-color: #20282d; clip-path: polygon(0 0,100% 0,80% 100%,0 100%); font-size: 22px; line-height: 20px; transition: transform 80ms ease-out,background-color 80ms ease-out,color 80ms ease-out; }
+  .back-button:hover { color: #172027; background-color: #16b5df; transform: translateX(-2px); }
   .page-title { width: 100px; display: flex; flex: 0 0 100px; flex-direction: column; overflow: hidden; }
   .page-title strong { overflow: hidden; font-size: 23px; line-height: 20px; white-space: nowrap; }
   .page-title small { margin-top: 1px; overflow: hidden; color: #69757a; font-size: 8px; white-space: nowrap; }
@@ -207,47 +208,5 @@
   .house-page .partner-manage { width: 50px; min-width: 50px; height: 18px; font-size: var(--fm-type-button); }
   .house-page .house-search { font-size: var(--fm-type-button); }
   .house-page .house-search-button { font-size: var(--fm-type-button); }
-
-  .fm-fold-crease,.fm-fold-shard { position: absolute; z-index: 18; display: none; pointer-events: none; }
-  .fm-fold-crease { left: var(--fm-side); top: var(--fm-top); width: 2px; height: var(--fm-body); background-color: #16b5df; box-shadow: 3px 0 rgba(255,255,255,0.78); }
-  .fm-fold-shard { left: var(--fm-fold-left); top: var(--fm-fold-dark-top); width: 48px; height: 7px; transform-origin: left center; }
-  .fm-fold-shard-dark { background-color: #20292e; }
-  .fm-fold-shard-light { top: var(--fm-fold-light-top); width: 34px; height: 2px; background-color: #f4f6f5; }
-  .fm-page-reveal .fm-fold-crease,.fm-page-reveal .fm-fold-shard,.fm-page-fold-in .fm-fold-crease,.fm-page-fold-in .fm-fold-shard { display: block; }
-
-  .fm-page-reveal .topbar { animation: fm-house-anchor-in 95ms ease-out both; }
-  .fm-page-reveal .house-sidebar-sheet { transform-origin: left top; animation: fm-house-side-fold-open 185ms 38ms cubic-bezier(0.18,0.80,0.22,1) both; }
-  .fm-page-reveal .house-workspace { transform-origin: left center; animation: fm-house-sheet-fold-open 205ms 78ms cubic-bezier(0.18,0.80,0.20,1) both; }
-  .fm-page-reveal .pane-head,.fm-page-reveal .partner-head,.fm-page-reveal .house-footer { animation: fm-house-meta-in 125ms 145ms ease-out both; }
-  .fm-page-reveal .house-side-stage-0 { animation: fm-house-side-copy-in 105ms 92ms ease-out both; }
-  .fm-page-reveal .house-side-stage-1 { animation: fm-house-side-copy-in 105ms 118ms ease-out both; }
-  .fm-page-reveal .house-side-stage-2 { animation: fm-house-side-copy-in 105ms 144ms ease-out both; }
-  .fm-page-reveal .house-side-stage-3 { animation: fm-house-side-copy-in 105ms 170ms ease-out both; }
-  .fm-page-reveal .house-entry,.fm-page-reveal .house-partner-card { animation: fm-house-card-deal 135ms 178ms ease-out both; }
-  .fm-page-reveal findme-preview { animation: fm-house-preview-in 115ms 250ms ease-out both; }
-  .fm-page-reveal .fm-fold-crease { animation: fm-house-crease-open 215ms 42ms ease-out both; }
-  .fm-page-reveal .fm-fold-shard-dark { animation: fm-house-shard-open 180ms 32ms ease-out both; }
-  .fm-page-reveal .fm-fold-shard-light { animation: fm-house-shard-open 155ms 66ms ease-out both; }
-
-  .fm-page-fold-in .house-sidebar { transform-origin: left top; animation: fm-house-side-fold-close 125ms 10ms ease-in both; }
-  .fm-page-fold-in .house-workspace { transform-origin: left center; animation: fm-house-sheet-fold-close 135ms ease-in both; }
-  .fm-page-fold-in .side-row,.fm-page-fold-in .pane-head,.fm-page-fold-in .partner-head,.fm-page-fold-in .house-footer,.fm-page-fold-in .house-entry,.fm-page-fold-in .house-partner-card { animation: fm-house-content-fold-close 85ms ease-in both; }
-  .fm-page-fold-in .fm-fold-crease { animation: fm-house-crease-close 135ms ease-in both; }
-  .fm-page-fold-in .fm-fold-shard { animation: fm-house-shard-close 120ms ease-in both; }
-
-  @keyframes fm-house-anchor-in { 0% { opacity: 0; transform: translateY(-5px) skewX(-5deg); } 68% { opacity: 1; transform: translateY(1px) skewX(1deg); } 100% { opacity: 1; transform: translateY(0); } }
-  @keyframes fm-house-side-fold-open { 0% { opacity: 0; transform: translateY(-9px) scaleY(0.06) skewX(-9deg); } 58% { opacity: 1; transform: translateY(1px) scaleY(1.03) skewX(1deg); } 100% { opacity: 1; transform: translateY(0) scaleY(1); } }
-  @keyframes fm-house-side-copy-in { 0% { opacity: 0; transform: translateY(-5px); } 72% { opacity: 1; transform: translateY(1px); } 100% { opacity: 1; transform: translateY(0); } }
-  @keyframes fm-house-sheet-fold-open { 0% { opacity: 0; transform: translateX(-20px) scaleX(0.04) skewY(-2deg); } 62% { opacity: 1; transform: translateX(2px) scaleX(1.02) skewY(0.4deg); } 100% { opacity: 1; transform: translateX(0) scaleX(1); } }
-  @keyframes fm-house-meta-in { 0% { opacity: 0; transform: translateX(-8px); } 100% { opacity: 1; transform: translateX(0); } }
-  @keyframes fm-house-card-deal { 0% { opacity: 0; transform: translateX(-7px) translateY(5px) rotate(-1deg); } 100% { opacity: 1; transform: translateX(0) translateY(0) rotate(0); } }
-  @keyframes fm-house-preview-in { 0% { opacity: 0; } 100% { opacity: 1; } }
-  @keyframes fm-house-crease-open { 0% { opacity: 0; transform: translateY(-22px) scaleY(0.05); } 35% { opacity: 1; } 100% { opacity: 0; transform: translateY(0) scaleY(1); } }
-  @keyframes fm-house-shard-open { 0% { opacity: 0; transform: translateX(-18px) scaleX(0.08) skewX(-18deg); } 55% { opacity: 1; } 100% { opacity: 0; transform: translateX(45px) scaleX(1) skewX(-8deg); } }
-  @keyframes fm-house-side-fold-close { 0% { opacity: 1; transform: translateY(0) scaleY(1); } 100% { opacity: 0; transform: translateY(-8px) scaleY(0.05) skewX(-8deg); } }
-  @keyframes fm-house-sheet-fold-close { 0% { opacity: 1; transform: translateX(0) scaleX(1); } 100% { opacity: 0; transform: translateX(-18px) scaleX(0.03) skewY(-2deg); } }
-  @keyframes fm-house-content-fold-close { 0% { opacity: 1; transform: translateX(0); } 100% { opacity: 0; transform: translateX(-7px); } }
-  @keyframes fm-house-crease-close { 0% { opacity: 0; transform: scaleY(1); } 45% { opacity: 1; } 100% { opacity: 0; transform: translateY(-18px) scaleY(0.05); } }
-  @keyframes fm-house-shard-close { 0% { opacity: 0; transform: translateX(36px) scaleX(1); } 45% { opacity: 1; } 100% { opacity: 0; transform: translateX(-14px) scaleX(0.08) skewX(-14deg); } }
 
 </style>

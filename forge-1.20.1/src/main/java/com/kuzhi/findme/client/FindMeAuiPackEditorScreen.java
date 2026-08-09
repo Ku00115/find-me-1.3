@@ -158,23 +158,21 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         double progress = elapsed / (double) CLICK_PULSE_NANOS;
         int alpha = (int) Math.round(205.0 * (1.0 - progress));
         int cyan = (alpha << 24) | 0x16B5DF;
-        int white = (Math.max(0, alpha - 50) << 24) | 0xF2F4F3;
+        int dark = (Math.max(0, alpha - 45) << 24) | 0x172027;
         int left = clickPulseX - 1;
         int top = clickPulseY - 1;
         int right = clickPulseX + clickPulseWidth + 1;
         int bottom = clickPulseY + clickPulseHeight + 1;
         if (clickPulseBack) {
             int sweep = Math.max(2, (int) Math.round(clickPulseWidth * (1.0 - progress)));
-            graphics.fill(left, top, Math.min(right, left + sweep), bottom, cyan);
-            graphics.fill(left, top, right, top + 1, white);
+            graphics.fill(left, top, Math.min(right, left + sweep), bottom, dark);
+            graphics.fill(left, top, left + 1, bottom, cyan);
             return;
         }
         graphics.fill(left, top, right, top + 1, cyan);
         graphics.fill(left, bottom - 1, right, bottom, cyan);
         graphics.fill(left, top, left + 1, bottom, cyan);
         graphics.fill(right - 1, top, right, bottom, cyan);
-        int sweepX = left + 1 + (int) Math.round((right - left - 2) * progress);
-        graphics.fill(sweepX, top + 1, Math.min(right - 1, sweepX + 1), bottom - 1, white);
     }
 
     @Override
@@ -1123,8 +1121,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         clampEntryScroll();
         root.setAttribute("style", layoutStyle());
         root.setInnerHTML("<div class='editor-page fm-page " + ClientWheelPresentationState.typographyClasses()
-                + (isPageRevealing() ? " fm-page-reveal" : "") + "'>"
-                + foldDecoration() + "<div id='pack-topbar' class='topbar'>" + topbarMarkup()
+                + "'><div id='pack-topbar' class='topbar'>" + topbarMarkup()
                 + "</div><div id='pack-sidebar' class='editor-sidebar'><div class='editor-sidebar-sheet'></div>"
                 + "<div id='pack-sidebar-content' class='editor-sidebar-content'>" + sidebarMarkup()
                 + "</div></div><div class='editor-content'><div id='pack-entry-panel' class='entry-panel'>" + entryPanelMarkup()
@@ -1498,10 +1495,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-editor-option:" + optionWidth + "px"
                 + ";--fm-editor-step-value:" + stepValueWidth + "px"
                 + ";--fm-editor-sound-input:" + soundInputWidth + "px"
-                + ";--fm-editor-gap:" + gap + "px"
-                + ";--fm-fold-left:" + Math.max(0, scaled(75) - 10) + "px"
-                + ";--fm-fold-dark-top:" + Math.max(0, scaled(39) - 5) + "px"
-                + ";--fm-fold-light-top:" + scaled(43) + "px";
+                + ";--fm-editor-gap:" + gap + "px";
     }
 
     private int entryPanelWidth() {
@@ -1522,11 +1516,6 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
 
     private int entryRailLeft() {
         return Math.max(1, 5 + entryContentWidth() + 3);
-    }
-
-    private String foldDecoration() {
-        return "<i class='fm-fold-crease'></i><i class='fm-fold-shard fm-fold-shard-dark'></i>"
-                + "<i class='fm-fold-shard fm-fold-shard-light'></i>";
     }
 
     private int editorListHeight() {
