@@ -126,6 +126,10 @@ repositories {
         url = 'https://api.modrinth.com/maven'
     }
     maven {
+        name = 'Latvian Mods'
+        url = 'https://maven.latvian.dev/releases'
+    }
+    maven {
         name = 'CurseMaven'
         url = 'https://www.cursemaven.com'
         content {
@@ -148,8 +152,9 @@ dependencies {
     // then special handling is done to allow a setup of a vanilla dependency without the use of an external repository.
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
-    compileOnly fg.deobf("curse.maven:apricityui-1470115:8252794")
-    runtimeOnly fg.deobf("curse.maven:apricityui-1470115:8252794")
+    compileOnly fg.deobf("com.sighs:ApricityUI-forge-1.20.1:1.2.0-hotfix2")
+    runtimeOnly fg.deobf("com.sighs:ApricityUI-forge-1.20.1:1.2.0-hotfix2")
+    compileOnly "dev.latvian.mods:rhino-forge:2001.2.3-build.10"
     compileOnly fg.deobf("maven.modrinth:waystones:sKoHLGbK")
 
     testImplementation platform("org.junit:junit-bom:5.11.4")
