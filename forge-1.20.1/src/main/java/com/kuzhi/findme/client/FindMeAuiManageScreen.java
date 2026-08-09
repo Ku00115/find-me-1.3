@@ -551,7 +551,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 if ("spell-slot-bind".equals(directAction.getAttribute("data-action"))) {
                     rememberContextAnchor(mouseX, mouseY);
                 }
-                handleAction(directAction.getAttribute("data-action"), directAction.getAttribute("data-value"));
+                handleAction(directAction.getAttribute("data-action"), directAction.getAttribute("data-value"), directAction);
                 return true;
             }
         }
@@ -628,6 +628,74 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         ClientCompanionTeamState.applyDefaultTeam(ClientWheelPresentationState.defaultTeamIndex());
     }
 
+    private void updateSettingToggleCard(Element card) {
+        Element toggle = card == null ? null : card.querySelector(".setting-toggle");
+        updateSettingToggleCard(card, !hasClass(toggle, "on"));
+    }
+
+    private void updateSettingToggleCard(Element card, boolean enabled) {
+        if (card == null) return;
+        Element control = card.querySelector(".setting-card-control");
+        Element label = control == null ? null : control.querySelector("em");
+        Element toggle = control == null ? null : control.querySelector(".setting-toggle");
+        if (label != null) label.setTextContent(bool(enabled));
+        if (toggle != null) toggle.setClassName("setting-toggle" + (enabled ? " on" : ""));
+        settleSettingsDomMutation();
+    }
+
+    private void updateSettingChoiceCard(SettingsChoiceMenu choice) {
+        Document document = getLinkedDocument();
+        if (document == null || choice == null || choice == SettingsChoiceMenu.NONE) return;
+        Element card = null;
+        for (Element candidate : document.querySelectorAll("[data-action]")) {
+            if ("open-settings-choice".equals(candidate.getAttribute("data-action"))
+                    && choice.name().equals(candidate.getAttribute("data-value"))) {
+                card = candidate;
+                break;
+            }
+        }
+        Element control = card == null ? null : card.querySelector(".setting-card-control");
+        Element label = control == null ? null : control.querySelector("em");
+        if (label != null) label.setTextContent(settingsChoiceLabel(choice));
+        settleSettingsDomMutation();
+    }
+
+    private String settingsChoiceLabel(SettingsChoiceMenu choice) {
+        return switch (choice) {
+            case WHEEL_STYLE -> tr("screen.find_me.aui.wheel_style."
+                    + settings.wheelStyle().name().toLowerCase(Locale.ROOT));
+            case DRAG_HOLD -> tr("screen.find_me.aui.milliseconds", settings.dragHoldMillis());
+            case NAME_LENGTH -> Integer.toString(settings.nameMaxLength());
+            case TEXT_MODE -> tr("screen.find_me.aui.text_mode."
+                    + settings.textMode().name().toLowerCase(Locale.ROOT));
+            case FONT_FAMILY -> tr("screen.find_me.aui.font_family."
+                    + settings.fontFamily().name().toLowerCase(Locale.ROOT));
+            case FONT_SIZE -> tr("screen.find_me.aui.font_size."
+                    + settings.fontSize().name().toLowerCase(Locale.ROOT));
+            case DEFAULT_TEAM -> defaultTeamLabel();
+            case RIDING_CAMERA -> tr("screen.find_me.aui.riding_camera."
+                    + settings.ridingCameraMode().name().toLowerCase(Locale.ROOT));
+            case BINDING_ANIMATION -> tr("screen.find_me.aui.binding_animation."
+                    + settings.bindingAnimationPolicy().name().toLowerCase(Locale.ROOT));
+            case SUMMONED_OUTLINE -> tr("screen.find_me.aui.summoned_outline."
+                    + settings.summonedOutlineMode().name().toLowerCase(Locale.ROOT));
+            case COMPANION_LIMIT, NONE -> "";
+        };
+    }
+
+    private void settleSettingsDomMutation() {
+        Document document = getLinkedDocument();
+        if (document == null) return;
+        Element page = document.querySelector(".fm-page");
+        if (page != null) page.setClassName("fm-page settings " + typographyClasses());
+        renderedMarkupKey = markupKey(markup());
+        lastSignature = stateSignature();
+        pendingSignature = Long.MIN_VALUE;
+        refreshDebounceTicks = -1;
+        forcedRefreshTicks = -1;
+        updateSettingsScrollThumb();
+    }
+
     private void persistSettingsDraft() {
         if (!settingsDirty) return;
         settingsDirty = false;
@@ -686,7 +754,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                         rememberContextAnchor(mouse.clientX, mouse.clientY);
                     }
                 }
-                handleAction(action.getAttribute("data-action"), action.getAttribute("data-value"));
+                handleAction(action.getAttribute("data-action"), action.getAttribute("data-value"), action);
                 event.preventDefault();
             });
             root.addEventListener("mousedown", event -> {
@@ -890,7 +958,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 FindMeAuiSound.click();
                 com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] overlay click action={} value={} view={} contextOpen={} transition={}",
                         action.getAttribute("data-action"), action.getAttribute("data-value"), view, contextOpen, isTransitionRunning());
-                handleAction(action.getAttribute("data-action"), action.getAttribute("data-value"));
+                handleAction(action.getAttribute("data-action"), action.getAttribute("data-value"), action);
                 event.preventDefault();
                 return;
             }
@@ -1250,6 +1318,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         element.setAttribute("class", classes.isBlank() ? className : classes + " " + className);
     }
 
+    private static boolean hasClass(Element element, String className) {
+        if (element == null || className == null || className.isBlank()) return false;
+        String classes = element.getAttribute("class");
+        return classes != null && (" " + classes.trim() + " ").contains(" " + className + " ");
+    }
+
     private static void removeClass(Element element, String className) {
         if (element == null || className == null || className.isBlank()) return;
         String classes = element.getAttribute("class");
@@ -1448,7 +1522,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 view, doctor != null, renderedMarkupKey.length());
     }
 
-    private void handleAction(String action, String value) {
+    private void handleAction(String action, String value, Element sourceElement) {
         if (action == null) {
             com.kuzhi.findme.FindMeMod.LOGGER.warn("[FindMe backup-ui] handle action ignored: null action");
             return;
@@ -1688,21 +1762,21 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             if (parts.length == 2) {
                 settings = settings.changed(parseInt(parts[0], -1), parseInt(parts[1], -1));
                 markSettingsDirty();
-                refreshDocument();
+                updateSettingToggleCard(sourceElement);
             }
             return;
         }
         if (action.equals("settings-ui-animations")) {
             settings = settings.withUiAnimations(!settings.uiAnimations());
             markSettingsDirty();
-            refreshDocument();
+            updateSettingToggleCard(sourceElement, settings.uiAnimations());
             return;
         }
         if (action.equals("settings-hud-toggle")) {
             boolean visible = ClientFindMeHudLayout.toggleVisible();
             FindMeHudRenderer.refresh();
             com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe settings-ui] HUD visibility changed visible={}", visible);
-            refreshDocument();
+            updateSettingToggleCard(sourceElement, visible);
             return;
         }
         if (action.equals("settings-reset-binding-history")) {
@@ -1728,7 +1802,8 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     clearOverlayMarkup();
                     return;
                 }
-                settings = switch (settingsChoiceMenu) {
+                SettingsChoiceMenu selectedChoice = settingsChoiceMenu;
+                settings = switch (selectedChoice) {
                     case WHEEL_STYLE -> settings.withWheelStyle(FindMeWheelStyle.valueOf(value));
                     case DRAG_HOLD -> settings.withDragHoldMillis(Integer.parseInt(value));
                     case NAME_LENGTH -> settings.withNameMaxLength(Integer.parseInt(value));
@@ -1745,7 +1820,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 contextOpen = false;
                 settingsChoiceMenu = SettingsChoiceMenu.NONE;
                 clearOverlayMarkup();
-                refreshDocument();
+                updateSettingChoiceCard(selectedChoice);
             } catch (IllegalArgumentException ignored) {
             }
             return;
@@ -2939,7 +3014,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 .append(rosterCardsMarkup(visibleCards));
         int hintInnerWidth = Math.max(1, width - scaled(75) - scaled(10) - scaled(9));
         int countLeft = Math.max(0, hintInnerWidth - scaled(28));
-        html.append("</div><div class='hintbar'><div class='hint-actions'><div class='hint-item'><div class='mouse-icon'><div class='mouse-icon-mark'></div></div><span>").append(escape(tr("screen.find_me.details"))).append("</span></div><div class='hint-item'><div class='mouse-icon'><div class='mouse-icon-mark'></div></div><span>").append(escape(tr("screen.find_me.aui.more_actions"))).append("</span></div></div><div class='hint-count' style='left:").append(countLeft).append("px'><span>").append(twoDigits(visibleCards.size())).append("</span><span class='hint-count-total'>/ ").append(view == View.TEAM ? "06" : twoDigits(allCards().size())).append("</span></div></div>");
+        html.append("</div><div class='hintbar'><div class='hint-actions'><div class='hint-item'><div class='mouse-icon left-click'><div class='mouse-icon-mark'></div></div><span>").append(escape(tr("screen.find_me.details"))).append("</span></div><div class='hint-item'><div class='mouse-icon right-click'><div class='mouse-icon-mark'></div></div><span>").append(escape(tr("screen.find_me.aui.more_actions"))).append("</span></div></div><div class='hint-count' style='left:").append(countLeft).append("px'><span>").append(twoDigits(visibleCards.size())).append("</span><span class='hint-count-total'>/ ").append(view == View.TEAM ? "06" : twoDigits(allCards().size())).append("</span></div></div>");
         return html.toString();
     }
 
@@ -3076,7 +3151,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "' data-preview-team='" + escape(stateLabel(card)) + " &#183; " + escape(tr(category.key))
                 + "' data-preview-number='" + twoDigits(index + 1) + "' data-preview-status='" + escape(deployed) + "'></findme-preview>"
                 + spellSlot
-                + "<div class='selected-actions'>" + primary + button("open-detail", tr("screen.find_me.details"), "selected-action").replace("data-action='open-detail'", "data-action='open-detail' data-value='" + card.uuid + "'") + "</div></div>";
+                + "<div class='selected-actions'>" + primary + button("open-detail", tr("screen.find_me.details"), "selected-action detail").replace("data-action='open-detail'", "data-action='open-detail' data-value='" + card.uuid + "'") + "</div></div>";
     }
 
     private String detailPageMarkup() {
