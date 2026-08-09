@@ -48,10 +48,12 @@ public static void encode(FindMeSettingsPacket packet, FriendlyByteBuf buffer) {
     public static void handleClient(FindMeSettingsPacket packet, Supplier<FindMeNetworkContext.Context> contextSupplier) {
         FindMeNetworkContext.Context context = contextSupplier.get();
         context.enqueueWork(() -> {
-            com.kuzhi.findme.client.ClientWheelPresentationState.update(packet.settings());
-            com.kuzhi.findme.client.ClientCompanionTeamState.applyDefaultTeam(
-                    com.kuzhi.findme.client.ClientWheelPresentationState.defaultTeamIndex());
-            com.kuzhi.findme.client.FindMeAuiManageScreen.updateSettings(packet.settings(), packet.success(), packet.message());
+            if (com.kuzhi.findme.client.FindMeAuiManageScreen.updateSettings(
+                    packet.settings(), packet.success(), packet.message())) {
+                com.kuzhi.findme.client.ClientWheelPresentationState.update(packet.settings());
+                com.kuzhi.findme.client.ClientCompanionTeamState.applyDefaultTeam(
+                        com.kuzhi.findme.client.ClientWheelPresentationState.defaultTeamIndex());
+            }
         });
         context.setPacketHandled(true);
     }

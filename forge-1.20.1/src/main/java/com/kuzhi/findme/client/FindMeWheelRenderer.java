@@ -109,7 +109,6 @@ final class FindMeWheelRenderer {
     static void drawRosterRail(GuiGraphics graphics, int width, int height, float fade) {
         int top = height - CompanionWheelLayout.STRIP_CARD_HEIGHT - 15;
         graphics.fill(0, top, width, height, guiColor(0xD90A1216, fade));
-        graphics.fill(0, top, width * 3 / 5, top + 2, guiColor(0xDDE6EAE8, fade));
         graphics.fill(0, top, 4, height, guiColor(CYAN, fade));
     }
 

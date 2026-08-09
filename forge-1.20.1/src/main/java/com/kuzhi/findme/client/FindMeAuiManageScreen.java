@@ -119,6 +119,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private int spellPickerSelectedSlot = -1;
     private long lastSignature;
     private FindMeUiSettings settings = FindMeUiSettings.defaults();
+    private boolean settingsDirty;
     private DoctorPagePacket doctor;
     private BackupWarehousePacket backupWarehouse;
     private boolean backupWarehousePreview;
@@ -278,6 +279,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         cardExitUuid = null;
         cardTogglePhase = CardTogglePhase.IDLE;
         cardToggleUuid = null;
+        settingsDirty = false;
     }
 
     public static void showResult(boolean success, String message) {
@@ -296,11 +298,13 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
     }
 
-    public static void updateSettings(FindMeUiSettings value, boolean success, String message) {
-        if (current == null) return;
+    public static boolean updateSettings(FindMeUiSettings value, boolean success, String message) {
+        if (current == null) return true;
+        if (current.settingsDirty) return false;
         current.settings = value == null ? FindMeUiSettings.defaults() : value;
         if (!success && message != null && !message.isBlank()) current.setStatus(tr("screen.find_me.aui.status.error", message), 100);
         current.scheduleRefresh(2);
+        return true;
     }
 
     public static void updateModuleState() {
@@ -606,9 +610,29 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     @Override
     public void removed() {
+        persistSettingsDraft();
         clearDrag();
         if (current == this) current = null;
         super.removed();
+    }
+
+    @Override
+    public void onClose() {
+        persistSettingsDraft();
+        super.onClose();
+    }
+
+    private void markSettingsDirty() {
+        settingsDirty = true;
+        ClientWheelPresentationState.update(settings);
+        ClientCompanionTeamState.applyDefaultTeam(ClientWheelPresentationState.defaultTeamIndex());
+    }
+
+    private void persistSettingsDraft() {
+        if (!settingsDirty) return;
+        settingsDirty = false;
+        ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(
+                FindMeSettingsAction.SAVE, settings, true, ""));
     }
 
     private void syncAll() {
@@ -1395,6 +1419,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private void changeView(View targetView) {
         com.kuzhi.findme.FindMeMod.LOGGER.info("[FindMe backup-ui] change view {} -> {} doctor={} doctorView={}",
                 view, targetView, doctor != null, doctorView);
+        if (view == View.SETTINGS && targetView != View.SETTINGS) persistSettingsDraft();
         view = targetView;
         if (view != View.WAREHOUSE) {
             backupWarehouse = null;
@@ -1506,6 +1531,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         if (action.equals("back")) {
             if (view == View.DETAIL || view == View.SETTINGS || view == View.DOCTOR) {
+                if (view == View.SETTINGS) persistSettingsDraft();
                 View targetView = view == View.DETAIL ? returnView : View.TEAM;
                 Runnable backAction = () -> {
                     view = targetView;
@@ -1661,16 +1687,14 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             String[] parts = value == null ? new String[0] : value.split(":", 2);
             if (parts.length == 2) {
                 settings = settings.changed(parseInt(parts[0], -1), parseInt(parts[1], -1));
-                ClientWheelPresentationState.update(settings);
-                ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SAVE, settings, true, ""));
+                markSettingsDirty();
                 refreshDocument();
             }
             return;
         }
         if (action.equals("settings-ui-animations")) {
             settings = settings.withUiAnimations(!settings.uiAnimations());
-            ClientWheelPresentationState.update(settings);
-            ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SAVE, settings, true, ""));
+            markSettingsDirty();
             refreshDocument();
             return;
         }
@@ -1717,8 +1741,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     case SUMMONED_OUTLINE -> settings.withSummonedOutlineMode(SummonedOutlineMode.valueOf(value));
                     case COMPANION_LIMIT, NONE -> settings;
                 };
-                ClientWheelPresentationState.update(settings);
-                ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SAVE, settings, true, ""));
+                markSettingsDirty();
                 contextOpen = false;
                 settingsChoiceMenu = SettingsChoiceMenu.NONE;
                 clearOverlayMarkup();
@@ -1739,8 +1762,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         if (action.equals("settings-reset")) {
             transitionSibling(() -> {
                 settings = settings.resetSection(settingsSection);
-                ClientWheelPresentationState.update(settings);
-                ModNetwork.sendToServer(new com.kuzhi.findme.network.FindMeSettingsPacket(FindMeSettingsAction.SAVE, settings, true, ""));
+                markSettingsDirty();
                 refreshDocument();
             }, true);
             return;
@@ -2681,7 +2703,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 : view == View.WAREHOUSE ? tr("screen.find_me.warehouse") : tr("screen.find_me.aui.manage_title");
         String subtitle = view == View.DEAD ? "MEMORIAL ARCHIVE"
                 : view == View.RECOVERY ? "DATA RECOVERY"
-                : view == View.WAREHOUSE ? "COMPANION STORAGE" : "COMPANION ROSTER";
+                : view == View.WAREHOUSE ? "COMPANION STORAGE" : tr("screen.find_me.aui.manage_title.secondary");
         StringBuilder html = new StringBuilder("<div class='fm-page ").append(pageClass).append(" ").append(typographyClasses())
                 .append(isPageRevealing() ? " fm-page-reveal" : "")
                 .append("' style='height:").append(Math.max(1, height)).append("px'>")
@@ -2738,7 +2760,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         String sideTitle = view == View.TEAM ? tr("screen.find_me.aui.teams_heading")
                 : view == View.DEAD ? tr("screen.find_me.aui.records")
                 : view == View.RECOVERY ? tr("screen.find_me.aui.recovery") : tr(view.key);
-        StringBuilder html = new StringBuilder("<div class='fm-sidebar'><div class='fm-sidebar-sheet'></div><div class='fm-sidebar-content'><div class='side-heading fm-side-stage-0'><small>").append(view == View.TEAM ? "TEAMS" : view == View.DEAD ? "ARCHIVE" : view == View.RECOVERY ? "RECOVERY" : "STORAGE").append("</small><strong>").append(escape(sideTitle)).append("</strong></div>");
+        StringBuilder html = new StringBuilder("<div class='fm-sidebar'><div class='fm-sidebar-sheet'></div><div class='fm-sidebar-content'><div class='side-heading fm-side-stage-0'><small>").append(view == View.TEAM ? escape(tr("screen.find_me.aui.teams_heading.secondary")) : view == View.DEAD ? "ARCHIVE" : view == View.RECOVERY ? "RECOVERY" : "STORAGE").append("</small><strong>").append(escape(sideTitle)).append("</strong></div>");
         if (view == View.TEAM) {
             html.append("<div id='findme-team-list' class='team-list'>");
             for (var team : teams) {
@@ -2811,7 +2833,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 : view == View.RECOVERY ? tr("screen.find_me.aui.recovery") : tr(deadFilter.key);
         int number = view == View.TEAM && selectedTeam >= 0 && selectedTeam < teams.size()
                 ? teams.get(selectedTeam).number() : count;
-        String subtitle = view == View.TEAM ? "EXPEDITION"
+        String subtitle = view == View.TEAM ? tr("screen.find_me.aui.team_workspace.secondary")
                 : view == View.WAREHOUSE ? (backupWarehousePreview
                         ? tr("screen.find_me.doctor.caption.snapshot") : warehouseFilter.subtitle)
                 : view == View.RECOVERY ? "QUARANTINED RECORDS" : deadFilter.subtitle;
