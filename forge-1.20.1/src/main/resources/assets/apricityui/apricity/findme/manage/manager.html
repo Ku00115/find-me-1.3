@@ -110,7 +110,7 @@
   .selected-action.primary, .primary { color: #112027; border-color: #16bde7; background-color: #16bde7; font-weight: bold; }
   .selected-action.primary:hover { background-color: #45c8e9; }
   .compact { width: var(--fm-compact); min-width: var(--fm-compact); flex: 0 0 var(--fm-compact); background-repeat: no-repeat; background-size: 100% 100%; background-position: center center; }
-  .compact:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgba(22,181,223,0.82),inset 0 -2px #16b5df; }
+  .compact:hover { transform: translateY(-1px); box-shadow: none; }
   .selected-card:hover { box-shadow: inset 0 -2px #16b5df; }
   .compact:after { content: ""; position: absolute; inset: 0; background-image: linear-gradient(180deg, rgba(7,14,17,0) 0%, rgba(7,14,17,0.08) 52%, rgba(7,14,17,0.48) 100%); pointer-events: none; }
   .accent-0 { background-color: #59413f; }
@@ -136,7 +136,7 @@
   .empty-slot > b { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: normal; }
   .empty-slot > span { position: absolute; left: 4px; right: 4px; bottom: 38px; display: block; overflow: hidden; font-size: 6px; text-align: center; white-space: nowrap; }
   .empty-slot > small { position: absolute; left: 0; right: 0; bottom: 5px; width: 100%; overflow: hidden; font-size: 5px; text-align: center; white-space: nowrap; }
-  .empty-slot:hover { color: #314047; border-color: #16b5df; background-color: rgba(239,240,239,0.65); box-shadow: none; }
+  .empty-slot:hover { color: #314047; border: 1px solid #16b5df; background-color: rgba(239,240,239,0.65); box-shadow: none; transform: none; }
   .warehouse-grid-shell { position: relative; width: 100%; height: var(--fm-warehouse-grid); display: block; flex: 0 0 var(--fm-warehouse-grid); overflow: hidden; }
   .warehouse-grid { width: 100%; height: var(--fm-warehouse-grid); display: block; overflow-x: hidden; overflow-y: hidden; }
   .warehouse-grid-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-start; overflow: visible; }
@@ -236,10 +236,10 @@
   .profile-tabs span { font-size: 8px; }
   .profile-tabs .active { color: #172027; font-weight: bold; }
   .profile-tabs .active:before { content: ""; position: absolute; left: -8px; top: 0; bottom: 0; width: 3px; background-color: #16b5df; }
-  .profile-model { position: absolute; z-index: 3; left: var(--fm-profile-model-left); top: var(--fm-profile-model-top); width: var(--fm-profile-model-width); height: var(--fm-profile-model-height); overflow: hidden; color: #ffffff; background-color: #20292e; }
+  .profile-model { position: absolute; z-index: 3; left: var(--fm-profile-model-left); top: var(--fm-profile-model-top); width: var(--fm-profile-model-width); height: var(--fm-profile-model-height); overflow: hidden; color: #ffffff; background-color: #30383c; background-image: none; box-shadow: none; }
   .profile-model findme-preview { position: absolute; inset: 0; width: var(--fm-profile-model-width); height: var(--fm-profile-model-height); display: block; pointer-events: none; }
-  .profile-model:after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg,#20292e 0,transparent 42%); pointer-events: none; }
-  .profile-preview-copy { position: absolute; z-index: 180; left: 10px; right: 10px; bottom: 10px; height: 55px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; padding: 5px 0; color: #ffffff; background-color: rgba(10,17,21,0.66); pointer-events: none; }
+  .profile-model:after { display: none; }
+  .profile-preview-copy { position: absolute; z-index: 180; left: 10px; right: 10px; bottom: 10px; height: 55px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; padding: 5px 0; color: #ffffff; background-color: #30383c; pointer-events: none; }
   .profile-preview-copy small,.profile-preview-copy strong,.profile-preview-copy span { display: block; overflow: hidden; white-space: nowrap; }
   .profile-preview-copy small { color: #9eaaaf; font-size: 7px; line-height: 8px; }
   .profile-preview-copy strong { margin-top: 2px; font-size: 14px; line-height: 15px; }

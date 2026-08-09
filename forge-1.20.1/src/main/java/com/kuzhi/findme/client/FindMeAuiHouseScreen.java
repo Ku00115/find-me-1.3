@@ -702,7 +702,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                 + "' style='width:" + paneWidth + "px;height:" + cardHeight + "px"
                 + (gapAfter ? ";margin-bottom:" + scaled(CARD_GAP) + "px" : "")
                 + "' data-house-entry='1' data-house-source='" + side + "' data-uuid='" + resident.uuid() + "'" + action + ">"
-                + "<div class='house-entry-marker'></div><div class='house-entry-preview' style='width:" + cardHeight
+                + "<div class='house-entry-marker'></div><div class='house-entry-baseline'></div><div class='house-entry-preview' style='width:" + cardHeight
                 + "px;height:" + cardHeight + "px'><findme-preview data-uuid='" + resident.uuid()
                 + "' data-preview-scale='0.78'></findme-preview></div><div class='house-entry-copy' style='left:"
                 + (cardHeight + scaled(5)) + "px'><b>" + escape(resident.name()) + "</b><small>"
