@@ -178,6 +178,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private int clickPulseWidth;
     private int clickPulseHeight;
     private boolean clickPulseFromContext;
+    private boolean clickPulseBack;
 
     public FindMeAuiManageScreen() {
         super(PATH);
@@ -520,6 +521,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         clickPulseWidth = Math.max(1, (int) Math.ceil(size.width()));
         clickPulseHeight = Math.max(1, (int) Math.ceil(size.height()));
         clickPulseFromContext = fromContext;
+        clickPulseBack = "back".equals(element.getAttribute("data-action"));
         clickPulseStartedAtNanos = System.nanoTime();
     }
 
@@ -540,6 +542,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         int top = clickPulseY - expand;
         int right = clickPulseX + clickPulseWidth + expand;
         int bottom = clickPulseY + clickPulseHeight + expand;
+        if (clickPulseBack) {
+            int sweep = Math.max(2, (int) Math.round(clickPulseWidth * (1.0 - progress)));
+            graphics.fill(left, top, Math.min(right, left + sweep), bottom, cyan);
+            graphics.fill(left, top, right, top + 1, white);
+            return;
+        }
         graphics.fill(left, top, right, top + 1, cyan);
         graphics.fill(left, bottom - 1, right, bottom, cyan);
         graphics.fill(left, top, left + 1, bottom, cyan);
@@ -2909,17 +2917,16 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 : view == View.RECOVERY ? tr("screen.find_me.aui.recovery") : tr(view.key);
         StringBuilder html = new StringBuilder("<div class='fm-sidebar'><div class='fm-sidebar-sheet'></div><div class='fm-sidebar-content'><div class='side-heading fm-side-stage-0'><small>").append(view == View.TEAM ? escape(tr("screen.find_me.aui.teams_heading.secondary")) : view == View.DEAD ? "ARCHIVE" : view == View.RECOVERY ? "RECOVERY" : "STORAGE").append("</small><strong>").append(escape(sideTitle)).append("</strong></div>");
         if (view == View.TEAM) {
-            html.append("<div id='findme-team-list' class='team-list'>");
+            html.append("<div class='team-list-viewport'><div id='findme-team-list' class='team-list'>");
             for (var team : teams) {
                 String name = team.name().isBlank() ? tr("screen.find_me.team_number", team.number()) : team.name();
                 html.append("<div class='side-row fm-side-stage-").append(Math.min(3, team.index() + 1)).append(" ").append(team.index() == selectedTeam ? "active" : "")
                         .append(settings.uiAnimations() && team.index() == pendingInsertedTeamIndex ? " fm-team-insert" : "")
-                        .append(settings.uiAnimations() && team.index() == pendingAutoJoinMotionTeam ? " fm-auto-join-change" : "")
                         .append("' data-action='team:").append(team.index()).append("' data-team-index='").append(team.index())
                         .append("'><b>").append(twoDigits(team.number())).append("</b><span>").append(teamNameMarkup(name))
                         .append("<small>").append(team.uuids().size()).append(" / 6</small></span></div>");
             }
-            html.append("</div>");
+            html.append("</div></div>");
             if (!teams.isEmpty()) {
                 html.append("<div id='findme-team-selection-marker' class='team-selection-marker fm-side-stage-2'></div>");
             }
@@ -3036,16 +3043,13 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             if (snapshot && card.previewEntry != null && card.previewEntry.previewTag() != null) {
                 html.append(" data-preview-nbt='").append(escape(card.previewEntry.previewTag().toString())).append("'");
             }
-            html.append(" data-preview-scale='0.68' data-preview-overlay='warehouse' data-preview-team='")
-                    .append(escape(team));
-            if (snapshot) {
-                html.append("' data-preview-number='").append(twoDigits(i + 1));
-                if (!card.alive) {
-                    html.append("' data-preview-status-tone='death' data-preview-status='")
-                            .append(escape(tr("screen.find_me.aui.death_record")));
-                }
+            html.append(" data-preview-scale='0.68'></findme-preview></div>");
+            if (snapshot) html.append("<span class='warehouse-number'>").append(twoDigits(i + 1)).append("</span>");
+            html.append("<div class='warehouse-copy'><strong>").append(escape(card.name)).append("</strong><small>")
+                    .append(escape(team)).append("</small></div>");
+            if (snapshot && !card.alive) {
+                html.append("<span class='warehouse-status'>").append(escape(tr("screen.find_me.aui.death_record"))).append("</span>");
             }
-            html.append("'></findme-preview></div>");
             if (card.active()) {
                 html.append("<em>").append(escape(tr("screen.find_me.manage.state_deployed"))).append("</em>");
             }
@@ -3151,6 +3155,7 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-fold-left:" + Math.max(0, scaled(75) - 10) + "px"
                 + ";--fm-fold-dark-top:" + Math.max(0, scaled(35) - 5) + "px"
                 + ";--fm-fold-light-top:" + scaled(39) + "px"
+                + ";--fm-team-list-width:" + Math.max(1, scaled(75) - 6) + "px"
                 + ";--fm-team-scroll-left:" + Math.max(1, scaled(75) - 5) + "px"
                 + ";--fm-work-pad-top:" + scaled(8) + "px"
                 + ";--fm-work-pad-right:" + scaled(9) + "px"
@@ -3225,9 +3230,11 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 + "<div class='compact-pane'><span class='member-number'>" + twoDigits(index + 1)
                 + "</span><div class='compact-info'><span class='compact-name'>" + escape(card.name)
                 + "</span><span class='compact-state'>" + escape(stateLabel(card)) + "</span></div></div>"
-                + "<findme-preview data-uuid='" + card.uuid + "' data-preview-overlay='expanded' data-preview-type='" + escape(card.type)
-                + "' data-preview-team='" + escape(stateLabel(card)) + " &#183; " + escape(tr(category.key))
-                + "' data-preview-number='" + twoDigits(index + 1) + "' data-preview-status='" + escape(deployed) + "'></findme-preview>"
+                + "<findme-preview data-uuid='" + card.uuid + "'></findme-preview>"
+                + "<span class='selected-number'>" + twoDigits(index + 1) + "</span>"
+                + "<div class='selected-info'><small class='selected-type'>" + escape(card.type) + "</small><strong>" + escape(card.name)
+                + "</strong><small class='selected-state'>" + escape(stateLabel(card)) + " &#183; " + escape(tr(category.key)) + "</small></div>"
+                + (deployed.isBlank() ? "" : "<span class='selected-status'>" + escape(deployed) + "</span>")
                 + spellSlot
                 + "<div class='selected-actions'>" + primary + button("open-detail", tr("screen.find_me.details"), "selected-action detail").replace("data-action='open-detail'", "data-action='open-detail' data-value='" + card.uuid + "'") + "</div></div>";
     }
@@ -3258,10 +3265,9 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         html.append("</div></div></div>");
         html.append("<div class='profile-model'><findme-preview data-uuid='").append(card.uuid)
-                .append("' data-interaction-id='manage-detail' data-preview-overlay='profile' data-preview-type='")
-                .append(escape(card.type)).append("' data-preview-team='")
-                .append(escape(tr(category.key))).append(" / ").append(escape(movement))
-                .append("'></findme-preview></div>");
+                .append("' data-interaction-id='manage-detail'></findme-preview><div class='profile-preview-copy'><small>")
+                .append(escape(card.type)).append("</small><strong>").append(escape(card.name)).append("</strong><span>")
+                .append(escape(tr(category.key))).append(" / ").append(escape(movement)).append("</span></div></div>");
         html.append("<div class='profile-data'><div class='profile-state'><b>").append(escape(stateLabel(card)))
                 .append("</b><span>").append(escape(tactical.equals("NONE") ? home : tactical)).append("</span></div><div class='profile-body'>");
         if (detailSection == 0) {
@@ -3354,12 +3360,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                     .append("' data-action='select-card' data-value='").append(card.uuid).append("' data-uuid='").append(card.uuid)
                     .append("' style='");
             if (column < 3) html.append("margin-right:").append(columnGap).append("px");
-            html.append("'><findme-preview data-uuid='").append(card.uuid)
-                    .append("' data-preview-overlay='warehouse' data-preview-team='").append(escape(card.type))
-                     .append("' data-preview-number='").append(twoDigits(i + 1)).append("' data-preview-status-tone='")
-                     .append(recovery ? "recovery" : "death").append("' data-preview-status='")
+            html.append("'><findme-preview data-uuid='").append(card.uuid).append("'></findme-preview><span class='warehouse-number'>")
+                    .append(twoDigits(i + 1)).append("</span><div class='warehouse-copy'><strong>").append(escape(card.name))
+                    .append("</strong><small>").append(escape(card.type)).append("</small></div><span class='warehouse-status ")
+                    .append(recovery ? "recovery" : "death").append("'>")
                     .append(escape(tr(recovery ? "screen.find_me.aui.recovery_record" : "screen.find_me.aui.death_record")))
-                    .append("'></findme-preview></div>");
+                    .append("</span></div>");
             if (column == 3 || i == visibleCards.size() - 1) html.append("</div>");
         }
         if (visibleCards.isEmpty()) {

@@ -745,9 +745,10 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                     .append(cardHeight).append("px")
                     .append(column < 3 && i < lastVisible - 1 ? ";margin-right:" + gap + "px" : "")
                     .append("'><div class='house-partner-preview'><findme-preview data-uuid='")
-                    .append(resident.uuid()).append("' data-preview-scale='0.68' data-preview-overlay='warehouse' data-preview-team='")
-                    .append(escape(cardStatus(resident, SIDE_HOME))).append("'></findme-preview></div><span class='house-partner-number'>")
-                    .append(twoDigits(i + 1)).append("</span></div>");
+                    .append(resident.uuid()).append("' data-preview-scale='0.68'></findme-preview></div><span class='house-partner-number'>")
+                    .append(twoDigits(i + 1)).append("</span><div class='house-partner-copy'><strong>")
+                    .append(escape(resident.name())).append("</strong><small>")
+                    .append(escape(cardStatus(resident, SIDE_HOME))).append("</small></div></div>");
             if (column == 3 || i == lastVisible - 1) html.append("</div>");
         }
         if (residents.isEmpty()) {

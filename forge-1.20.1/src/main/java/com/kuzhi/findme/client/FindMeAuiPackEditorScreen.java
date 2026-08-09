@@ -38,6 +38,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -47,6 +48,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     private static final String PATH = "findme/pack/editor.html";
     private static final int ENTRY_ROW_HEIGHT = 33;
     private static final int SOUND_VISIBLE_ROWS = 6;
+    private static final long CLICK_PULSE_NANOS = 150_000_000L;
     private static FindMeAuiPackEditorScreen current;
 
     private final Set<String> selected = new LinkedHashSet<>();
@@ -75,6 +77,12 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     private PreviewDrag previewDrag = PreviewDrag.NONE;
     private double previewLastX;
     private double previewLastY;
+    private long clickPulseStartedAtNanos;
+    private int clickPulseX;
+    private int clickPulseY;
+    private int clickPulseWidth;
+    private int clickPulseHeight;
+    private boolean clickPulseBack;
 
     private FindMeAuiPackEditorScreen() {
         super(PATH);
@@ -119,7 +127,54 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     public void removed() {
         if (current == this) current = null;
         shellBuilt = false;
+        clickPulseStartedAtNanos = 0L;
         super.removed();
+    }
+
+    @Override
+    protected void renderMainDocumentOverlay(GuiGraphics graphics) {
+        renderClickPulse(graphics);
+    }
+
+    private void startClickPulse(Element element) {
+        if (!ClientWheelPresentationState.uiAnimations() || element == null) return;
+        Position position = Position.of(element);
+        Size size = Size.of(element);
+        clickPulseX = (int) Math.floor(position.x);
+        clickPulseY = (int) Math.floor(position.y);
+        clickPulseWidth = Math.max(1, (int) Math.ceil(size.width()));
+        clickPulseHeight = Math.max(1, (int) Math.ceil(size.height()));
+        clickPulseBack = "back".equals(element.getAttribute("data-action"));
+        clickPulseStartedAtNanos = System.nanoTime();
+    }
+
+    private void renderClickPulse(GuiGraphics graphics) {
+        if (clickPulseStartedAtNanos == 0L) return;
+        long elapsed = System.nanoTime() - clickPulseStartedAtNanos;
+        if (elapsed < 0L || elapsed >= CLICK_PULSE_NANOS) {
+            clickPulseStartedAtNanos = 0L;
+            return;
+        }
+        double progress = elapsed / (double) CLICK_PULSE_NANOS;
+        int alpha = (int) Math.round(205.0 * (1.0 - progress));
+        int cyan = (alpha << 24) | 0x16B5DF;
+        int white = (Math.max(0, alpha - 50) << 24) | 0xF2F4F3;
+        int left = clickPulseX - 1;
+        int top = clickPulseY - 1;
+        int right = clickPulseX + clickPulseWidth + 1;
+        int bottom = clickPulseY + clickPulseHeight + 1;
+        if (clickPulseBack) {
+            int sweep = Math.max(2, (int) Math.round(clickPulseWidth * (1.0 - progress)));
+            graphics.fill(left, top, Math.min(right, left + sweep), bottom, cyan);
+            graphics.fill(left, top, right, top + 1, white);
+            return;
+        }
+        graphics.fill(left, top, right, top + 1, cyan);
+        graphics.fill(left, bottom - 1, right, bottom, cyan);
+        graphics.fill(left, top, left + 1, bottom, cyan);
+        graphics.fill(right - 1, top, right, bottom, cyan);
+        int sweepX = left + 1 + (int) Math.round((right - left - 2) * progress);
+        graphics.fill(sweepX, top + 1, Math.min(right - 1, sweepX + 1), bottom - 1, white);
     }
 
     @Override
@@ -163,6 +218,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
             Element target = event.target instanceof Element element ? element.closest("[data-action]") : null;
             if (target == null) return;
             FindMeAuiSound.click();
+            startClickPulse(target);
             action(target.getAttribute("data-action"), target.getAttribute("data-value"));
             event.preventDefault();
         });
