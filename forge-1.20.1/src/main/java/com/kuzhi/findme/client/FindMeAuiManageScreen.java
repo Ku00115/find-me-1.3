@@ -134,7 +134,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     private double doctorBackupScrollDragOffset;
     private String lastDoctorBackupScrollThumbStyle = "";
     private int lastTeamScrollThumbTop = -1;
-    private String lastTeamSelectionMarkerStyle = "";
     private String lastWarehouseScrollThumbStyle = "";
     private String lastSettingsScrollThumbStyle = "";
     private boolean settingsScrollDragging;
@@ -533,9 +532,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             return ClickPulseStyle.DANGER;
         }
         if (hasClass(element, "primary")) return ClickPulseStyle.PRIMARY;
-        if (hasClass(element, "side-row") || hasClass(element, "category-button")
+        if (hasClass(element, "side-row") || hasClass(element, "system-row") || hasClass(element, "category-button")
                 || hasClass(element, "top-link") || action.startsWith("view:")
-                || action.startsWith("category:") || action.startsWith("team:")) {
+                || action.startsWith("category:") || action.startsWith("team:")
+                || action.startsWith("settings-page:")) {
             return ClickPulseStyle.NAVIGATION;
         }
         if (hasClass(element, "member-card") || hasClass(element, "warehouse-card")
@@ -1212,11 +1212,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         addClass(dragSourceElement, "dragging");
         prepareDragGhost();
         applyLiveDragLayout();
-        if (dragKind == DragKind.TEAM) {
-            Document document = getLinkedDocument();
-            Element marker = document == null ? null : document.getElementById("findme-team-selection-marker");
-            if (marker != null) marker.setAttribute("style", "visibility:hidden");
-        }
     }
 
     private void prepareDragGhost() {
@@ -1420,7 +1415,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         dragGrabRatioY = 0.5;
         pendingDrop = null;
         pendingDropTicks = 0;
-        lastTeamSelectionMarkerStyle = "";
         updateTeamScrollThumb();
     }
 
@@ -2554,7 +2548,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
         }
         FindMeAuiPerformanceMonitor.record(this, "refresh.postwork.relayout", postworkPhaseStartedAt, 4.0);
         lastTeamScrollThumbTop = -1;
-        lastTeamSelectionMarkerStyle = "";
         lastWarehouseScrollThumbStyle = "";
         lastSettingsScrollThumbStyle = "";
         postworkPhaseStartedAt = FindMeAuiPerformanceMonitor.start();
@@ -2697,16 +2690,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             }
         }
 
-        Element marker = document.getElementById("findme-team-selection-marker");
-        if (marker != null) {
-            int markerTop = 37 + (int) Math.round(selectedTeam * TEAM_ROW_HEIGHT - teamScrollTop);
-            boolean visible = markerTop >= 37 && markerTop + TEAM_ROW_HEIGHT <= 163;
-            String markerStyle = "top:" + markerTop + "px;visibility:" + (visible ? "visible" : "hidden");
-            if (!markerStyle.equals(lastTeamSelectionMarkerStyle)) {
-                lastTeamSelectionMarkerStyle = markerStyle;
-                marker.setAttribute("style", markerStyle);
-            }
-        }
     }
 
     private void updateWarehouseScrollThumb() {
@@ -2970,9 +2953,6 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                         .append("<small>").append(team.uuids().size()).append(" / 6</small></span></div>");
             }
             html.append("</div></div>");
-            if (!teams.isEmpty()) {
-                html.append("<div id='findme-team-selection-marker' class='team-selection-marker fm-side-stage-2'></div>");
-            }
             if (teams.size() * 27 > 126) {
                 html.append("<div id='findme-team-scroll-rail' class='team-scroll-rail fm-side-stage-3'><div id='findme-team-scroll-thumb' class='team-scroll-thumb'></div></div>");
             }
@@ -2990,26 +2970,19 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
                 html.append(sideCount("fm-side-stage-2 " + (warehouseFilter == WarehouseFilter.ASSIGNED ? "active" : ""), assignedCount, tr("screen.find_me.aui.assigned"), "ASSIGNED", "warehouse-filter:assigned"));
                 html.append(sideCount("fm-side-stage-3 " + (warehouseFilter == WarehouseFilter.UNASSIGNED ? "active" : ""), unassignedCount, tr("screen.find_me.aui.unassigned"), "UNASSIGNED", "warehouse-filter:unassigned"));
             }
-            html.append(filterSelectionMarker(warehouseFilter.ordinal()));
         } else if (view == View.DEAD) {
             int all = deadCards(DeadFilter.ALL).size();
             deadFilter = DeadFilter.ALL;
             html.append(sideCount("fm-side-stage-1 active", all, tr("screen.find_me.aui.deaths"), "ALL RECORDS", "dead-filter:all"));
-            html.append(filterSelectionMarker(0));
         } else {
             int all = recoveryCards().size();
             html.append(sideCount("fm-side-stage-1 active", all, tr("screen.find_me.aui.recovery"), "MISSING DATA", "view:recovery"));
-            html.append(filterSelectionMarker(0));
         }
         return html.append("</div></div>").toString();
     }
 
     private String sideCount(String classes, int count, String label, String subtitle, String action) {
         return "<div class='side-row " + classes + "' data-action='" + action + "'><b class='" + (count >= 100 ? "wide-count" : "") + "'>" + twoDigits(count) + "</b><span><strong>" + escape(label) + "</strong><small>" + subtitle + "</small></span></div>";
-    }
-
-    private String filterSelectionMarker(int index) {
-        return "<div class='side-filter-selection-marker fm-side-stage-3' style='top:" + (37 + Math.max(0, index) * 27) + "px'></div>";
     }
 
     private String teamNameMarkup(String name) {
@@ -3579,6 +3552,12 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
             html.append("<div class='settings-pair'>")
                     .append(settingCardMarkup(new String[]{"0", "0", "screen.find_me.aui.setting.rotate_models", bool(settings.rotateModels())}, 6))
                     .append(settingCardMarkup(new String[]{"9", "0", "screen.find_me.aui.setting.drag_hold", tr("screen.find_me.aui.milliseconds", settings.dragHoldMillis())}, 7))
+                    .append("</div>");
+            html.append("<div class='settings-pair'>")
+                    .append(settingCardMarkup(new String[]{"6", "0", "screen.find_me.aui.setting.font_family",
+                            tr("screen.find_me.aui.font_family." + settings.fontFamily().name().toLowerCase(Locale.ROOT))}, 8))
+                    .append(settingCardMarkup(new String[]{"6", "1", "screen.find_me.aui.setting.font_size",
+                            tr("screen.find_me.aui.font_size." + settings.fontSize().name().toLowerCase(Locale.ROOT))}, 9))
                     .append("</div>");
             return finishSettingsMarkup(html);
         }

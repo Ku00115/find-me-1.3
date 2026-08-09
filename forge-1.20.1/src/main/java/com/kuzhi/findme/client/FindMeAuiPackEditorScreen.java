@@ -82,7 +82,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     private int clickPulseY;
     private int clickPulseWidth;
     private int clickPulseHeight;
-    private boolean clickPulseBack;
+    private ClickPulseStyle clickPulseStyle = ClickPulseStyle.DEFAULT;
 
     private FindMeAuiPackEditorScreen() {
         super(PATH);
@@ -144,8 +144,29 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         clickPulseY = (int) Math.floor(position.y);
         clickPulseWidth = Math.max(1, (int) Math.ceil(size.width()));
         clickPulseHeight = Math.max(1, (int) Math.ceil(size.height()));
-        clickPulseBack = "back".equals(element.getAttribute("data-action"));
+        clickPulseStyle = clickPulseStyle(element);
         clickPulseStartedAtNanos = System.nanoTime();
+    }
+
+    private ClickPulseStyle clickPulseStyle(Element element) {
+        String action = element.getAttribute("data-action");
+        action = action == null ? "" : action;
+        if ("back".equals(action)) return ClickPulseStyle.BACK;
+        if (hasClass(element, "danger") || action.contains("reset") || action.contains("delete")) {
+            return ClickPulseStyle.DANGER;
+        }
+        if (hasClass(element, "primary")) return ClickPulseStyle.PRIMARY;
+        if (hasClass(element, "page-row") || hasClass(element, "category-button")
+                || hasClass(element, "filter-option") || action.startsWith("page:")) {
+            return ClickPulseStyle.NAVIGATION;
+        }
+        if (hasClass(element, "entry-row") || hasClass(element, "option")) return ClickPulseStyle.CARD;
+        return ClickPulseStyle.DEFAULT;
+    }
+
+    private static boolean hasClass(Element element, String className) {
+        String classes = element == null ? null : element.getAttribute("class");
+        return classes != null && (" " + classes.trim() + " ").contains(" " + className + " ");
     }
 
     private void renderClickPulse(GuiGraphics graphics) {
@@ -163,10 +184,35 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         int top = clickPulseY - 1;
         int right = clickPulseX + clickPulseWidth + 1;
         int bottom = clickPulseY + clickPulseHeight + 1;
-        if (clickPulseBack) {
+        if (clickPulseStyle == ClickPulseStyle.BACK) {
             int sweep = Math.max(2, (int) Math.round(clickPulseWidth * (1.0 - progress)));
             graphics.fill(left, top, Math.min(right, left + sweep), bottom, dark);
             graphics.fill(left, top, left + 1, bottom, cyan);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.PRIMARY) {
+            int rise = Math.max(1, (int) Math.round(clickPulseHeight * (1.0 - progress)));
+            graphics.fill(left, Math.max(top, bottom - rise), right, bottom, dark);
+            graphics.fill(left, bottom - 1, right, bottom, cyan);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.DANGER) {
+            int red = (alpha << 24) | 0xD85C5C;
+            int sweep = Math.max(1, (int) Math.round(clickPulseWidth * (1.0 - progress)));
+            graphics.fill(Math.max(left, right - sweep), top, right, top + 1, red);
+            graphics.fill(right - 1, top, right, bottom, red);
+            graphics.fill(left, bottom - 1, right, bottom, red);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.NAVIGATION) {
+            int sweep = Math.max(2, (int) Math.round(clickPulseWidth * progress));
+            graphics.fill(left, bottom - 1, Math.min(right, left + sweep), bottom, cyan);
+            graphics.fill(left, top, left + 1, bottom, dark);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.CARD) {
+            graphics.fill(left, top, left + 1, bottom, cyan);
+            graphics.fill(left, bottom - 1, right, bottom, cyan);
             return;
         }
         graphics.fill(left, top, right, top + 1, cyan);
@@ -1694,6 +1740,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         }
     }
 
+    private enum ClickPulseStyle { BACK, PRIMARY, DANGER, NAVIGATION, CARD, DEFAULT }
     private enum ScrollbarDrag { NONE, ENTRY, SOUND, FIELDS }
     private enum PreviewDrag { NONE, ROTATE, PAN }
 }
