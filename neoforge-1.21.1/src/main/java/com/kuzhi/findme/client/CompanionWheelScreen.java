@@ -136,14 +136,9 @@ extends FindMeScreen {
         int selectedLocal = active >= pageState.start() && active < pageState.end()
                 ? active - pageState.start()
                 : -1;
-        int deployedMask = 0;
-        int riddenMask = 0;
         int stateCode = 0;
         for (int i = pageState.start(); i < pageState.end(); ++i) {
             CompanionListPacket.Entry entry = entries.get(i);
-            int bit = 1 << (i - pageState.start());
-            if (entry.deployed() || entry.ridden()) deployedMask |= bit;
-            if (entry.ridden()) riddenMask |= bit;
             CompanionWheelVisualState state = ClientCompanionWheelController.state(this.kind, entry.uuid(),
                     entry.alive(), entry.critical(), entry.deployed(), entry.ridden(), activeUuid);
             stateCode |= state.ordinal() << ((i - pageState.start()) * 3);
@@ -289,16 +284,9 @@ extends FindMeScreen {
         ClientMountRosterState.Entry selectedEntry = ClientMountRosterState.selectedEntry();
         UUID activeUuid = selectedEntry == null ? null : selectedEntry.uuid();
         int selectedLocal = -1;
-        int deployedMask = 0;
-        int riddenMask = 0;
         int stateCode = 0;
         for (int i = pageState.start(); i < pageState.end(); ++i) {
             WheelEntry entry = entries.get(i);
-            boolean deployed = entry.deployed();
-            boolean ridden = entry.ridden();
-            int bit = 1 << (i - pageState.start());
-            if (deployed) deployedMask |= bit;
-            if (ridden) riddenMask |= bit;
             CompanionWheelVisualState visualState = this.visualState(entry, activeUuid);
             stateCode |= visualState.ordinal() << ((i - pageState.start()) * 3);
             if (entry.isSelected()) {
@@ -445,7 +433,12 @@ extends FindMeScreen {
     }
 
     private List<WheelEntry> mergedMountEntries() {
-        return ClientMountRosterState.entries().stream().map(WheelEntry::from).toList();
+        // Team composition pads pages with empty slots; empty slots must not become
+        // visible radial sectors in the merged mount wheel.
+        return ClientMountRosterState.entries().stream()
+                .filter(entry -> !entry.empty())
+                .map(WheelEntry::from)
+                .toList();
     }
 
     private WheelEntry mergedMountEntry(int index) {

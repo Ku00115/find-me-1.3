@@ -2,9 +2,6 @@
   <div id="findme-context-overlay-root" class="findme-context-overlay-root">
     <div id="findme-preview-copy-layer" class="findme-preview-copy-layer"></div>
     <div id="findme-context-layer" class="findme-context-layer"></div>
-    <div id="findme-transition-layer" class="findme-transition-layer">
-      <div id="findme-transition-input-blocker" class="fm-transition-input-blocker"></div>
-    </div>
   </div>
 </body>
 
@@ -12,10 +9,9 @@
   * { box-sizing: border-box; letter-spacing: 0; }
   body { width: 100%; height: 100%; margin: 0; overflow: hidden; font-family: lxgw,sans-serif; pointer-events: none; }
   .findme-context-overlay-root { position: relative; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
-  .findme-preview-copy-layer,.findme-context-layer,.findme-transition-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
+  .findme-preview-copy-layer,.findme-context-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
   .findme-preview-copy-layer { z-index: 1; }
   .findme-context-layer { z-index: 2; }
-  .findme-transition-layer { z-index: 3; }
   .findme-preview-copy-card { position: absolute; overflow: hidden; color: #ffffff; pointer-events: none; }
   .findme-preview-copy-number { position: absolute; left: 7px; top: 7px; color: rgba(255,255,255,0.82); font-size: 8px; font-weight: bold; }
   .findme-preview-copy-state { position: absolute; right: 0; top: 7px; padding: 3px 5px 3px 7px; color: #172027; background-color: #f1c94d; clip-path: polygon(4px 0,100% 0,100% 100%,0 100%); font-size: 6px; font-style: normal; }
@@ -110,7 +106,4 @@
   @keyframes fm-context-alert-in { 0% { opacity: 0.38; transform: translateX(-3px) scaleX(0.82); } 58% { opacity: 1; transform: translateX(1px) scaleX(1.03); } 100% { opacity: 1; transform: translateX(0) scaleX(1); } }
   @keyframes fm-context-content-in { 0% { opacity: 0; transform: translateX(-3px); } 100% { opacity: 1; transform: translateX(0); } }
 
-  /* The visual fold lives in the page itself. This top document only locks input. */
-  .fm-transition-input-blocker { position: absolute; z-index: 20; inset: 0; width: 100%; height: 100%; display: block; visibility: hidden; background-color: rgba(0,0,0,0); pointer-events: none; }
-  .fm-transition-input-blocker.active { visibility: visible; pointer-events: auto; }
 </style>

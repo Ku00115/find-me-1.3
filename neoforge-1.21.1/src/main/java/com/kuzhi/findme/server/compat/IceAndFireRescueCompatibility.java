@@ -14,8 +14,10 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.neoforged.neoforge.network.PacketDistributor;
 
-/** Narrow, optional rescue handoff for Ice and Fire dragons. */
+/** Optional rescue handoff for IAFEnvoy's Ice And Fire Community Edition on NeoForge 1.21.1. */
 public final class IceAndFireRescueCompatibility {
     private static final String DRAGON_BASE_CLASS = "com.iafenvoy.iceandfire.entity.DragonBaseEntity";
     private static final Map<Class<?>, Optional<DragonAccess>> ACCESS = new ConcurrentHashMap<>();
@@ -56,8 +58,22 @@ public final class IceAndFireRescueCompatibility {
         if (!isDragon(entity)) {
             return;
         }
-        invoke(entity, access(entity).map(DragonAccess::setFlying), true);
-        invoke(entity, access(entity).map(DragonAccess::setHovering), false);
+        access(entity).ifPresent(access -> {
+            // IceAndFire-CE treats an idle rider as hovering. Its updateRider()
+            // turns flying off when zza == 0, and a stale down/dismount bit makes
+            // the next tick land the dragon immediately.
+            access.setControlState(entity, access.getControlState(entity) & ~0x12);
+            invoke(entity, Optional.of(access.setFlying()), false);
+            invoke(entity, Optional.of(access.setHovering()), true);
+            invoke(entity, Optional.of(access.setNoGravity()), true);
+            invokeInt(entity, Optional.of(access.switchNavigator()), 2);
+        });
+    }
+
+    /** Applies the server state and mirrors it to the CE riding client. */
+    public static void finishMountedRide(ServerPlayer player, LivingEntity entity) {
+        finishMountedRide(entity);
+        syncMountedRide(player, entity);
     }
 
     /** Allows forced boarding only for the registered, owned Ice and Fire mount. */
@@ -70,6 +86,26 @@ public final class IceAndFireRescueCompatibility {
                     player.getUUID(), FindMeDebugLogger.entity(entity));
         }
         return allowed;
+    }
+
+    /** Mirrors CE's successful adult-dragon interaction on the riding client's side. */
+    public static void syncMountedRide(ServerPlayer player, LivingEntity entity) {
+        if (!isDragon(entity) || player == null || player.getVehicle() != entity) {
+            return;
+        }
+        try {
+            Class<?> payloadType = Class.forName(
+                    "com.iafenvoy.iceandfire.network.payload.StartRidingMobPayload");
+            Object payload = payloadType.getConstructor(int.class, boolean.class, boolean.class)
+                    .newInstance(entity.getId(), true, false);
+            if (payload instanceof CustomPacketPayload customPayload) {
+                PacketDistributor.sendToPlayer(player, customPayload);
+            }
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException exception) {
+            FindMeDebugLogger.info("iceandfire-rescue",
+                    "native ride sync unavailable entity={} reason={}",
+                    FindMeDebugLogger.entity(entity), exception.getClass().getSimpleName());
+        }
     }
 
     /** Disables Ice and Fire's owner escort while FindMe owns a fixed post. */
@@ -143,7 +179,9 @@ public final class IceAndFireRescueCompatibility {
         try {
             return Optional.of(new DragonAccess(type.getMethod("setFlying", boolean.class),
                     type.getMethod("setHovering", boolean.class),
-                    type.getMethod("getCommand"), type.getMethod("setCommand", int.class)));
+                    type.getMethod("getCommand"), type.getMethod("setCommand", int.class),
+                    type.getMethod("getControlState"), type.getMethod("setControlState", byte.class),
+                    type.getMethod("setNoGravity", boolean.class), type.getMethod("switchNavigator", int.class)));
         } catch (ReflectiveOperationException | RuntimeException exception) {
             FindMeDebugLogger.info("iceandfire-rescue", "native dragon flight API unavailable class={} reason={}",
                     type.getName(), exception.getClass().getSimpleName());
@@ -162,7 +200,20 @@ public final class IceAndFireRescueCompatibility {
         });
     }
 
-    private record DragonAccess(Method setFlying, Method setHovering, Method getCommand, Method setCommand) {
+    private static void invokeInt(LivingEntity entity, Optional<Method> method, int value) {
+        method.ifPresent(candidate -> {
+            try {
+                candidate.invoke(entity, value);
+            } catch (ReflectiveOperationException | RuntimeException exception) {
+                FindMeDebugLogger.info("iceandfire-rescue", "native dragon int state update failed entity={} method={} reason={}",
+                        FindMeDebugLogger.entity(entity), candidate.getName(), exception.getClass().getSimpleName());
+            }
+        });
+    }
+
+    private record DragonAccess(Method setFlying, Method setHovering, Method getCommand, Method setCommand,
+                                Method getControlState, Method setControlState,
+                                Method setNoGravity, Method switchNavigator) {
         private Integer getCommand(LivingEntity entity) {
             try {
                 return ((Number) getCommand.invoke(entity)).intValue();
@@ -181,6 +232,23 @@ public final class IceAndFireRescueCompatibility {
                 FindMeDebugLogger.info("iceandfire-command", "command write failed entity={} command={} reason={}",
                         FindMeDebugLogger.entity(entity), command, exception.getClass().getSimpleName());
                 return false;
+            }
+        }
+
+        private byte getControlState(LivingEntity entity) {
+            try {
+                return ((Number) getControlState.invoke(entity)).byteValue();
+            } catch (ReflectiveOperationException | ClassCastException exception) {
+                return 0;
+            }
+        }
+
+        private void setControlState(LivingEntity entity, int state) {
+            try {
+                setControlState.invoke(entity, (byte) state);
+            } catch (ReflectiveOperationException | RuntimeException exception) {
+                FindMeDebugLogger.info("iceandfire-rescue", "control state write failed entity={} reason={}",
+                        FindMeDebugLogger.entity(entity), exception.getClass().getSimpleName());
             }
         }
     }

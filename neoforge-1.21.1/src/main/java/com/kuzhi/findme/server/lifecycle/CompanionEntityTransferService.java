@@ -15,6 +15,7 @@ import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.core.CompanionOperationLockService;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
+import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
 import com.kuzhi.findme.server.profile.CompanionEntityVisualBoundsService;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -224,12 +225,17 @@ public final class CompanionEntityTransferService {
                     return Optional.of(moved);
                 }
             }
-            CompoundTag tag = CompanionStorageService.healedStoredEntity(player, data, uuid, maybeTag.get());
+            double targetX = (double)pos.getX() + 0.5;
+            double targetY = (double)pos.getY();
+            double targetZ = (double)pos.getZ() + 0.5;
+            CompoundTag tag = CompanionEntitySnapshots.prepareForLoad(
+                    CompanionStorageService.healedStoredEntity(player, data, uuid, maybeTag.get()),
+                    targetX, targetY, targetZ, yRot, xRot);
             CompanionEntityVisualBoundsService.VisualDimensions storedEffectDimensions =
                     CompanionEntityVisualBoundsService.storedEffectDimensions(tag).orElse(null);
             tag.putUUID("UUID", uuid);
             Entity restored = EntityType.loadEntityRecursive(tag, level, entity -> {
-                entity.moveTo((double)pos.getX() + 0.5, (double)pos.getY(), (double)pos.getZ() + 0.5, yRot, xRot);
+                entity.moveTo(targetX, targetY, targetZ, yRot, xRot);
                 return entity;
             });
             if (restored == null) {

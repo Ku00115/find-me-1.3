@@ -4,6 +4,9 @@ package com.kuzhi.findme.server.data;
 import com.kuzhi.findme.server.profile.CompanionEntityVisualBoundsService;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.DoubleTag;
+import net.minecraft.nbt.FloatTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.world.entity.Entity;
 
 public final class CompanionEntitySnapshots {
@@ -20,6 +23,23 @@ public final class CompanionEntitySnapshots {
 
     public static CompoundTag previewStoredEntityTag(CompoundTag source) {
         return sanitizePreviewTag(source == null ? new CompoundTag() : source.copy());
+    }
+
+    /** Minecraft 1.21 validates position data before the load callback can move the entity. */
+    public static CompoundTag prepareForLoad(CompoundTag source, double x, double y, double z,
+                                             float yRot, float xRot) {
+        CompoundTag tag = source == null ? new CompoundTag() : source.copy();
+        ListTag position = new ListTag();
+        position.add(DoubleTag.valueOf(x));
+        position.add(DoubleTag.valueOf(y));
+        position.add(DoubleTag.valueOf(z));
+        tag.put("Pos", position);
+
+        ListTag rotation = new ListTag();
+        rotation.add(FloatTag.valueOf(yRot));
+        rotation.add(FloatTag.valueOf(xRot));
+        tag.put("Rotation", rotation);
+        return tag;
     }
 
     private static CompoundTag sanitizePreviewTag(CompoundTag tag) {
