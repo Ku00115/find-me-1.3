@@ -419,15 +419,27 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                             : "screen.find_me.command.magic_support"),
                     () -> ClientCompanionCommandTarget.canIssueTacticalOrder(this.target),
                     () -> supporting ? ClientCompanionCommandTarget.stopCurrent(this.target)
-                            : ClientCompanionCommandTarget.magicSupport(this.target)));
+                         : ClientCompanionCommandTarget.magicSupport(this.target)));
         }
+
+        boolean movingForward = ClientCompanionCommandTarget.hasAction(this.target,
+                com.kuzhi.findme.common.CompanionTacticalAction.MOVE_FORWARD);
+        actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me",
+                movingForward ? "cancel_move_forward" : "move_forward"),
+                () -> Component.translatable(movingForward
+                        ? "screen.find_me.command.cancel_move_forward"
+                        : "screen.find_me.command.move_forward"),
+                () -> ClientCompanionCommandTarget.canIssueTacticalOrder(this.target),
+                () -> movingForward ? ClientCompanionCommandTarget.stopCurrent(this.target)
+                        : ClientCompanionCommandTarget.moveForward(this.target)));
 
         com.kuzhi.findme.common.CompanionTacticalAction current = this.target.entry().tacticalAction();
         if (current != null && current != com.kuzhi.findme.common.CompanionTacticalAction.FOLLOW
                 && current != com.kuzhi.findme.common.CompanionTacticalAction.GUARD_HERE
                 && current != com.kuzhi.findme.common.CompanionTacticalAction.PROTECT_OWNER
                 && current != com.kuzhi.findme.common.CompanionTacticalAction.MAGIC_PROTECT
-                && current != com.kuzhi.findme.common.CompanionTacticalAction.MAGIC_SUPPORT) {
+                && current != com.kuzhi.findme.common.CompanionTacticalAction.MAGIC_SUPPORT
+                && current != com.kuzhi.findme.common.CompanionTacticalAction.MOVE_FORWARD) {
             actions.add(new ActionView(ResourceLocation.fromNamespaceAndPath("find_me", "stop_current"),
                     () -> Component.translatable("screen.find_me.command.stop_current"),
                     () -> true, () -> ClientCompanionCommandTarget.stopCurrent(this.target)));

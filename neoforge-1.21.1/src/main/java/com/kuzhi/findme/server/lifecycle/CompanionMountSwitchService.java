@@ -54,14 +54,26 @@ public final class CompanionMountSwitchService {
             return;
         }
         cinematic.resetDestinationRideStableTicks();
-        // A verified rescue contact is a handoff barrier. Do not run the wait-point
-        // pursuit again and accidentally pull the mount away before boarding.
-        if (contactLatched && tryCompleteMountSwitch(server, cinematic, player, mount)) {
-            return;
-        }
         if (contactLatched) {
+            boolean stillInContact = CompanionMountCinematicFlowService.isTouchingMountCollision(
+                    player, mount, mode.isRescue() ? null : currentVehicle);
+            if (airRescue) {
+                stillInContact = stillInContact
+                        || CompanionMountCinematicFlowService.isPlayerInFlyingCatchZone(player, mount);
+            }
+            if (stillInContact && tryCompleteMountSwitch(server, cinematic, player, mount)) {
+                return;
+            }
+            if (!stillInContact) {
+                CompanionCinematicMovementService.moveTowardMountContact(
+                        cinematic, mount, player, currentVehicle);
+                if (mode.isRescue()
+                        && CompanionCinematicLandingService.distanceToGround(player) <= 5.0) {
+                    CompanionMountCinematicFlowService.holdFallingPlayerForCatch(player);
+                }
+            }
             cinematic.incrementSwitchAge();
-            if (cinematic.switchAge() > 10) {
+            if (cinematic.switchAge() > MOUNT_SWITCH_FAIL_TICKS) {
                 CompanionMountCinematicFlowService.softLandFailedMountCatch(player, mount);
                 CompanionMountCinematicFlowService.finishMountCinematic(cinematic, player, mount, false);
             }
@@ -81,7 +93,7 @@ public final class CompanionMountSwitchService {
         }
         if (groundRescue && mode.isRescue()) {
             boolean groundContact;
-            boolean atGroundWaitPoint = cinematic.waitLocked() || mount.position().distanceTo(CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player)) <= 2.25;
+            boolean atGroundWaitPoint = cinematic.waitLocked() || mount.position().distanceTo(CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player, mount)) <= 2.25;
             if (atGroundWaitPoint && !(groundContact = CompanionMountCinematicFlowService.isTouchingMountCollision(player, mount, currentVehicle))) {
                 CompanionCinematicPositionService.lockMountAtGroundWait(cinematic, mount, player);
                 if (CompanionCinematicLandingService.distanceToGround(player) <= 5.0) {
@@ -164,7 +176,7 @@ public final class CompanionMountSwitchService {
         Entity contactVehicle = !mode.isRescue() ? currentVehicle : (cinematic.age() >= 8 ? currentVehicle : null);
         rescueAtWaitPoint = !mode.isRescue()
                 || groundRescue && cinematic.waitLocked()
-                || mount.position().distanceTo(CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player)) <= 2.25;
+                || mount.position().distanceTo(CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player, mount)) <= 2.25;
         if (mode.isRescue() && !rescueAtWaitPoint) {
             if (airRescue) {
                 CompanionCinematicPositionService.lockMountAtFlyingWait(cinematic, mount, player);

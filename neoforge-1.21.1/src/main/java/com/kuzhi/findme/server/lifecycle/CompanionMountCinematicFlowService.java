@@ -35,6 +35,7 @@ import com.kuzhi.findme.server.lifecycle.CompanionRetreatService;
 
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
+import com.kuzhi.findme.server.compat.IceAndFireRescueCompatibility;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.server.profile.CompanionMountContactService;
 import com.kuzhi.findme.server.ui.CompanionSummonLineService;
@@ -256,8 +257,16 @@ public final class CompanionMountCinematicFlowService {
                     }
                 }
             }
-            Vec3 target = CompanionCinematicLandingService.cinematicTarget(cinematic, living.level(), player);
+            Vec3 target = CompanionCinematicLandingService.cinematicTarget(cinematic, living.level(), player, living);
             double distance = living.position().distanceTo(target);
+            if (cinematic.mode().isFlyingRescue()
+                    && !cinematic.flyingRescueStaged()
+                    && !Double.isNaN(cinematic.catchY())
+                    && distance <= 6.0) {
+                cinematic.setFlyingRescueStaged();
+                cinematic.incrementAge();
+                continue;
+            }
             double threshold = cinematic.mode().isRescue() ? 1.5 : 2.5;
             boolean rescueFallback = cinematic.mode().isRescue() && !cinematic.mode().isFlyingRescue() && distance < 8.0 && CompanionCinematicLandingService.distanceToGround(player) <= 12.0;
             boolean flyingCatchWindow = cinematic.mode().isFlyingRescue()
@@ -350,14 +359,17 @@ public final class CompanionMountCinematicFlowService {
             mob.getNavigation().stop();
             mob.setTarget(null);
         }
-        catchY = Double.NaN;
-        boolean startStaged = false;
+        catchY = mode.isFlyingRescue() && level instanceof ServerLevel serverLevel
+                ? (double) CompanionCinematicLandingService.predictedLanding(serverLevel, player).getY()
+                + CompanionCinematicLandingService.flyingCatchHeight(player) : Double.NaN;
+        boolean startStaged = mode.isFlyingRescue();
         int warmupTicks = 0;
         RideHandoffService.Source rideSource = capturedRideSource(player, mount, mode);
         RideHandoffService.retainSource(player.getUUID(), rideSource, mount.getUUID());
         PendingMountCinematic pending = new PendingMountCinematic(player.getUUID(), mount.getUUID(), moveType,
                 mode, catchY, startStaged, false, warmupTicks, mount.position(), originalNoGravity,
                 originalNoAi, externalMount, rideSource);
+        pending.setIntroAnchor(moveType == CompanionMoveType.FLY ? mount.position() : null);
         RescueFlightMode rescueFlightMode = mode.isFlyingRescue()
                 ? CompanionRescuePlanner.plan(player).flightMode() : RescueFlightMode.HOVER;
         pending.setRescueFlightMode(rescueFlightMode);
@@ -400,7 +412,7 @@ public final class CompanionMountCinematicFlowService {
                 || (mode.isRescue() && restoredFromStorage))) {
             mount.noPhysics = shouldUseCinematicNoPhysics(pending, mount);
             mount.setNoGravity(mode.isGroundOrWaterRescue() && moveType != CompanionMoveType.WALK);
-            Vec3 target = CompanionCinematicLandingService.cinematicTarget(pending, mount.level(), player);
+            Vec3 target = CompanionCinematicLandingService.cinematicTarget(pending, mount.level(), player, mount);
             double distance = mount.position().distanceTo(target);
             if (distance > 0.05) {
                 CompanionCinematicMovementService.moveTowardCinematicTarget(pending, mount, player, target, distance);
@@ -652,7 +664,8 @@ public final class CompanionMountCinematicFlowService {
     }
 
     private static boolean shouldFreezeWholeAiDuringCinematic(CompanionMoveType moveType, LivingEntity mount) {
-        return moveType != CompanionMoveType.FLY && !CompanionAnimationHelper.keepsFlyingAnimationWithActiveAi(mount);
+        return moveType != CompanionMoveType.FLY
+                && !CompanionAnimationHelper.keepsFlyingAnimationWithActiveAi(mount);
     }
 
     static boolean shouldUseCinematicNoPhysics(PendingMountCinematic cinematic, LivingEntity living) {
@@ -830,6 +843,9 @@ public final class CompanionMountCinematicFlowService {
         mount.interact(player, InteractionHand.MAIN_HAND);
         double interactionMs = (System.nanoTime() - interactionStartedAt) / 1_000_000.0;
         if (player.getVehicle() == mount) {
+            if (mode.isRescue()) {
+                IceAndFireRescueCompatibility.finishMountedRide(player, mount);
+            }
             FindMeDebugLogger.info("mount-ride", "normal interaction success player={} mount={} mode={} interactionMs={}",
                     FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), mode, interactionMs);
             return true;
@@ -843,6 +859,13 @@ public final class CompanionMountCinematicFlowService {
         }
         long forceStartedAt = System.nanoTime();
         boolean result = player.startRiding(mount, true);
+        if (result || player.getVehicle() == mount) {
+            if (mode.isRescue()) {
+                IceAndFireRescueCompatibility.finishMountedRide(player, mount);
+            } else {
+                IceAndFireRescueCompatibility.syncMountedRide(player, mount);
+            }
+        }
         double forceMs = (System.nanoTime() - forceStartedAt) / 1_000_000.0;
         FindMeDebugLogger.info("mount-ride", "forced ride player={} mount={} mode={} source={} result={} interactionMs={} forceMs={}",
                 FindMeDebugLogger.entity(player), FindMeDebugLogger.entity(mount), mode,
@@ -869,6 +892,7 @@ public final class CompanionMountCinematicFlowService {
         PlayerCompanionData data = CompanionDataService.data(player);
         double dataMs = (System.nanoTime() - dataStartedAt) / 1_000_000.0;
         if (!mounted && cinematic.mode().isRescue()) {
+            IceAndFireRescueCompatibility.clearRescueState(mount);
             player.fallDistance = 0.0f;
             player.invulnerableTime = Math.max(player.invulnerableTime, Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
             if (CompanionLifecycleFacade.storeLiving(player, data, mount, CompanionTransientStateService.Reason.FAILURE_RECOVERY, "mount_cinematic:rescue_catch_failed")) {
@@ -882,7 +906,11 @@ public final class CompanionMountCinematicFlowService {
             return;
         }
         Level level2 = mount.level();
-        if (mounted && cinematic.mode().isRescue() && level2 instanceof ServerLevel level && !CompanionPlacementFinder.hasOpenEntitySpace(level, mount, mount.getX(), mount.getY(), mount.getZ())) {
+        if (mounted && cinematic.mode().isRescue() && !cinematic.mode().isFlyingRescue()
+                && level2 instanceof ServerLevel level
+                && !CompanionPlacementFinder.hasOpenEntitySpace(level, mount,
+                mount.getX(), mount.getY(), mount.getZ())) {
+            IceAndFireRescueCompatibility.clearRescueState(mount);
             if (player.getVehicle() == mount) {
                 player.stopRiding();
             }
@@ -897,6 +925,9 @@ public final class CompanionMountCinematicFlowService {
             return;
         }
         data.setDeployed(CompanionKind.MOUNT, mount.getUUID());
+        if (mounted) {
+            IceAndFireRescueCompatibility.finishMountedRide(player, mount);
+        }
         data.setLastKnownPosition(mount.getUUID(), SavedPosition.of(mount.level(), mount.getX(), mount.getY(), mount.getZ(), mount.getYRot(), mount.getXRot()));
         VehicleManager.enforceSingleRideSlotForMount(player, data, mount.getUUID(), null);
         long saveStartedAt = System.nanoTime();
@@ -906,7 +937,8 @@ public final class CompanionMountCinematicFlowService {
         CompanionSyncService.syncToClient(player, CompanionKind.MOUNT, data);
         double syncMs = (System.nanoTime() - syncStartedAt) / 1_000_000.0;
         player.fallDistance = 0.0f;
-        CompanionMountSettleProtectionService.rememberSettledMount(player, mount);
+        CompanionMountSettleProtectionService.rememberSettledMount(player, mount,
+                cinematic.mode().isRescue() && cinematic.moveType() == CompanionMoveType.FLY);
         FindMeDebugLogger.info("switch-commit-perf",
                 "player={} target={} mode={} totalMs={} dataMs={} saveMs={} syncMs={} riding={} passenger={}",
                 player.getUUID(), mount.getUUID(), cinematic.mode(),

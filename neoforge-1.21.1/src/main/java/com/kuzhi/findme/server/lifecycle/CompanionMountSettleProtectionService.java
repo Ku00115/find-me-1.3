@@ -8,6 +8,8 @@ import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
+import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
+import com.kuzhi.findme.server.compat.IceAndFireRescueCompatibility;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -22,14 +24,19 @@ import net.minecraft.world.phys.Vec3;
 public final class CompanionMountSettleProtectionService {
     private static final Map<UUID, SettledMountProtection> RECENT_SETTLED_MOUNTS = new HashMap<>();
     private static final Map<UUID, AirHandoffTrace> AIR_HANDOFF_TRACES = new HashMap<>();
-    private static final int MOUNT_SETTLE_PROTECTION_TICKS = 10;
+    private static final int MOUNT_SETTLE_PROTECTION_TICKS = 40;
 
     private CompanionMountSettleProtectionService() {
     }
 
     public static void rememberSettledMount(ServerPlayer player, LivingEntity mount) {
+        rememberSettledMount(player, mount, false);
+    }
+
+    public static void rememberSettledMount(ServerPlayer player, LivingEntity mount, boolean maintainAirborne) {
         long until = player.serverLevel().getGameTime() + MOUNT_SETTLE_PROTECTION_TICKS;
-        RECENT_SETTLED_MOUNTS.put(player.getUUID(), new SettledMountProtection(mount.getUUID(), until));
+        RECENT_SETTLED_MOUNTS.put(player.getUUID(),
+                new SettledMountProtection(mount.getUUID(), until, maintainAirborne));
     }
 
     public static void rememberCompatibleHandoff(ServerPlayer player, LivingEntity mount,
@@ -81,6 +88,12 @@ public final class CompanionMountSettleProtectionService {
             Entity vehicle = player.getVehicle();
             if (vehicle != null) {
                 if (vehicle.getUUID().equals(protection.mountUuid())) {
+                    if (protection.maintainAirborne()
+                            && vehicle instanceof LivingEntity living
+                            && IceAndFireRescueCompatibility.isDragon(living)) {
+                        CompanionAnimationHelper.forceFlyingAnimationPose(living);
+                        IceAndFireRescueCompatibility.finishMountedRide(living);
+                    }
                     player.fallDistance = 0.0f;
                     vehicle.fallDistance = 0.0f;
                     continue;

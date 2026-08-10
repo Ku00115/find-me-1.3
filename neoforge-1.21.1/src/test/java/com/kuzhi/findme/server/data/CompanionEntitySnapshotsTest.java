@@ -30,4 +30,23 @@ class CompanionEntitySnapshotsTest {
         assertEquals(7, preview.getInt("Variant"));
         assertTrue(source.contains("UUID"));
     }
+
+    @Test
+    void loadPreparationReplacesMissingOrInvalidPositionWithoutMutatingStoredData() {
+        CompoundTag source = new CompoundTag();
+        source.put("Pos", new ListTag());
+        source.putString("Variant", "electric");
+
+        CompoundTag prepared = CompanionEntitySnapshots.prepareForLoad(source,
+                12.5, 64.0, -3.5, 90.0f, 15.0f);
+
+        assertEquals(3, prepared.getList("Pos", 6).size());
+        assertEquals(12.5, prepared.getList("Pos", 6).getDouble(0));
+        assertEquals(64.0, prepared.getList("Pos", 6).getDouble(1));
+        assertEquals(-3.5, prepared.getList("Pos", 6).getDouble(2));
+        assertEquals(90.0f, prepared.getList("Rotation", 5).getFloat(0));
+        assertEquals(15.0f, prepared.getList("Rotation", 5).getFloat(1));
+        assertEquals("electric", prepared.getString("Variant"));
+        assertTrue(source.getList("Pos", 6).isEmpty());
+    }
 }

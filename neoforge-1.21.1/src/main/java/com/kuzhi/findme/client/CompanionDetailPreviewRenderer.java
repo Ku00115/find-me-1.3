@@ -2,6 +2,7 @@ package com.kuzhi.findme.client;
 
 import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.compat.cobblemon.CobblemonCompat;
+import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
 import com.kuzhi.findme.network.CompanionListPacket;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.math.Axis;
@@ -155,7 +156,10 @@ final class CompanionDetailPreviewRenderer {
         if (key.equals(FAILED_PREVIEW_KEYS.get(entry.uuid()))) {
             return null;
         }
-        boolean liveMirror = isLiveMirror(entry);
+        // CE dragons own multipart and GeckoLib state on their live world instance.
+        // Rendering that same instance in AUI can alternate between the world pass and
+        // the card pass, producing a full black card. Always use the detached snapshot.
+        boolean liveMirror = !IceAndFirePreviewCompatibility.isDragon(entry.entityType()) && isLiveMirror(entry);
         Entity live = null;
         Entity cached = PREVIEW_ENTITIES.get(entry.uuid());
         if (liveMirror) {
@@ -188,7 +192,9 @@ final class CompanionDetailPreviewRenderer {
                 if (CobblemonCompat.available() && "cobblemon:pokemon".equals(entry.entityType())) {
                     created = CobblemonCompat.createPreview(minecraft.level, renderTag, entry.uuid());
                 } else {
-                    created = EntityType.loadEntityRecursive((CompoundTag)renderTag, (Level)minecraft.level, entity -> {
+                    CompoundTag loadTag = CompanionEntitySnapshots.prepareForLoad(renderTag,
+                            0.0, 0.0, 0.0, 0.0f, 0.0f);
+                    created = EntityType.loadEntityRecursive(loadTag, (Level)minecraft.level, entity -> {
                         entity.moveTo(0.0, 0.0, 0.0, 0.0f, 0.0f);
                         return entity;
                     });
@@ -299,6 +305,7 @@ final class CompanionDetailPreviewRenderer {
         advancePreviewAnimation(minecraft, entity);
         if (!liveWorldEntity) {
             stabilizePreviewPose(entity, yaw, pitch);
+            IceAndFirePreviewCompatibility.stabilizeDetachedPreview(entity);
         }
         EntityRenderDispatcher dispatcher = minecraft.getEntityRenderDispatcher();
         Quaternionf rotation = Axis.ZP.rotationDegrees(180.0f);
@@ -332,6 +339,11 @@ final class CompanionDetailPreviewRenderer {
         } finally {
             graphics.pose().popPose();
             original.restore(entity);
+            RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.enableBlend();
+            RenderSystem.enableCull();
+            RenderSystem.depthMask(true);
             RenderSystem.disableDepthTest();
         }
     }

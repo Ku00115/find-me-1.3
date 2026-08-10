@@ -11,8 +11,6 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
-import java.awt.geom.Area;
-import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import net.minecraft.client.gui.GuiGraphics;
 
@@ -143,24 +141,14 @@ final class FindMeAuiWheelBackdrop {
     private static void drawClassicRadial(Graphics2D g, int centerX, int centerY, int visibleSize,
                                           int hoveredLocal, int stateCode) {
         int outer = CompanionWheelLayout.OUTER_RADIUS;
+        int sectorOuter = CompanionWheelLayout.SECTOR_OUTER_RADIUS;
         int inner = CompanionWheelLayout.CENTER_CANCEL_RADIUS + 1;
         g.setStroke(new BasicStroke(1.0f));
-        if (visibleSize == 1) {
-            CompanionWheelVisualState state = stateAt(stateCode, 0);
-            boolean hovered = hoveredLocal == 0;
-            Color accent = stateColor(state, state == CompanionWheelVisualState.AVAILABLE ? 188 : 138);
-            Color fill = hovered && state == CompanionWheelVisualState.AVAILABLE
-                    ? new Color(238, 243, 241, 132) : accent;
-            drawSingleRadialRing(g, centerX, centerY, inner, outer, fill,
-                    state == CompanionWheelVisualState.AVAILABLE
-                            ? (hovered ? new Color(244, 247, 246, 225) : new Color(204, 214, 214, 142))
-                            : stateColor(state, 238));
-        }
         for (int i = 0; i < visibleSize; ++i) {
-            if (visibleSize == 1) break;
             boolean hovered = i == hoveredLocal;
             CompanionWheelVisualState state = stateAt(stateCode, i);
-            Path2D sector = radialSector(centerX, centerY, i, visibleSize, inner, outer, 0.035);
+            Path2D sector = radialSector(centerX, centerY, i, visibleSize, inner, sectorOuter,
+                    CompanionWheelLayout.RADIAL_SECTOR_GAP);
             Color accent = stateColor(state, state == CompanionWheelVisualState.AVAILABLE ? 188 : 138);
             Color fill = hovered && state == CompanionWheelVisualState.AVAILABLE
                     ? new Color(238, 243, 241, 132) : accent;
@@ -169,7 +157,10 @@ final class FindMeAuiWheelBackdrop {
             g.setColor(state == CompanionWheelVisualState.AVAILABLE
                     ? (hovered ? new Color(244, 247, 246, 225) : new Color(204, 214, 214, 142))
                     : stateColor(state, 238));
-            if (hovered || state != CompanionWheelVisualState.AVAILABLE) g.draw(sector);
+            if (hovered || (state != CompanionWheelVisualState.AVAILABLE
+                    && state != CompanionWheelVisualState.PENDING)) {
+                g.draw(sector);
+            }
         }
 
         g.setStroke(new BasicStroke(1.5f));
@@ -243,22 +234,14 @@ final class FindMeAuiWheelBackdrop {
     private static void drawClassicCommandRadial(Graphics2D g, int centerX, int centerY, int count,
                                                   int hoveredLocal, int availableMask) {
         int outer = CompanionWheelLayout.OUTER_RADIUS;
+        int sectorOuter = CompanionWheelLayout.SECTOR_OUTER_RADIUS;
         int inner = CompanionWheelLayout.CENTER_CANCEL_RADIUS + 1;
         g.setStroke(new BasicStroke(1.0f));
-        if (count == 1) {
-            boolean available = (availableMask & 1) != 0;
-            boolean hovered = hoveredLocal == 0 && available;
-            drawSingleRadialRing(g, centerX, centerY, inner, outer,
-                    !available ? new Color(17, 23, 25, 174)
-                            : hovered ? new Color(238, 243, 241, 146) : new Color(20, 30, 34, 188),
-                    !available ? new Color(105, 113, 115, 116)
-                            : hovered ? new Color(244, 247, 246, 232) : new Color(204, 214, 214, 142));
-        }
         for (int i = 0; i < count; ++i) {
-            if (count == 1) break;
             boolean available = (availableMask & 1 << i) != 0;
             boolean hovered = i == hoveredLocal && available;
-            Path2D sector = radialSector(centerX, centerY, i, count, inner, outer, 0.035);
+            Path2D sector = radialSector(centerX, centerY, i, count, inner, sectorOuter,
+                    CompanionWheelLayout.RADIAL_SECTOR_GAP);
             g.setColor(!available
                     ? new Color(17, 23, 25, 174)
                     : hovered ? new Color(238, 243, 241, 146) : new Color(20, 30, 34, 188));
@@ -271,16 +254,6 @@ final class FindMeAuiWheelBackdrop {
         g.setStroke(new BasicStroke(1.5f));
         g.setColor(new Color(235, 240, 238, 222));
         g.drawOval(centerX - outer - 4, centerY - outer - 4, (outer + 4) * 2, (outer + 4) * 2);
-    }
-
-    private static void drawSingleRadialRing(Graphics2D g, int centerX, int centerY, int inner, int outer,
-                                             Color fill, Color edge) {
-        Area ring = new Area(new Ellipse2D.Double(centerX - outer, centerY - outer, outer * 2.0, outer * 2.0));
-        ring.subtract(new Area(new Ellipse2D.Double(centerX - inner, centerY - inner, inner * 2.0, inner * 2.0)));
-        g.setColor(fill);
-        g.fill(ring);
-        g.setColor(edge);
-        g.drawOval(centerX - inner, centerY - inner, inner * 2, inner * 2);
     }
 
     private static void prepare(Graphics2D g, float fade) {
@@ -404,4 +377,5 @@ final class FindMeAuiWheelBackdrop {
             case AVAILABLE -> new Color(20, 30, 34, alpha);
         };
     }
+
 }

@@ -27,8 +27,6 @@ import java.nio.charset.StandardCharsets;
 /** A bounded, shared entity preview used by the AUI management cards. */
 public final class FindMePreviewElement extends MinecraftElement {
     public static final String TAG_NAME = "findme-preview";
-    private static int frameBudget = 8;
-    private static long budgetFrame = Long.MIN_VALUE;
     private static final List<CardOverlay> CARD_OVERLAYS = new ArrayList<>();
 
     public FindMePreviewElement(Document document) {
@@ -36,8 +34,8 @@ public final class FindMePreviewElement extends MinecraftElement {
     }
 
     public static void beginFrame(long frame) {
-        budgetFrame = frame;
-        frameBudget = 8;
+        // Retained as a lifecycle hook for callers. Visible previews must not be
+        // dropped by draw order: a skipped expanded card exposes its black base.
     }
 
     public static void beginOverlayPass() {
@@ -84,6 +82,9 @@ public final class FindMePreviewElement extends MinecraftElement {
         Rect rect = Rect.of(this);
         Position position = rect.getBodyRectPosition();
         Size size = rect.getBodyRectSize();
+        if (size.width() <= 1.0 || size.height() <= 1.0) {
+            return;
+        }
         int width = Math.max(1, (int) Math.round(size.width()));
         int height = Math.max(1, (int) Math.round(size.height()));
         float previewScale = parsePreviewScale(getAttribute("data-preview-scale"));
@@ -98,7 +99,6 @@ public final class FindMePreviewElement extends MinecraftElement {
                     (int) Math.round(position.x), (int) Math.round(position.y), width, height,
                     getAttribute("data-preview-number"), getAttribute("data-preview-status")));
         }
-        if (!allowPreview(minecraft)) return;
         GuiGraphics graphics = new GuiGraphics(minecraft, minecraft.renderBuffers().bufferSource());
         CompanionDetailPreviewRenderer renderer = new CompanionDetailPreviewRenderer();
         com.kuzhi.findme.network.CompanionListPacket.Entry previewEntry = entry.vehicle() != null
@@ -127,15 +127,6 @@ public final class FindMePreviewElement extends MinecraftElement {
         int guiWidth = minecraft.getWindow().getGuiScaledWidth();
         int guiHeight = minecraft.getWindow().getGuiScaledHeight();
         return x + width > 0 && y + height > 0 && x < guiWidth && y < guiHeight;
-    }
-
-    private static boolean allowPreview(Minecraft minecraft) {
-        long frame = minecraft.getFrameTimeNs();
-        if (frame != budgetFrame) {
-            budgetFrame = frame;
-            frameBudget = 8;
-        }
-        return frameBudget-- > 0;
     }
 
     private static UUID parseUuid(String value) {

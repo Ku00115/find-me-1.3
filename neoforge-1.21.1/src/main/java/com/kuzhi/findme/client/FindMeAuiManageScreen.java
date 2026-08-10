@@ -291,13 +291,19 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
 
     public static void showResult(boolean success, String message, UUID targetUuid) {
         if (current != null) {
-            if (targetUuid != null && targetUuid.equals(current.cardExitUuid)) {
+            boolean completedCardExit = targetUuid != null && targetUuid.equals(current.cardExitUuid);
+            if (completedCardExit) {
                 current.finishCardExitResult(success, targetUuid);
             }
             if (message != null && !message.isBlank()) {
                 current.setStatus(tr(success ? "screen.find_me.aui.status.ok" : "screen.find_me.aui.status.error", message), success ? 40 : 100);
             }
-            current.scheduleRefresh(0);
+            // A transfer result commonly arrives while AUI is still presenting the
+            // local card-exit frame. Rebuilding the manager root in that same frame
+            // exposes AUI's transient backing surface as a white flash. Let the
+            // active document finish its frame; the state-signature refresh remains
+            // the single source of truth for the updated roster.
+            current.scheduleRefresh(completedCardExit ? 2 : 0);
         }
     }
 

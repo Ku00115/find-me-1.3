@@ -48,11 +48,13 @@ final class ClientWheelPageTransition {
         if (!active() || !ClientWheelPresentationState.uiAnimations()) return Motion.SETTLED;
         if (this.ticks < OUT_TICKS) {
             float progress = smooth(clamp((this.ticks + partialTick) / OUT_TICKS));
-            return new Motion(-this.direction * TRAVEL * progress, 1.0f - progress,
+            // Keep the wheel opaque while AUI swaps its canvas contents at the midpoint.
+            // Fading the whole canvas exposes a transient white backing surface in AUI 1.2.
+            return new Motion(-this.direction * TRAVEL * progress, 1.0f,
                     1.0f - 0.025f * progress);
         }
         float progress = smooth(clamp((this.ticks - OUT_TICKS + partialTick) / IN_TICKS));
-        return new Motion(this.direction * TRAVEL * (1.0f - progress), progress,
+        return new Motion(this.direction * TRAVEL * (1.0f - progress), 1.0f,
                 0.975f + 0.025f * progress);
     }
 

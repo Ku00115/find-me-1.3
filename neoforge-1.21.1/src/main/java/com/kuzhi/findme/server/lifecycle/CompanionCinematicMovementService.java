@@ -89,6 +89,10 @@ public final class CompanionCinematicMovementService {
     }
 
     private static void moveTowardTarget(PendingMountCinematic cinematic, LivingEntity mount, ServerPlayer player, Vec3 target, double stepDistance, double speed, boolean forceFlyingPose) {
+        if (!isFinite(target) || !Double.isFinite(stepDistance) || !Double.isFinite(speed)) {
+            mount.setDeltaMovement(Vec3.ZERO);
+            return;
+        }
         double groundOffset = CompanionCinematicLandingService.rescueGroundYOffset(cinematic);
         moveArrivalStep(mount, cinematic.moveType(), target, stepDistance, speed,
                 forceFlyingPose || cinematic.mode().isFlyingRescue(), groundOffset, cinematic);
@@ -99,7 +103,12 @@ public final class CompanionCinematicMovementService {
     private static void moveArrivalStep(LivingEntity living, CompanionMoveType moveType, Vec3 target,
                                         double stepDistance, double speed, boolean forceFlyingPose,
                                         double groundOffset, PendingMountCinematic cinematic) {
-        Vec3 direction = target.subtract(living.position()).normalize();
+        Vec3 offset = target.subtract(living.position());
+        if (!isFinite(offset) || offset.lengthSqr() < 1.0E-8) {
+            living.setDeltaMovement(Vec3.ZERO);
+            return;
+        }
+        Vec3 direction = offset.normalize();
         float lookYaw = CompanionCinematicOrientationHelper.yawTowardStable(living, direction);
         if (moveType == CompanionMoveType.FLY) {
             Vec3 next = living.position().add(direction.scale(stepDistance));
@@ -203,5 +212,10 @@ public final class CompanionCinematicMovementService {
             return Vec3.atBottomCenterOf((Vec3i)landing).add(0.0, CompanionCinematicLandingService.rescueGroundYOffset(cinematic), 0.0);
         }
         return center;
+    }
+
+    private static boolean isFinite(Vec3 value) {
+        return value != null && Double.isFinite(value.x)
+                && Double.isFinite(value.y) && Double.isFinite(value.z);
     }
 }

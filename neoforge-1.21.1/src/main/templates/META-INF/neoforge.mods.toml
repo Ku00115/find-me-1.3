@@ -111,6 +111,14 @@ config="${mod_id}.mixins.json"
     side="BOTH"
 
 [[dependencies.${mod_id}]]
+    modId="iceandfire"
+    type="optional"
+    reason="Adds preview, movement, home-command, and rescue integration for Ice And Fire Community Edition."
+    versionRange="[2.0,)"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
     modId="machine_max"
     type="optional"
     reason="Uses MachineMax whole-vehicle persistence and seat APIs when MachineMax is installed."

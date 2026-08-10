@@ -46,7 +46,8 @@ final class FindMeWheelRenderer {
         int outline = state == CompanionWheelVisualState.AVAILABLE
                 ? (hovered ? 0xE6F2F5F4 : 0x8CCCD6D6) : accent;
         drawSector(graphics, centerX, centerY, index, visibleSize, guiColor(fill, fade));
-        if (hovered || state != CompanionWheelVisualState.AVAILABLE) {
+        if (hovered || (state != CompanionWheelVisualState.AVAILABLE
+                && state != CompanionWheelVisualState.PENDING)) {
             drawSectorOutline(graphics, centerX, centerY, index, visibleSize, guiColor(outline, fade));
         }
     }
@@ -431,8 +432,8 @@ final class FindMeWheelRenderer {
         double step = Math.PI * 2.0 / (double)Math.max(1, visibleSize);
         double start = -Math.PI / 2.0 - step / 2.0 + step * index;
         double end = start + step;
-        double gap = 0.085;
-        int outer = CompanionWheelLayout.OUTER_RADIUS;
+        double gap = CompanionWheelLayout.RADIAL_SECTOR_GAP;
+        int outer = CompanionWheelLayout.SECTOR_OUTER_RADIUS;
         int inner = CompanionWheelLayout.CENTER_CANCEL_RADIUS + 1;
         for (int radius = inner; radius <= outer; radius += 2) {
             double arcStep = Math.max(0.03, 7.0 / Math.max(1.0, radius));
@@ -448,7 +449,7 @@ final class FindMeWheelRenderer {
         double step = Math.PI * 2.0 / (double)Math.max(1, visibleSize);
         double start = -Math.PI / 2.0 - step / 2.0 + step * index;
         double end = start + step;
-        int outer = CompanionWheelLayout.OUTER_RADIUS;
+        int outer = CompanionWheelLayout.SECTOR_OUTER_RADIUS;
         int inner = CompanionWheelLayout.CENTER_CANCEL_RADIUS + 1;
         drawRadialLine(graphics, centerX, centerY, start, inner, outer, color);
         drawRadialLine(graphics, centerX, centerY, end, inner, outer, color);

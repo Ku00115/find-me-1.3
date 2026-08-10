@@ -1,6 +1,7 @@
 package com.kuzhi.findme.server.lifecycle;
 
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
+import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
 import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,7 +42,8 @@ public final class CompanionShoulderService {
     }
 
     public static Optional<LivingEntity> releaseShoulderCompanion(ServerPlayer player, UUID uuid, CompoundTag source) {
-        CompoundTag tag = source.copy();
+        CompoundTag tag = CompanionEntitySnapshots.prepareForLoad(source,
+                player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
         if (!tag.contains("id")) {
             return Optional.empty();
         }

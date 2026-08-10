@@ -1942,10 +1942,14 @@ public final class VehicleManager {
             return Optional.empty();
         }
         try {
-            CompoundTag tag = maybeTag.get().copy();
+            double targetX = (double)pos.getX() + 0.5;
+            double targetY = (double)pos.getY();
+            double targetZ = (double)pos.getZ() + 0.5;
+            CompoundTag tag = CompanionEntitySnapshots.prepareForLoad(maybeTag.get(),
+                    targetX, targetY, targetZ, player.getYRot(), player.getXRot());
             tag.putUUID("UUID", uuid);
             Entity restored = EntityType.loadEntityRecursive(tag, player.serverLevel(), entity -> {
-                entity.moveTo((double)pos.getX() + 0.5, (double)pos.getY(), (double)pos.getZ() + 0.5, player.getYRot(), player.getXRot());
+                entity.moveTo(targetX, targetY, targetZ, player.getYRot(), player.getXRot());
                 return entity;
             });
             if (restored == null) {
@@ -2446,10 +2450,14 @@ public final class VehicleManager {
                 || MachineMaxVehicleCompatibility.isStoredMachineMax(maybeTag.get())) {
             return Optional.empty();
         }
-        CompoundTag tag = maybeTag.get().copy();
+        double targetX = (double)pos.getX() + 0.5;
+        double targetY = (double)pos.getY();
+        double targetZ = (double)pos.getZ() + 0.5;
+        CompoundTag tag = CompanionEntitySnapshots.prepareForLoad(maybeTag.get(),
+                targetX, targetY, targetZ, player.getYRot(), player.getXRot());
         tag.putUUID("UUID", uuid);
         Entity preview = EntityType.loadEntityRecursive(tag, player.serverLevel(), entity -> {
-            entity.moveTo((double)pos.getX() + 0.5, (double)pos.getY(), (double)pos.getZ() + 0.5, player.getYRot(), player.getXRot());
+            entity.moveTo(targetX, targetY, targetZ, player.getYRot(), player.getXRot());
             return entity;
         });
         return Optional.ofNullable(preview);

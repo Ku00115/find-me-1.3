@@ -697,11 +697,19 @@ public final class ClientEvents {
         private static boolean isIceAndFireRiderFeaturePass(net.minecraft.world.entity.player.Player player) {
             if (!iceAndFireRenderingRidersResolved) {
                 iceAndFireRenderingRidersResolved = true;
-                try {
-                    Class<?> renderer = Class.forName("com.iafenvoy.iceandfire.render.entity.feature.DragonRiderFeatureRenderer");
-                    iceAndFireRenderingRidersField = renderer.getField("RENDERING_RIDERS");
-                } catch (ReflectiveOperationException | LinkageError ignored) {
-                    iceAndFireRenderingRidersField = null;
+                String[] owners = {
+                        // IceAndFire-CE 2.1 beta and later GeckoLib renderer.
+                        "com.iafenvoy.iceandfire.render.entity.feature.DragonRiderRenderState",
+                        // Earlier 1.21.1 community builds.
+                        "com.iafenvoy.iceandfire.render.entity.feature.DragonRiderFeatureRenderer"
+                };
+                for (String owner : owners) {
+                    try {
+                        iceAndFireRenderingRidersField = Class.forName(owner).getField("RENDERING_RIDERS");
+                        break;
+                    } catch (ReflectiveOperationException | LinkageError ignored) {
+                        iceAndFireRenderingRidersField = null;
+                    }
                 }
             }
             if (iceAndFireRenderingRidersField == null) {
