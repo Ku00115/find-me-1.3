@@ -8,16 +8,19 @@ public final class ClientFindMeModuleState {
     private static long effectiveMask = defaultMask();
     private static long availableMask = defaultMask();
     private static boolean canManage;
+    private static boolean canManageDefaults;
     private static int companionDeploymentLimit = 2;
 
     private ClientFindMeModuleState() {
     }
 
-    public static void update(long configured, long effective, long available, boolean manager, int deploymentLimit) {
+    public static void update(long configured, long effective, long available, boolean manager,
+                              boolean defaultsManager, int deploymentLimit) {
         configuredMask = configured;
         effectiveMask = effective;
         availableMask = available;
         canManage = manager;
+        canManageDefaults = defaultsManager;
         companionDeploymentLimit = Math.max(1, Math.min(32, deploymentLimit));
         if (Minecraft.getInstance().screen instanceof FindMeAuiHouseScreen
                 && !enabled(FindMeModule.HOUSES)) {
@@ -44,6 +47,10 @@ public final class ClientFindMeModuleState {
         return canManage;
     }
 
+    public static boolean canManageDefaults() {
+        return canManageDefaults;
+    }
+
     public static int companionDeploymentLimit() {
         return companionDeploymentLimit;
     }
@@ -53,6 +60,7 @@ public final class ClientFindMeModuleState {
         effectiveMask = defaultMask();
         availableMask = defaultMask();
         canManage = false;
+        canManageDefaults = false;
         companionDeploymentLimit = 2;
     }
 

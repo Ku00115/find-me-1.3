@@ -26,7 +26,7 @@ side="BOTH"
 [[dependencies.${mod_id}]]
 modId="apricityui"
 mandatory=true
-versionRange="[1.1.6-dev,)"
+    versionRange="[1.2.0,)"
 ordering="AFTER"
 side="CLIENT"
 

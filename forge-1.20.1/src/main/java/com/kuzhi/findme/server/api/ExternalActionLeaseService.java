@@ -1,5 +1,6 @@
 package com.kuzhi.findme.server.api;
 
+import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.api.CompanionDescriptor;
 import com.kuzhi.findme.api.ExternalActionLease;
 import com.kuzhi.findme.api.FindMeApi;
@@ -43,8 +44,20 @@ public final class ExternalActionLeaseService {
                 .filter(LivingEntity.class::isInstance).map(LivingEntity.class::cast).orElse(null);
         long now = owner.serverLevel().getGameTime();
         LeaseImpl current = currentLease(companionUuid, now);
-        if (living == null || FindMeApi.isMovementControlled(living)
-                && (current == null || priority <= current.priority)) return Optional.empty();
+        boolean movementControlled = FindMeApi.isMovementControlled(living);
+        if (living == null || movementControlled
+                && (current == null || priority <= current.priority)) {
+            CompanionOperationLockService.ActiveOperation operation =
+                    CompanionOperationLockService.get(companionUuid);
+            FindMeMod.LOGGER.info("[FindMe external] lease rejected owner={} companion={} liveEntity={} movementControlled={} fixedPost={} tactical={} operation={} source={} expiresAt={} action={} priority={}",
+                    owner.getUUID(), companionUuid, living != null, movementControlled,
+                    living != null && FindMeApi.isFixedPost(living),
+                    CompanionTacticalOrderService.controls(companionUuid),
+                    operation == null ? null : operation.operation(),
+                    operation == null ? null : operation.source(),
+                    operation == null ? null : operation.expiresAt(), actionId, priority);
+            return Optional.empty();
+        }
         int duration = Math.min(MAX_TIMEOUT_TICKS, timeoutTicks);
         LeaseImpl lease = acquire(owner.getServer(), owner.getUUID(), companionUuid, actionId,
                 priority, now, duration);

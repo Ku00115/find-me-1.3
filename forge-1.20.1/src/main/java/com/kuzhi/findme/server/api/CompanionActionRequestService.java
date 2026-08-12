@@ -11,6 +11,7 @@ import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.lifecycle.CompanionCollectionService;
 import com.kuzhi.findme.server.lifecycle.CompanionDeployRequestService;
+import com.kuzhi.findme.server.lifecycle.CompanionDeploymentPlan;
 import com.kuzhi.findme.server.lifecycle.CompanionStorageService;
 import com.kuzhi.findme.server.lifecycle.CompanionSummonApproachService;
 import java.util.HashMap;
@@ -34,6 +35,12 @@ public final class CompanionActionRequestService {
 
     public static CompanionActionRequest submit(ServerPlayer owner, UUID companionUuid, UUID requestId,
                                                  Action action, int timeoutTicks) {
+        return submit(owner, companionUuid, requestId, action, timeoutTicks, null);
+    }
+
+    public static CompanionActionRequest submit(ServerPlayer owner, UUID companionUuid, UUID requestId,
+                                                 Action action, int timeoutTicks,
+                                                 CompanionDeploymentPlan plan) {
         if (owner == null) return invalid(requestId, null, companionUuid, action, 0L);
         long now = owner.serverLevel().getGameTime();
         if (requestId == null || companionUuid == null || action == null) {
@@ -72,7 +79,7 @@ public final class CompanionActionRequestService {
                 action, now, now + duration, State.PENDING, Reason.NONE, 0L);
         REQUESTS.put(key, entry);
         PlayerCompanionData data = CompanionDataService.data(owner);
-        StartResult started = start(owner, data, descriptor, action, requestId);
+        StartResult started = start(owner, data, descriptor, action, requestId, plan);
         entry.operationOwned = started.operationOwned();
         if (!started.accepted()) {
             entry.finish(State.REJECTED, Reason.UNAVAILABLE, now);
@@ -149,7 +156,8 @@ public final class CompanionActionRequestService {
     }
 
     private static StartResult start(ServerPlayer owner, PlayerCompanionData data,
-                                     CompanionDescriptor descriptor, Action action, UUID requestId) {
+                                     CompanionDescriptor descriptor, Action action, UUID requestId,
+                                     CompanionDeploymentPlan plan) {
         if (action == Action.STORE) {
             boolean alreadyPending = CompanionStorageService.isStoragePending(descriptor.companionUuid());
             boolean accepted = CompanionCollectionService.collectUuid(owner, data, descriptor.kind(),
@@ -159,7 +167,7 @@ public final class CompanionActionRequestService {
         }
         CompanionDeployRequestService.Result result = action == Action.TASK_DEPLOY
                 ? CompanionDeployRequestService.requestExternalTask(owner, data, descriptor.kind(),
-                descriptor.companionUuid(), "api:task_deploy:" + requestId)
+                descriptor.companionUuid(), "api:task_deploy:" + requestId, plan)
                 : CompanionDeployRequestService.request(owner, data, descriptor.kind(),
                 descriptor.companionUuid(), CompanionDeployRequestService.Mode.AUTONOMOUS,
                 "api:external_deploy:" + requestId);

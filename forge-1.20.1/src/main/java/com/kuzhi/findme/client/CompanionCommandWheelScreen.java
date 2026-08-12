@@ -58,6 +58,10 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
         this(target, null, Mode.COMMAND, captureAim(target));
     }
 
+    CompanionCommandWheelScreen(CompanionCommandTarget target, Mode mode) {
+        this(target, null, mode, captureAim(target));
+    }
+
     CompanionCommandWheelScreen(CompanionCommandTarget target, CompanionWheelScreen returnScreen, Mode mode,
                                 BlockPos aimedPosition, int aimedEntityId) {
         this(target, returnScreen, mode, new AimSnapshot(aimedPosition, aimedEntityId));

@@ -98,6 +98,12 @@ public final class ClientCompanionTeamState {
         return List.copyOf(ENTRIES.getOrDefault(target, List.of()));
     }
 
+    public static TeamEntry currentEntry(CompanionTeamTarget target) {
+        List<TeamEntry> entries = ENTRIES.getOrDefault(target, List.of());
+        int index = CURRENT.getOrDefault(target, 0);
+        return index >= 0 && index < entries.size() ? entries.get(index) : null;
+    }
+
     public static void selectTeam(CompanionTeamTarget target, int index) {
         List<List<UUID>> teams = TEAMS.getOrDefault(target, List.of());
         if (index >= 0 && index < teams.size() && CURRENT.getOrDefault(target, 0) != index) {

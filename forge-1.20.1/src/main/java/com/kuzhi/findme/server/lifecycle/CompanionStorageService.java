@@ -43,6 +43,8 @@ public final class CompanionStorageService {
     private static final Map<UUID, Long> INTENTIONAL_STORAGE_REMOVALS = new HashMap<>();
     private static final List<PendingStorageEffect> PENDING_STORAGE_EFFECTS = new ArrayList<>();
     private static final String SHOULDER_COMPANION_UUID = "FindMeCompanionUUID";
+    private static final String CRITICAL_STORED_TAG = "CompanionRescueCritical";
+    private static final float CRITICAL_HEALTH = 1.0F;
     private static final int STORAGE_EFFECT_TICKS = 12;
     private static final int STORAGE_PRESENTATION_TICKS = 17;
 
@@ -494,32 +496,55 @@ public final class CompanionStorageService {
     }
 
     public static CompoundTag healedStoredEntity(ServerPlayer player, PlayerCompanionData data, UUID uuid, CompoundTag storedTag) {
-        CompoundTag tag = sanitizedStoredTag(storedTag);
-        if (data != null && data.isCritical(uuid)) {
+        boolean snapshotCritical = storedTag != null && storedTag.getBoolean(CRITICAL_STORED_TAG);
+        boolean critical = snapshotCritical || data != null && data.isCritical(uuid);
+        long now = player.serverLevel().getGameTime();
+        CompoundTag tag = storedEntityAfterElapsed(storedTag, now, critical);
+        if (critical) {
+            if (snapshotCritical && data != null) {
+                data.setCritical(uuid, true);
+            }
             return tag;
         }
-        float health = tag.getFloat("CompanionRescueHealth");
+        float health = storedTag == null ? 0.0F : storedTag.getFloat("CompanionRescueHealth");
         float maxHealth = tag.getFloat("CompanionRescueMaxHealth");
-        long storedAt = tag.getLong("CompanionRescueStoredAt");
+        long storedAt = storedTag == null ? 0L : storedTag.getLong("CompanionRescueStoredAt");
         if (maxHealth <= 0.0f || health <= 0.0f || health >= maxHealth) {
             return tag;
         }
-        long now = player.serverLevel().getGameTime();
-        if (storedAt <= 0L) {
-            tag.putLong("CompanionRescueStoredAt", now);
+        if (storedAt <= 0L || tag.getFloat("CompanionRescueHealth") > health) {
             data.storeEntity(uuid, tag);
             CompanionDataService.save(player, data);
+        }
+        return tag;
+    }
+
+    static CompoundTag storedEntityAfterElapsed(CompoundTag storedTag, long now, boolean critical) {
+        CompoundTag tag = sanitizedStoredTag(storedTag);
+        float health = tag.getFloat("CompanionRescueHealth");
+        float maxHealth = tag.getFloat("CompanionRescueMaxHealth");
+        if (critical) {
+            float preserved = maxHealth > 0.0F ? Math.min(CRITICAL_HEALTH, maxHealth) : CRITICAL_HEALTH;
+            tag.putBoolean(CRITICAL_STORED_TAG, true);
+            tag.putFloat("CompanionRescueHealth", preserved);
+            tag.putFloat("Health", preserved);
             return tag;
         }
-        float healed = Math.min(maxHealth, health + (float)Math.max(0L, now - storedAt) / 20.0f);
-        if (healed > health) {
-            tag.putFloat("CompanionRescueHealth", healed);
+        tag.putBoolean(CRITICAL_STORED_TAG, false);
+        if (maxHealth <= 0.0F || health <= 0.0F || health >= maxHealth) {
+            return tag;
+        }
+        long storedAt = tag.getLong("CompanionRescueStoredAt");
+        if (storedAt <= 0L) {
             tag.putLong("CompanionRescueStoredAt", now);
-            if (tag.contains("Health")) {
-                tag.putFloat("Health", healed);
-            }
-            data.storeEntity(uuid, tag);
-            CompanionDataService.save(player, data);
+            tag.putFloat("Health", health);
+            return tag;
+        }
+        float healed = Math.min(maxHealth, health + (float)Math.max(0L, now - storedAt) / 20.0F);
+        tag.putFloat("CompanionRescueHealth", healed);
+        tag.putFloat("Health", healed);
+        if (healed > health) {
+            tag.putLong("CompanionRescueStoredAt", now);
         }
         return tag;
     }
@@ -788,6 +813,7 @@ public final class CompanionStorageService {
         tag.putFloat("CompanionRescueMaxHealth", living.getMaxHealth());
         tag.putInt("CompanionRescueArmor", living.getArmorValue());
         tag.putLong("CompanionRescueStoredAt", storedAt);
+        tag.putBoolean(CRITICAL_STORED_TAG, data.isCritical(living.getUUID()));
         tag.putBoolean("NoAI", false);
         tag.putBoolean("NoGravity", false);
         tag.putBoolean("Invisible", false);
@@ -826,6 +852,8 @@ public final class CompanionStorageService {
     private static void resetStoredStateTags(CompoundTag tag) {
         tag.putShort("Fire", (short)0);
         tag.putFloat("FallDistance", 0.0f);
+        // Storage protection is only for the presentation transition; never persist it.
+        tag.putBoolean("Invulnerable", false);
         tag.putBoolean("NoAI", false);
         tag.putBoolean("NoGravity", false);
         tag.putBoolean("Invisible", false);

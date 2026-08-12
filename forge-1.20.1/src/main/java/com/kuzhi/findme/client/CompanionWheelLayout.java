@@ -13,6 +13,10 @@ final class CompanionWheelLayout {
     static final int HOVERED_SLOT_RADIUS = 25;
     static final int ITEM_RADIUS = 62;
     static final int OUTER_RADIUS = 86;
+    // Keep radial sectors inside the decorative outer ring.
+    static final int SECTOR_OUTER_RADIUS = OUTER_RADIUS - 5;
+    // Keep the immediate-mode fallback aligned with the AUI wheel spacing.
+    static final double RADIAL_SECTOR_GAP = 0.035;
     static final int SECTOR_INNER_RADIUS = 21;
     static final int PAGE_SIZE = 6;
     static final int SIX_WING_CARD_WIDTH = 34;

@@ -8,7 +8,8 @@ public enum FindMeFontFamily {
     SERIF,
     FANGSONG,
     KAITI,
-    MONOSPACE;
+    MONOSPACE,
+    LEGACY;
 
     public String cssClass() {
         return "fm-font-family-" + name().toLowerCase(java.util.Locale.ROOT).replace('_', '-');

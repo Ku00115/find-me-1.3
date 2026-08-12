@@ -120,7 +120,7 @@ public final class FindMeModuleService {
         }
         ModNetwork.sendToPlayer(player, new FindMeModuleStatePacket(
                 configuredMask(), effectiveMask(), availableMask(), player.hasPermissions(2),
-                Config.companionDeploymentLimit));
+                player.hasPermissions(2) && player.isCreative(), Config.companionDeploymentLimit));
     }
 
     public static void setCompanionDeploymentLimit(ServerPlayer player, int limit) {

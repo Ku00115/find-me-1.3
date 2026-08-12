@@ -47,12 +47,15 @@ public final class ClientEvents {
     private static final KeyMapping MOUNT_KEY = new KeyMapping("key.find_me.mount", InputConstants.Type.KEYSYM, 82, "key.categories.find_me");
     private static final KeyMapping COMPANION_KEY = new KeyMapping("key.find_me.companion", InputConstants.Type.KEYSYM, 86, "key.categories.find_me");
     private static final KeyMapping COMMAND_KEY = new KeyMapping("key.find_me.command", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, "key.categories.find_me");
+    private static final KeyMapping ABILITY_KEY = new KeyMapping("key.find_me.ability", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_C, "key.categories.find_me");
     private static final KeyMapping MANAGE_KEY = new KeyMapping("key.find_me.manage", InputConstants.Type.KEYSYM, 71, "key.categories.find_me");
+    private static final KeyMapping GUI_INSPECTOR_KEY = new KeyMapping("key.find_me.gui_inspector", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_F8, "key.categories.find_me");
     private static boolean mountWasDown;
     private static boolean companionWasDown;
     private static boolean rawMountDown;
     private static boolean rawCompanionDown;
     private static boolean rawCommandDown;
+    private static boolean rawAbilityDown;
     private static long mountDownAt;
     private static long lastMountShortPressAt;
     private static long companionDownAt;
@@ -64,6 +67,9 @@ public final class ClientEvents {
     private static boolean commandWasDown;
     private static boolean commandWheelOpened;
     private static boolean commandBlockedByScreen;
+    private static boolean abilityWasDown;
+    private static boolean abilityWheelOpened;
+    private static boolean abilityBlockedByScreen;
     private static final Set<Integer> BURROW_TRANSLATED_ENTITIES = new HashSet<>();
     private static Field iceAndFireRenderingRidersField;
     private static boolean iceAndFireRenderingRidersResolved;
@@ -92,7 +98,9 @@ public final class ClientEvents {
         event.register(MOUNT_KEY);
         event.register(COMPANION_KEY);
         event.register(COMMAND_KEY);
+        event.register(ABILITY_KEY);
         event.register(MANAGE_KEY);
+        event.register(GUI_INSPECTOR_KEY);
     }
 
     @SubscribeEvent
@@ -296,64 +304,76 @@ public final class ClientEvents {
     }
 
     private static void tickCommandKey() {
+        tickContextKey(COMMAND_KEY, rawCommandDown, CompanionCommandWheelScreen.Mode.COMMAND);
+    }
+
+    private static void tickAbilityKey() {
+        tickContextKey(ABILITY_KEY, rawAbilityDown, CompanionCommandWheelScreen.Mode.ABILITY);
+    }
+
+    private static void tickContextKey(KeyMapping key, boolean rawDown, CompanionCommandWheelScreen.Mode mode) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null) {
-            resetCommandGesture();
+            resetContextGesture(mode);
             return;
         }
         if (!ClientFindMeModuleState.enabled(FindMeModule.RIDING)
                 && !ClientFindMeModuleState.enabled(FindMeModule.COMPANIONS)) {
-            if (minecraft.screen instanceof CompanionCommandWheelScreen) {
+            if (minecraft.screen instanceof CompanionCommandWheelScreen
+                    && contextWheelOpened(mode)) {
                 minecraft.setScreen(null);
             }
-            resetCommandGesture();
+            resetContextGesture(mode);
             return;
         }
-        boolean isDown = commandKeyDown();
+        boolean isDown = contextKeyDown(key, rawDown);
+        boolean wasDown = contextWasDown(mode);
+        boolean wheelOpened = contextWheelOpened(mode);
+        boolean blockedByScreen = contextBlockedByScreen(mode);
         boolean ownScreen = minecraft.screen instanceof CompanionCommandWheelScreen;
         if (minecraft.screen != null && !ownScreen) {
-            commandBlockedByScreen = isDown || commandBlockedByScreen;
-            resetCommandGesture();
+            setContextBlockedByScreen(mode, isDown || blockedByScreen);
+            resetContextPress(mode);
             return;
         }
-        if (commandBlockedByScreen) {
+        if (blockedByScreen) {
             if (!isDown) {
-                commandBlockedByScreen = false;
+                setContextBlockedByScreen(mode, false);
             }
-            resetCommandGesture();
+            resetContextPress(mode);
             return;
         }
-        if (isDown && !commandWasDown) {
-            commandWasDown = true;
+        if (isDown && !wasDown) {
+            setContextWasDown(mode, true);
             ClientCompanionCommandTarget.sync();
             com.kuzhi.findme.api.client.CompanionCommandTarget target = ClientCompanionCommandTarget.resolve();
             if (target == null) {
-                commandWheelOpened = false;
+                setContextWheelOpened(mode, false);
                 ClientCompanionCommandTarget.showNoTarget();
                 return;
             }
-            commandWheelOpened = true;
-            minecraft.setScreen(new CompanionCommandWheelScreen(target));
+            setContextWheelOpened(mode, true);
+            minecraft.setScreen(new CompanionCommandWheelScreen(target, mode));
             return;
         }
-        if (!isDown && commandWasDown) {
-            commandWasDown = false;
-            if (commandWheelOpened) {
+        if (!isDown && wasDown) {
+            setContextWasDown(mode, false);
+            if (wheelOpened) {
                 if (minecraft.screen instanceof CompanionCommandWheelScreen) minecraft.setScreen(null);
-                commandWheelOpened = false;
+                setContextWheelOpened(mode, false);
             }
         }
     }
 
-    private static boolean commandKeyDown() {
-        if (COMMAND_KEY.isDown() || rawCommandDown) {
+    private static boolean contextKeyDown(KeyMapping key, boolean rawDown) {
+        if (key.isDown() || rawDown) {
             return true;
         }
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.getWindow() == null) {
             return false;
         }
-        InputConstants.Key bound = COMMAND_KEY.getKey();
+        InputConstants.Key bound = key.getKey();
         if (bound.getValue() < 0) {
             return false;
         }
@@ -366,8 +386,44 @@ public final class ClientEvents {
     }
 
     private static void resetCommandGesture() {
-        commandWasDown = false;
-        commandWheelOpened = false;
+        resetContextGesture(CompanionCommandWheelScreen.Mode.COMMAND);
+    }
+
+    private static void resetContextGesture(CompanionCommandWheelScreen.Mode mode) {
+        resetContextPress(mode);
+        setContextBlockedByScreen(mode, false);
+    }
+
+    private static void resetContextPress(CompanionCommandWheelScreen.Mode mode) {
+        setContextWasDown(mode, false);
+        setContextWheelOpened(mode, false);
+    }
+
+    private static boolean contextWasDown(CompanionCommandWheelScreen.Mode mode) {
+        return mode == CompanionCommandWheelScreen.Mode.ABILITY ? abilityWasDown : commandWasDown;
+    }
+
+    private static void setContextWasDown(CompanionCommandWheelScreen.Mode mode, boolean value) {
+        if (mode == CompanionCommandWheelScreen.Mode.ABILITY) abilityWasDown = value;
+        else commandWasDown = value;
+    }
+
+    private static boolean contextWheelOpened(CompanionCommandWheelScreen.Mode mode) {
+        return mode == CompanionCommandWheelScreen.Mode.ABILITY ? abilityWheelOpened : commandWheelOpened;
+    }
+
+    private static void setContextWheelOpened(CompanionCommandWheelScreen.Mode mode, boolean value) {
+        if (mode == CompanionCommandWheelScreen.Mode.ABILITY) abilityWheelOpened = value;
+        else commandWheelOpened = value;
+    }
+
+    private static boolean contextBlockedByScreen(CompanionCommandWheelScreen.Mode mode) {
+        return mode == CompanionCommandWheelScreen.Mode.ABILITY ? abilityBlockedByScreen : commandBlockedByScreen;
+    }
+
+    private static void setContextBlockedByScreen(CompanionCommandWheelScreen.Mode mode, boolean value) {
+        if (mode == CompanionCommandWheelScreen.Mode.ABILITY) abilityBlockedByScreen = value;
+        else commandBlockedByScreen = value;
     }
 
     private static boolean nowWithinDoublePressWindow() {
@@ -381,6 +437,7 @@ public final class ClientEvents {
         rawMountDown = false;
         rawCompanionDown = false;
         rawCommandDown = false;
+        rawAbilityDown = false;
         mountDownAt = 0L;
         companionDownAt = 0L;
         lastMountShortPressAt = 0L;
@@ -392,6 +449,9 @@ public final class ClientEvents {
         commandWasDown = false;
         commandWheelOpened = false;
         commandBlockedByScreen = false;
+        abilityWasDown = false;
+        abilityWheelOpened = false;
+        abilityBlockedByScreen = false;
         BURROW_TRANSLATED_ENTITIES.clear();
     }
 
@@ -491,6 +551,10 @@ public final class ClientEvents {
         @SubscribeEvent
         public static void onKey(InputEvent.Key event) {
             Minecraft minecraft = Minecraft.getInstance();
+            if (GUI_INSPECTOR_KEY.matches(event.getKey(), event.getScanCode()) && event.getAction() == GLFW.GLFW_PRESS) {
+                FindMeGuiInspectorOverlay.toggle(minecraft.screen);
+                return;
+            }
             if (MANAGE_KEY.matches(event.getKey(), event.getScanCode()) && event.getAction() == GLFW.GLFW_PRESS
                     && minecraft.screen == null
                     && (ClientFindMeModuleState.enabled(FindMeModule.MANAGEMENT)
@@ -507,6 +571,8 @@ public final class ClientEvents {
                 rawCompanionDown = event.getAction() != 0;
             } else if (COMMAND_KEY.matches(event.getKey(), event.getScanCode())) {
                 rawCommandDown = event.getAction() != GLFW.GLFW_RELEASE;
+            } else if (ABILITY_KEY.matches(event.getKey(), event.getScanCode())) {
+                rawAbilityDown = event.getAction() != GLFW.GLFW_RELEASE;
             }
         }
 
@@ -518,6 +584,8 @@ public final class ClientEvents {
                 rawCompanionDown = event.getAction() != 0;
             } else if (COMMAND_KEY.matchesMouse(event.getButton())) {
                 rawCommandDown = event.getAction() != GLFW.GLFW_RELEASE;
+            } else if (ABILITY_KEY.matchesMouse(event.getButton())) {
+                rawAbilityDown = event.getAction() != GLFW.GLFW_RELEASE;
             }
         }
 
@@ -563,6 +631,7 @@ public final class ClientEvents {
             ClientEvents.tickKey(CompanionKind.MOUNT, MOUNT_KEY);
             ClientEvents.tickKey(CompanionKind.COMPANION, COMPANION_KEY);
             ClientEvents.tickCommandKey();
+            ClientEvents.tickAbilityKey();
             ClientCameraLock.tick();
             ClientContractCamera.tick();
             ClientMountApproachPresentationState.tick();
@@ -714,6 +783,11 @@ public final class ClientEvents {
         @SubscribeEvent
         public static void onScreenRender(ScreenEvent.Render.Pre event) {
             FindMePreviewElement.beginFrame(Minecraft.getInstance().getFrameTimeNs());
+        }
+
+        @SubscribeEvent
+        public static void onScreenRenderPost(ScreenEvent.Render.Post event) {
+            FindMeGuiInspectorOverlay.render(event.getGuiGraphics(), event.getScreen());
         }
 
         @SubscribeEvent

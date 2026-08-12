@@ -1,0 +1,31 @@
+<meta name="aui-font-mode" content="system">
+<meta name="aui-viewport" content="mode=screen,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
+<meta name="aui-mouse-events" content="intercept">
+<body>
+  <div id="findme-gui-inspector-root"></div>
+</body>
+
+<style>
+  * { box-sizing: border-box; letter-spacing: 0; }
+  body { width: 100%; height: 100%; margin: 0; overflow: hidden; pointer-events: none; background: transparent; color: #e9f0ef; font-family: lxgw, sans-serif; font-size: 10px; }
+  .inspector-root { position: absolute; overflow: hidden; padding: 12px; border: 1px solid #5f777b; background-color: rgba(12, 20, 23, 0.97); box-shadow: 0 7px 24px rgba(0, 0, 0, 0.48); }
+  .inspector-head { display: flex; align-items: flex-start; justify-content: space-between; height: 38px; border-bottom: 1px solid rgba(136, 180, 184, 0.30); }
+  .inspector-head small, .summary small, .detail small, .slot-title small { display: block; color: #86a4a7; font-size: 8px; line-height: 10px; }
+  .inspector-head strong { display: block; margin-top: 1px; color: #ffffff; font-size: 21px; line-height: 23px; }
+  kbd { padding: 3px 5px; border: 1px solid #5f777b; color: #b6d0d0; font-size: 8px; }
+  .summary { display: flex; gap: 7px; height: 48px; padding-top: 9px; }
+  .summary > div { min-width: 0; flex: 1; overflow: hidden; padding-left: 6px; border-left: 2px solid #18b7d2; }
+  .summary span, .detail span { display: block; overflow: hidden; color: #f2f7f5; text-overflow: ellipsis; white-space: nowrap; }
+  .summary span { margin-top: 2px; font-size: 11px; }
+  .detail { overflow: hidden; padding: 7px 0; border-top: 1px solid rgba(136, 180, 184, 0.16); border-bottom: 1px solid rgba(136, 180, 184, 0.16); }
+  .detail span { margin: 1px 0 5px; color: #b8c8c8; font-family: Consolas, monospace; font-size: 8px; }
+  .detail span:last-child { margin-bottom: 0; }
+  .slot-title { display: flex; align-items: center; justify-content: space-between; height: 25px; padding-top: 5px; }
+  .slot-title span { color: #ffffff; font-size: 10px; }
+  .slot-list { height: calc(100% - 143px); overflow: hidden; }
+  .slot-row { display: flex; align-items: center; height: 19px; border-bottom: 1px solid rgba(136, 180, 184, 0.10); }
+  .slot-row b { width: 28px; color: #18b7d2; font-size: 10px; }
+  .slot-row span { min-width: 0; flex: 1; overflow: hidden; color: #e4edeb; text-overflow: ellipsis; white-space: nowrap; }
+  .slot-row small { width: 52px; color: #88a0a2; font-family: Consolas, monospace; font-size: 8px; text-align: right; }
+  .empty-row { padding-top: 10px; color: #91a9aa; font-size: 9px; }
+</style>

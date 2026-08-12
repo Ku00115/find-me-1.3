@@ -143,7 +143,7 @@ public final class CompanionContractService {
     }
 
     private static boolean bindImmediately(ServerPlayer player, LivingEntity target, CompanionKind kind) {
-        if (!CompanionBindingService.bindAndStore(player, target, kind)) {
+        if (!CompanionBindingService.bindAndDeploy(player, target, kind)) {
             return false;
         }
         markBindingTypeSeen(player, target);
@@ -155,7 +155,7 @@ public final class CompanionContractService {
         if (!hasNamePaper(player, contract.hand)) {
             ModNetwork.sendToPlayer(player, endingPacket(contract, target.getId(), ContractCameraPacket.Mode.CANCEL));
             CompanionMessageService.tell(player, "message.find_me.contract_cancelled", ChatFormatting.YELLOW, target.getDisplayName());
-        } else if (CompanionBindingService.bindAndStore(player, target, contract.kind)) {
+        } else if (CompanionBindingService.bindAndDeploy(player, target, contract.kind)) {
             consumeNamePaper(player, contract.hand);
             markBindingTypeSeen(player, target);
             ModNetwork.sendToPlayer(player, endingPacket(contract, target.getId(), ContractCameraPacket.Mode.COMPLETE));

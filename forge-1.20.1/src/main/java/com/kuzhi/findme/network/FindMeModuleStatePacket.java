@@ -6,18 +6,20 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 
 public record FindMeModuleStatePacket(long configuredMask, long effectiveMask, long availableMask,
-                                      boolean canManage, int companionDeploymentLimit) {
+                                      boolean canManage, boolean canManageDefaults,
+                                      int companionDeploymentLimit) {
 public static void encode(FindMeModuleStatePacket packet, FriendlyByteBuf buffer) {
         buffer.writeLong(packet.configuredMask);
         buffer.writeLong(packet.effectiveMask);
         buffer.writeLong(packet.availableMask);
         buffer.writeBoolean(packet.canManage);
+        buffer.writeBoolean(packet.canManageDefaults);
         buffer.writeVarInt(packet.companionDeploymentLimit);
     }
 
     public static FindMeModuleStatePacket decode(FriendlyByteBuf buffer) {
         return new FindMeModuleStatePacket(buffer.readLong(), buffer.readLong(), buffer.readLong(),
-                buffer.readBoolean(), buffer.readVarInt());
+                buffer.readBoolean(), buffer.readBoolean(), buffer.readVarInt());
     }
 
     public static void handle(FindMeModuleStatePacket packet,
@@ -26,7 +28,7 @@ public static void encode(FindMeModuleStatePacket packet, FriendlyByteBuf buffer
         context.enqueueWork(() -> {
             com.kuzhi.findme.client.ClientFindMeModuleState.update(
                     packet.configuredMask, packet.effectiveMask, packet.availableMask, packet.canManage,
-                    packet.companionDeploymentLimit);
+                    packet.canManageDefaults, packet.companionDeploymentLimit);
             com.kuzhi.findme.client.FindMeAuiManageScreen.updateModuleState();
         });
         context.setPacketHandled(true);

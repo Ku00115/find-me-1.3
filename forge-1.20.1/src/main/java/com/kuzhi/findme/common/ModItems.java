@@ -3,6 +3,7 @@ package com.kuzhi.findme.common;
 import com.kuzhi.findme.Config;
 import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.api.FindMeCreativeTabs;
+import com.kuzhi.findme.compat.vehicles.ExternalVehicleBridge;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -27,7 +28,7 @@ public final class ModItems {
 
     public static void addCreative(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey().equals(FindMeCreativeTabs.MAIN)) {
-            if (Config.moduleConfigured(FindMeModule.RIDING)) {
+            if (Config.moduleConfigured(FindMeModule.RIDING) && !ExternalVehicleBridge.available()) {
                 event.accept(VEHICLE_BINDER.get());
             }
             if (Config.moduleConfigured(FindMeModule.RIDING)

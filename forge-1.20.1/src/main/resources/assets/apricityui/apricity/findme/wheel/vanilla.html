@@ -1,5 +1,95 @@
+<head>
+<meta name="aui-font-mode" content="web">
+<meta name="aui-viewport" content="mode=fixed,width=854,height=480,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
+</head>
 <body>
 <canvas id="findme-wheel-canvas" width="854" height="480"></canvas>
+<div id="findme-wheel-heading-plate" class="wheel-heading-plate"></div>
+<div class="wheel-heading">
+    <strong id="findme-wheel-title"></strong>
+    <small id="findme-wheel-page"></small>
+</div>
 </body>
 
-<style src="vanilla.css"></style>
+<style>
+body {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 854px;
+    height: 480px;
+    margin: 0;
+    padding: 0;
+    display: block;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 854px;
+    height: 480px;
+    display: block;
+    overflow: hidden;
+    background-color: #00000000;
+}
+
+.wheel-heading {
+    position: absolute;
+    left: 18px;
+    top: 9px;
+    width: 312px;
+    height: 42px;
+    display: block;
+    overflow: hidden;
+    color: #f2f5f4;
+    font-family: lxgw, sans-serif;
+    pointer-events: none;
+}
+
+.wheel-heading strong,
+.wheel-heading small {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.wheel-heading strong {
+    height: 20px;
+    font-size: 16px;
+    line-height: 20px;
+}
+
+.wheel-heading small {
+    height: 12px;
+    margin-top: 3px;
+    color: #9daaac;
+    font-size: 9px;
+    line-height: 12px;
+}
+
+.wheel-heading-plate {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 360px;
+    height: 58px;
+    background-color: rgba(10, 24, 31, 0.92);
+    clip-path: polygon(0 0,100% 0,94% 100%,0 100%);
+    border-left: 3px solid #20c6e8;
+    pointer-events: none;
+}
+
+.fm-font-family-default { font-family: SimSun,serif; }
+.fm-font-family-sans { font-family: Arial,"Microsoft YaHei",sans-serif; }
+.fm-font-family-ui { font-family: "Microsoft YaHei UI","Segoe UI","Microsoft YaHei",ui-sans-serif; }
+.fm-font-family-humanist { font-family: "Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui; }
+.fm-font-family-serif { font-family: SimSun,serif; }
+.fm-font-family-fangsong { font-family: FangSong,"Microsoft YaHei",fangsong; }
+.fm-font-family-kaiti { font-family: KaiTi,"Microsoft YaHei",serif; }
+.fm-font-family-monospace { font-family: Consolas,"Microsoft YaHei",monospace; }
+.fm-font-family-legacy { font-family: lxgw,sans-serif; }
+</style>

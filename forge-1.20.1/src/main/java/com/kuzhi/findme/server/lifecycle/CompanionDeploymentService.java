@@ -55,51 +55,33 @@ public final class CompanionDeploymentService {
     private static void enforceCompanionDeploymentLimit(ServerPlayer player, PlayerCompanionData data, UUID keepUuid) {
         ArrayList<UUID> deployed = new ArrayList<>(data.deployedList(CompanionKind.COMPANION));
         int limit = Math.max(1, Config.companionDeploymentLimit);
-        UUID oldestNonEscort = null;
-        UUID oldestEscort = null;
-        for (UUID candidate : deployed) {
-            if (candidate.equals(keepUuid)) {
-                continue;
-            }
-            if (CompanionEscortService.isEscorting(player, candidate)) {
-                if (oldestEscort == null) {
-                    oldestEscort = candidate;
-                }
-            } else if (oldestNonEscort == null) {
-                oldestNonEscort = candidate;
-            }
-        }
         while (deployed.size() > limit) {
-            LivingEntity living;
-            Entity entity;
-            UUID oldest = oldestNonEscort != null ? oldestNonEscort : oldestEscort;
-            if (oldest == null || oldest.equals(keepUuid)) {
-                oldest = deployed.stream().filter(candidate -> !candidate.equals(keepUuid)).findFirst().orElse(null);
-            }
+            // setDeployed appends a newly deployed UUID, so this list is oldest
+            // first. Capacity enforcement must evict that oldest entry instead of
+            // reordering around escort state; the newly bound creature remains live.
+            UUID oldest = deployed.stream()
+                    .filter(candidate -> !candidate.equals(keepUuid))
+                    .findFirst()
+                    .orElse(null);
             if (oldest == null) {
                 break;
             }
             deployed.remove(oldest);
-            oldestNonEscort = null;
-            oldestEscort = null;
-            for (UUID candidate : deployed) {
-                if (candidate.equals(keepUuid)) continue;
-                if (CompanionEscortService.isEscorting(player, candidate)) {
-                    if (oldestEscort == null) oldestEscort = candidate;
-                } else if (oldestNonEscort == null) {
-                    oldestNonEscort = candidate;
-                }
-            }
+            LivingEntity living;
+            Entity entity;
+            boolean collected = false;
             if ((entity = CompanionEntityLookup.locateEntity(player.getServer(), data, oldest).orElse(null)) instanceof LivingEntity && (living = (LivingEntity)entity).isAlive()) {
-                collectLiving(player, data, CompanionKind.COMPANION, living);
+                collected = collectLiving(player, data, CompanionKind.COMPANION, living);
             } else {
                 java.util.Optional<CompoundTag> shoulderTag = CompanionShoulderService.shoulderEntityTag(player, oldest);
                 if (shoulderTag.isPresent()) {
                     data.storeEntity(oldest, CompanionStorageService.storedShoulderTag(player, oldest, shoulderTag.get()));
                     CompanionShoulderService.clearPlayerShoulderEntity(player, oldest);
                     data.setLifecycleState(oldest, CompanionLifecycleState.SHOULDER);
+                    collected = true;
                 }
             }
+            if (!collected) break;
             data.clearDeployed(CompanionKind.COMPANION, oldest);
         }
     }

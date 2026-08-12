@@ -10,6 +10,7 @@ final class PacketDecodeLimits {
     static final int MAX_PRESET_ENTRIES = 4096;
     static final int MAX_PAGE_ENTRIES = 4096;
     static final int MAX_ARGUMENTS = 64;
+    static final int MAX_TACTICAL_FORMATION_MEMBERS = 256;
 
     private PacketDecodeLimits() {
     }

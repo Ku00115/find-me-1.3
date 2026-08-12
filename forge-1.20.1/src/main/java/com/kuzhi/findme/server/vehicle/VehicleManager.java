@@ -1,5 +1,6 @@
 package com.kuzhi.findme.server.vehicle;
 
+import com.kuzhi.findme.compat.vehicles.ExternalVehicleBridge;
 import com.kuzhi.findme.server.lifecycle.CompanionDeploymentService;
 import com.kuzhi.findme.server.lifecycle.ExactEntityTeleporter;
 
@@ -108,6 +109,10 @@ public final class VehicleManager {
     }
 
     public static void handle(ServerPlayer player, VehicleCommandAction action, UUID targetUuid, int position) {
+        if (ExternalVehicleBridge.available()) {
+            ExternalVehicleBridge.command(player, action, targetUuid, position);
+            if (ExternalVehicleBridge.available()) return;
+        }
         PlayerCompanionData data = CompanionDataService.data(player);
         switch (action) {
             case SYNC -> syncToClient(player);
@@ -184,6 +189,9 @@ public final class VehicleManager {
     }
 
     public static boolean bindVehicle(ServerPlayer player, Entity target, InteractionHand hand) {
+        if (ExternalVehicleBridge.available()) {
+            return false;
+        }
         if (!FindMeModuleService.require(player, FindMeModule.RIDING)) {
             return false;
         }
@@ -222,6 +230,15 @@ public final class VehicleManager {
     }
 
     public static boolean handleRosterAction(ServerPlayer player, MountRosterAction action, UUID targetUuid) {
+        if (ExternalVehicleBridge.available()) {
+            VehicleCommandAction translated = switch (action) {
+                case SELECT -> VehicleCommandAction.SELECT;
+                case ACTIVATE -> VehicleCommandAction.SELECT_SUMMON;
+                case RECALL -> VehicleCommandAction.RECALL;
+            };
+            boolean result = ExternalVehicleBridge.command(player, translated, targetUuid, -1);
+            if (ExternalVehicleBridge.available()) return result;
+        }
         PlayerCompanionData data = CompanionDataService.data(player);
         if (action == null || targetUuid == null || !data.containsVehicle(targetUuid)) return false;
         if (rejectBusy(player, data, targetUuid, "vehicle:merged_roster_" + action.name().toLowerCase())) {
@@ -271,6 +288,11 @@ public final class VehicleManager {
     }
 
     public static boolean summonOrStoreActive(ServerPlayer player, PlayerCompanionData data) {
+        if (ExternalVehicleBridge.available()) {
+            boolean result = data.activeVehicle().map(uuid -> ExternalVehicleBridge.command(
+                    player, VehicleCommandAction.SELECT_SUMMON, uuid, -1)).orElse(false);
+            if (ExternalVehicleBridge.available()) return result;
+        }
         if (!FindMeModuleService.require(player, FindMeModule.RIDING)) {
             return false;
         }
@@ -430,6 +452,7 @@ public final class VehicleManager {
     }
 
     public static void syncToClient(ServerPlayer player) {
+        if (ExternalVehicleBridge.available() && ExternalVehicleBridge.sendRoster(player)) return;
         PlayerCompanionData data = CompanionDataService.data(player);
         List<VehicleListPacket.Entry> wheelEntries = entries(player, data, data.vehicleWheelOrder());
         List<VehicleListPacket.Entry> allEntries = entries(player, data, data.vehicleList());
@@ -442,6 +465,10 @@ public final class VehicleManager {
     }
 
     public static void collectDeployed(ServerPlayer player) {
+        if (ExternalVehicleBridge.available()) {
+            ExternalVehicleBridge.command(player, VehicleCommandAction.STORE_CURRENT, null, -1);
+            if (ExternalVehicleBridge.available()) return;
+        }
         PlayerCompanionData data = CompanionDataService.data(player);
         cancelPendingSummons(player.getUUID());
         data.deployedVehicle().ifPresent(uuid -> {
@@ -461,6 +488,9 @@ public final class VehicleManager {
 
     public static void cancelRuntimeForPlayer(ServerPlayer player, String reason) {
         if (player == null) {
+            return;
+        }
+        if (ExternalVehicleBridge.available()) {
             return;
         }
         UUID playerUuid = player.getUUID();
@@ -507,6 +537,10 @@ public final class VehicleManager {
     }
 
     public static boolean summonVehicle(ServerPlayer player, PlayerCompanionData data, UUID uuid, long now, boolean inCombat) {
+        if (ExternalVehicleBridge.available()) {
+            boolean result = ExternalVehicleBridge.command(player, VehicleCommandAction.SELECT_SUMMON, uuid, -1);
+            if (ExternalVehicleBridge.available()) return result;
+        }
         if (!FindMeModuleService.require(player, FindMeModule.RIDING)) {
             return false;
         }
@@ -640,6 +674,10 @@ public final class VehicleManager {
     }
 
     public static boolean releaseVehicle(ServerPlayer player, PlayerCompanionData data, UUID uuid, Entity entity) {
+        if (ExternalVehicleBridge.available()) {
+            boolean result = ExternalVehicleBridge.command(player, VehicleCommandAction.REMOVE, uuid, -1);
+            if (ExternalVehicleBridge.available()) return result;
+        }
         if (!isVehicleEntry(data, uuid)) {
             return false;
         }
@@ -681,6 +719,10 @@ public final class VehicleManager {
     }
 
     public static boolean collectIfFindMeVehicle(ServerPlayer player, PlayerCompanionData data, Entity entity) {
+        if (ExternalVehicleBridge.available()) {
+            boolean result = ExternalVehicleBridge.command(player, VehicleCommandAction.STORE_CURRENT, null, -1);
+            if (ExternalVehicleBridge.available()) return result;
+        }
         if (entity == null || data == null || entity.isRemoved()) {
             return false;
         }
@@ -716,6 +758,12 @@ public final class VehicleManager {
     }
 
     public static boolean recallIndex(ServerPlayer player, PlayerCompanionData data, int index) {
+        if (ExternalVehicleBridge.available()) {
+            boolean result = data.vehicleWheelUuidAt(index)
+                    .map(uuid -> ExternalVehicleBridge.command(player, VehicleCommandAction.RECALL, uuid, -1))
+                    .orElse(false);
+            if (ExternalVehicleBridge.available()) return result;
+        }
         Optional<UUID> uuid = data.vehicleWheelUuidAt(index);
         if (uuid.isEmpty()) {
             tell(player, "message.find_me.invalid_vehicle_index", ChatFormatting.RED);
@@ -745,6 +793,10 @@ public final class VehicleManager {
     }
 
     public static boolean recallUuid(ServerPlayer player, PlayerCompanionData data, UUID uuid) {
+        if (ExternalVehicleBridge.available()) {
+            boolean result = ExternalVehicleBridge.command(player, VehicleCommandAction.RECALL, uuid, -1);
+            if (ExternalVehicleBridge.available()) return result;
+        }
         if (uuid == null || !data.containsVehicle(uuid)) {
             tell(player, "message.find_me.invalid_vehicle_index", ChatFormatting.RED);
             return false;
@@ -952,6 +1004,7 @@ public final class VehicleManager {
             if (restored == null) {
                 return Optional.empty();
             }
+            restored.setInvulnerable(false);
             if (!player.serverLevel().addFreshEntity(restored)) {
                 return Optional.empty();
             }
@@ -1080,6 +1133,7 @@ public final class VehicleManager {
     private static void resetStoredVehicleTags(CompoundTag tag) {
         tag.putShort("Fire", (short)0);
         tag.putFloat("FallDistance", 0.0f);
+        tag.putBoolean("Invulnerable", false);
         tag.remove("Motion");
         tag.remove("Passengers");
     }

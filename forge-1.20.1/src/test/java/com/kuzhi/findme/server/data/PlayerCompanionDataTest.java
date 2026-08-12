@@ -104,8 +104,9 @@ class PlayerCompanionDataTest {
     }
 
     @Test
-    void deletingATeamKeepsStableNumbersAndReusesTheGapAtTheEnd() {
+    void disablingAutomaticOrganizationKeepsStableNumbersAndReusesTheGapAtTheEnd() {
         PlayerCompanionData data = new PlayerCompanionData();
+        data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(false));
         int second = data.createTeam(CompanionTeamTarget.MOUNT);
         int third = data.createTeam(CompanionTeamTarget.MOUNT);
         assertEquals(2, data.teamNumber(CompanionTeamTarget.MOUNT, second));
@@ -122,6 +123,115 @@ class PlayerCompanionDataTest {
         PlayerCompanionData restored = PlayerCompanionData.load(root);
         assertEquals(3, restored.teamNumber(CompanionTeamTarget.MOUNT, 1));
         assertEquals(2, restored.teamNumber(CompanionTeamTarget.MOUNT, 2));
+    }
+
+    @Test
+    void automaticOrganizationRenumbersAfterDeletingAMiddleTeamAndKeepsCustomNames() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        int second = data.createTeam(CompanionTeamTarget.COMPANION);
+        int third = data.createTeam(CompanionTeamTarget.COMPANION);
+        data.setTeamName(CompanionTeamTarget.COMPANION, third, "Rescue");
+
+        assertTrue(data.deleteTeam(CompanionTeamTarget.COMPANION, second));
+
+        assertEquals(2, data.teamNumber(CompanionTeamTarget.COMPANION, 1));
+        assertEquals("Rescue", data.teamName(CompanionTeamTarget.COMPANION, 1));
+    }
+
+    @Test
+    void automaticOrganizationFillsTheFirstAvailableTeamBeforeCreatingAnother() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        int second = data.createTeam(CompanionTeamTarget.COMPANION);
+        int third = data.createTeam(CompanionTeamTarget.COMPANION);
+        for (int index = 0; index < PlayerCompanionData.TEAM_SIZE; index++) {
+            data.add(CompanionKind.COMPANION, UUID.randomUUID());
+        }
+        UUID newcomer = UUID.randomUUID();
+
+        data.add(CompanionKind.COMPANION, newcomer);
+
+        assertEquals(second, data.teamIndexOf(newcomer));
+        assertEquals(3, data.teamCount(CompanionTeamTarget.COMPANION));
+        assertTrue(data.team(CompanionTeamTarget.COMPANION, third).isEmpty());
+    }
+
+    @Test
+    void automaticOrganizationCreatesANewTeamWhenEveryExistingTeamIsFull() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        for (int index = 0; index < PlayerCompanionData.TEAM_SIZE; index++) {
+            data.add(CompanionKind.MOUNT, UUID.randomUUID());
+        }
+        UUID newcomer = UUID.randomUUID();
+
+        data.add(CompanionKind.MOUNT, newcomer);
+
+        assertEquals(2, data.teamCount(CompanionTeamTarget.MOUNT));
+        assertEquals(List.of(newcomer), data.team(CompanionTeamTarget.MOUNT, 1));
+    }
+
+    @Test
+    void organizingTeamsAssignsAnExistingWarehouseRosterAndRemovesDefaultEmptyTeams() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(false));
+        List<UUID> roster = java.util.stream.IntStream.range(0, 11)
+                .mapToObj(ignored -> UUID.randomUUID()).toList();
+        roster.forEach(uuid -> data.add(CompanionKind.COMPANION, uuid));
+        for (int index = 0; index < 4; index++) {
+            data.createTeam(CompanionTeamTarget.COMPANION);
+        }
+
+        data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(true));
+
+        assertTrue(data.organizeTeams());
+        assertEquals(2, data.teamCount(CompanionTeamTarget.COMPANION));
+        assertEquals(roster.subList(0, 6), data.team(CompanionTeamTarget.COMPANION, 0));
+        assertEquals(roster.subList(6, 11), data.team(CompanionTeamTarget.COMPANION, 1));
+        assertFalse(data.organizeTeams());
+    }
+
+    @Test
+    void organizingTeamsKeepsNamedEmptyTeamsAndRenumbersDefaults() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        int named = data.createTeam(CompanionTeamTarget.MOUNT);
+        data.setTeamName(CompanionTeamTarget.MOUNT, named, "Reserve");
+        data.createTeam(CompanionTeamTarget.MOUNT);
+
+        assertTrue(data.organizeTeams());
+        assertEquals(1, data.teamCount(CompanionTeamTarget.MOUNT));
+        assertEquals("Reserve", data.teamName(CompanionTeamTarget.MOUNT, 0));
+        assertEquals(1, data.teamNumber(CompanionTeamTarget.MOUNT, 0));
+    }
+
+    @Test
+    void organizingTeamsPreservesExistingAssignmentsAndMemberOrder() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(false));
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID unassigned = UUID.randomUUID();
+        data.add(CompanionKind.MOUNT, first);
+        data.add(CompanionKind.MOUNT, second);
+        data.add(CompanionKind.MOUNT, unassigned);
+        data.setTeam(CompanionTeamTarget.MOUNT, 0, List.of(second, first));
+
+        data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(true));
+
+        assertTrue(data.organizeTeams());
+        assertEquals(List.of(second, first, unassigned), data.team(CompanionTeamTarget.MOUNT, 0));
+    }
+
+    @Test
+    void organizingTeamsDoesNothingWhileAutomaticOrganizationIsDisabled() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(false));
+        UUID unassigned = UUID.randomUUID();
+        data.add(CompanionKind.MOUNT, unassigned);
+        data.removeTeamMember(unassigned);
+        data.createTeam(CompanionTeamTarget.MOUNT);
+
+        assertFalse(data.organizeTeams());
+        assertEquals(2, data.teamCount(CompanionTeamTarget.MOUNT));
+        assertEquals(-1, data.teamIndexOf(unassigned));
     }
 
     @Test
@@ -275,6 +385,32 @@ class PlayerCompanionDataTest {
         assertTrue(restored.lifecycleChanges().isEmpty());
         restored.setUiSettings(restored.uiSettings());
         assertTrue(restored.lifecycleChanges().isEmpty());
+    }
+
+    @Test
+    void addingAnAlreadyRegisteredCompanionPreservesCriticalState() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        data.setCritical(companion, true);
+
+        assertFalse(data.add(CompanionKind.COMPANION, companion));
+
+        assertTrue(data.isCritical(companion));
+    }
+
+    @Test
+    void criticalStateSurvivesSaveAndLoad() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        data.setCritical(companion, true);
+
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+
+        assertTrue(restored.isCritical(companion));
     }
 
     @Test

@@ -54,6 +54,9 @@ public final class FindMeDefaultSettingsService {
             copyBoolean(json, tag, "mountSummonAnimations");
             copyBoolean(json, tag, "companionSummonAnimations");
             copyBoolean(json, tag, "hideRiddenMountWhenLookingDown");
+            copyBoolean(json, tag, "friendlyFireProtection");
+            copyBoolean(json, tag, "autoStoreOnBinding");
+            copyBoolean(json, tag, "autoOrganizeTeams");
             return FindMeUiSettings.load(tag);
         } catch (RuntimeException | IOException exception) {
             FindMeMod.LOGGER.warn("Could not read FindMe UI defaults from {}", UI_DEFAULTS, exception);
@@ -107,6 +110,9 @@ public final class FindMeDefaultSettingsService {
         json.addProperty("mountSummonAnimations", value.mountSummonAnimations());
         json.addProperty("companionSummonAnimations", value.companionSummonAnimations());
         json.addProperty("hideRiddenMountWhenLookingDown", value.hideRiddenMountWhenLookingDown());
+        json.addProperty("friendlyFireProtection", value.friendlyFireProtection());
+        json.addProperty("autoStoreOnBinding", value.autoStoreOnBinding());
+        json.addProperty("autoOrganizeTeams", value.autoOrganizeTeams());
         return json;
     }
 

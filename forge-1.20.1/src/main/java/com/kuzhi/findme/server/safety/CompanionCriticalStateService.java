@@ -91,8 +91,9 @@ public final class CompanionCriticalStateService {
             EnumSet<CompanionKind> changedKinds = EnumSet.noneOf(CompanionKind.class);
             for (UUID uuid : critical) {
                 Entity entity = CompanionEntityLookup.findEntity(server, uuid).orElse(null);
-                if (!(entity instanceof LivingEntity living) || living.isRemoved() || !living.isAlive()
-                        || living.getHealth() <= RECOVERY_HEALTH_THRESHOLD) {
+                if (!(entity instanceof LivingEntity living)
+                        || !shouldClearCritical(data.hasStoredEntity(uuid), living.isRemoved(), living.isAlive(),
+                        living.getHealth())) {
                     continue;
                 }
                 if (data.setCritical(uuid, false)) {
@@ -108,6 +109,10 @@ public final class CompanionCriticalStateService {
         }
     }
 
+    static boolean shouldClearCritical(boolean storedSnapshot, boolean removed, boolean alive, float health) {
+        return !storedSnapshot && !removed && alive && health > RECOVERY_HEALTH_THRESHOLD;
+    }
+
     private static void dismountAll(LivingEntity living) {
         for (Entity passenger : living.getPassengers().stream().toList()) {
             passenger.stopRiding();
@@ -115,5 +120,4 @@ public final class CompanionCriticalStateService {
         living.stopRiding();
     }
 }
-
 

@@ -9,6 +9,16 @@ import org.junit.jupiter.api.Test;
 
 class FindMeUiSettingsTest {
     @Test
+    void dossierFontIsDefaultAndOriginalUiFontRoundTrips() {
+        assertEquals(FindMeFontFamily.DEFAULT, FindMeUiSettings.defaults().fontFamily());
+        assertEquals(FindMeFontFamily.DEFAULT, FindMeUiSettings.load(new CompoundTag()).fontFamily());
+        assertEquals("fm-font-family-legacy", FindMeFontFamily.LEGACY.cssClass());
+
+        FindMeUiSettings originalUiFont = FindMeUiSettings.defaults().withFontFamily(FindMeFontFamily.LEGACY);
+        assertEquals(FindMeFontFamily.LEGACY, FindMeUiSettings.load(originalUiFont.save()).fontFamily());
+    }
+
+    @Test
     void newSettingsUseClassicRadialWheel() {
         assertEquals(FindMeWheelStyle.CLASSIC_RADIAL,
                 FindMeUiSettings.load(new CompoundTag()).wheelStyle());
@@ -83,6 +93,39 @@ class FindMeUiSettingsTest {
         assertFalse(disabled.hideRiddenMountWhenLookingDown());
         assertFalse(FindMeUiSettings.load(disabled.save()).hideRiddenMountWhenLookingDown());
         assertTrue(disabled.resetSection(0).hideRiddenMountWhenLookingDown());
+    }
+
+    @Test
+    void friendlyFireProtectionDefaultsOnAndRoundTrips() {
+        FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
+        assertTrue(defaults.friendlyFireProtection());
+
+        FindMeUiSettings disabled = defaults.changed(1, 3);
+        assertFalse(disabled.friendlyFireProtection());
+        assertFalse(FindMeUiSettings.load(disabled.save()).friendlyFireProtection());
+        assertTrue(disabled.resetSection(1).friendlyFireProtection());
+    }
+
+    @Test
+    void automaticBindingStorageDefaultsOnAndRoundTrips() {
+        FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
+        assertTrue(defaults.autoStoreOnBinding());
+
+        FindMeUiSettings disabled = defaults.changed(1, 4);
+        assertFalse(disabled.autoStoreOnBinding());
+        assertFalse(FindMeUiSettings.load(disabled.save()).autoStoreOnBinding());
+        assertTrue(disabled.resetSection(1).autoStoreOnBinding());
+    }
+
+    @Test
+    void automaticTeamOrganizationDefaultsOnAndRoundTrips() {
+        FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
+        assertTrue(defaults.autoOrganizeTeams());
+
+        FindMeUiSettings disabled = defaults.changed(1, 5);
+        assertFalse(disabled.autoOrganizeTeams());
+        assertFalse(FindMeUiSettings.load(disabled.save()).autoOrganizeTeams());
+        assertTrue(disabled.resetSection(1).autoOrganizeTeams());
     }
 
     @Test

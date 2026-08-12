@@ -13,6 +13,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 
 final class FindMeAuiWheelBackdrop {
     private static final String PATH = "findme/wheel/vanilla.html";
@@ -35,17 +36,20 @@ final class FindMeAuiWheelBackdrop {
                     : CompanionWheelVisualState.AVAILABLE;
             stateCode |= state.ordinal() << (i * 3);
         }
-        return drawRoster(graphics, screenWidth, screenHeight, style, visibleSize, hoveredLocal, stateCode, fade);
+        return drawRoster(graphics, screenWidth, screenHeight, style, visibleSize, hoveredLocal, stateCode,
+                Component.empty(), 0, 1, fade);
     }
 
     static boolean drawRoster(GuiGraphics graphics, int screenWidth, int screenHeight, FindMeWheelStyle style,
-                              int visibleSize, int hoveredLocal, int stateCode, float fade) {
+                              int visibleSize, int hoveredLocal, int stateCode, Component title,
+                              int page, int pageCount, float fade) {
         try {
             Document doc = document();
             Canvas canvas = canvas(doc);
             if (doc == null || doc.body == null || canvas == null) {
                 return false;
             }
+            updateHeading(doc, title, page, pageCount, fade);
             String state = "roster:" + style + ':' + visibleSize + ':' + hoveredLocal + ':' + stateCode
                     + ':' + Math.round(fade * 100.0f);
             if (!state.equals(lastState)) {
@@ -66,6 +70,7 @@ final class FindMeAuiWheelBackdrop {
             if (doc == null || doc.body == null || canvas == null) {
                 return false;
             }
+            updateHeading(doc, Component.empty(), 0, 1, fade);
             String state = "command:" + style + ':' + hoveredLocal + ':' + availableMask + ':' + actionCount
                     + ':' + Math.round(fade * 100.0f);
             if (!state.equals(lastState)) {
@@ -97,6 +102,27 @@ final class FindMeAuiWheelBackdrop {
         if (doc == null) return null;
         Element element = doc.getElementById("findme-wheel-canvas");
         return element instanceof Canvas canvas ? canvas : null;
+    }
+
+    private static void updateHeading(Document doc, Component title, int page, int pageCount, float fade) {
+        boolean visible = title != null && !title.getString().isBlank();
+        String opacity = "opacity:" + (visible
+                ? Math.max(0.0f, Math.min(1.0f, fade * (float) Config.guiOpacity)) : 0.0f);
+        Element titleElement = doc.getElementById("findme-wheel-title");
+        if (titleElement != null) {
+            titleElement.setTextContent(title == null ? "" : title.getString());
+            Element heading = titleElement.closest(".wheel-heading");
+            if (heading != null) {
+                heading.setClassName("wheel-heading " + ClientWheelPresentationState.typographyClasses());
+                heading.setAttribute("style", opacity);
+            }
+        }
+        Element plate = doc.getElementById("findme-wheel-heading-plate");
+        if (plate != null) plate.setAttribute("style", opacity);
+        Element pageElement = doc.getElementById("findme-wheel-page");
+        if (pageElement != null) {
+            pageElement.setTextContent(String.format("%02d / %02d", page + 1, Math.max(1, pageCount)));
+        }
     }
 
     private static boolean drawDocument(GuiGraphics graphics, Document doc, int screenWidth, int screenHeight,
@@ -141,12 +167,14 @@ final class FindMeAuiWheelBackdrop {
     private static void drawClassicRadial(Graphics2D g, int centerX, int centerY, int visibleSize,
                                           int hoveredLocal, int stateCode) {
         int outer = CompanionWheelLayout.OUTER_RADIUS;
+        int sectorOuter = CompanionWheelLayout.SECTOR_OUTER_RADIUS;
         int inner = CompanionWheelLayout.CENTER_CANCEL_RADIUS + 1;
         g.setStroke(new BasicStroke(1.0f));
         for (int i = 0; i < visibleSize; ++i) {
             boolean hovered = i == hoveredLocal;
             CompanionWheelVisualState state = stateAt(stateCode, i);
-            Path2D sector = radialSector(centerX, centerY, i, visibleSize, inner, outer, 0.035);
+            Path2D sector = radialSector(centerX, centerY, i, visibleSize, inner, sectorOuter,
+                    CompanionWheelLayout.RADIAL_SECTOR_GAP);
             Color accent = stateColor(state, state == CompanionWheelVisualState.AVAILABLE ? 188 : 138);
             Color fill = hovered && state == CompanionWheelVisualState.AVAILABLE
                     ? new Color(238, 243, 241, 132) : accent;
@@ -155,7 +183,10 @@ final class FindMeAuiWheelBackdrop {
             g.setColor(state == CompanionWheelVisualState.AVAILABLE
                     ? (hovered ? new Color(244, 247, 246, 225) : new Color(204, 214, 214, 142))
                     : stateColor(state, 238));
-            g.draw(sector);
+            if (hovered || (state != CompanionWheelVisualState.AVAILABLE
+                    && state != CompanionWheelVisualState.PENDING)) {
+                g.draw(sector);
+            }
         }
 
         g.setStroke(new BasicStroke(1.5f));
@@ -229,12 +260,14 @@ final class FindMeAuiWheelBackdrop {
     private static void drawClassicCommandRadial(Graphics2D g, int centerX, int centerY, int count,
                                                   int hoveredLocal, int availableMask) {
         int outer = CompanionWheelLayout.OUTER_RADIUS;
+        int sectorOuter = CompanionWheelLayout.SECTOR_OUTER_RADIUS;
         int inner = CompanionWheelLayout.CENTER_CANCEL_RADIUS + 1;
         g.setStroke(new BasicStroke(1.0f));
         for (int i = 0; i < count; ++i) {
             boolean available = (availableMask & 1 << i) != 0;
             boolean hovered = i == hoveredLocal && available;
-            Path2D sector = radialSector(centerX, centerY, i, count, inner, outer, 0.035);
+            Path2D sector = radialSector(centerX, centerY, i, count, inner, sectorOuter,
+                    CompanionWheelLayout.RADIAL_SECTOR_GAP);
             g.setColor(!available
                     ? new Color(17, 23, 25, 174)
                     : hovered ? new Color(238, 243, 241, 146) : new Color(20, 30, 34, 188));
@@ -264,8 +297,6 @@ final class FindMeAuiWheelBackdrop {
             int top = CSS_HEIGHT - CompanionWheelLayout.STRIP_CARD_HEIGHT - 15;
             g.setColor(new Color(8, 17, 21, 224));
             g.fillRect(0, top, CSS_WIDTH, CSS_HEIGHT - top);
-            g.setColor(new Color(225, 231, 229, 205));
-            g.fillRect(0, top, CSS_WIDTH * 3 / 5, 2);
             g.setColor(new Color(32, 198, 232, 245));
             g.fillRect(0, top, 4, CSS_HEIGHT - top);
         }

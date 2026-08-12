@@ -1,5 +1,6 @@
 package com.kuzhi.findme.server.lifecycle;
 
+import com.kuzhi.findme.api.event.CompanionCommandAcceptedEvent;
 import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.api.FindMeApi;
 import com.kuzhi.findme.api.CompanionSpellBinding;
@@ -44,6 +45,7 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.common.MinecraftForge;
 
 /** Summon-first tactical command pipeline followed by one active autonomous order per creature. */
 public final class CompanionTacticalOrderService {
@@ -571,6 +573,8 @@ public final class CompanionTacticalOrderService {
         // made a team command perform all entity queries in the packet-handling tick.
         ACTIVE.put(living.getUUID(), order);
         markFormationDirty();
+        MinecraftForge.EVENT_BUS.post(new CompanionCommandAcceptedEvent(owner.getServer(), owner.getUUID(),
+                living.getUUID(), request.action, attackTarget));
         if (request.action == CompanionTacticalAction.GUARD_HERE && living instanceof Mob mob) {
             if (!CompanionSaintsDragonsCompat.isSaintsDragon(living)) {
                 CompanionFixedPostService.acquire(living, CompanionFixedPostService.Reason.GUARD);

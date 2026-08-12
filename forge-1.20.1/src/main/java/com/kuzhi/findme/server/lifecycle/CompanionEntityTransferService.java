@@ -235,6 +235,9 @@ public final class CompanionEntityTransferService {
                 FindMeDebugLogger.lifecycle("DEPLOY_REJECTED", player, uuid, null, "STORED", "STORED", "entity_load_failed", true, false);
                 return Optional.empty();
             }
+            // A stored entity may come from a legacy snapshot captured while the
+            // storage animation was protecting it. Summoning must restore normal combat rules.
+            restored.setInvulnerable(false);
             boolean originalNoAi = false;
             if (restored instanceof Mob mob) {
                 mob.setNoAi(false);
@@ -307,6 +310,7 @@ public final class CompanionEntityTransferService {
     }
 
     private static Entity moveLoadedDuplicateInsteadOfRestoring(ServerPlayer player, Entity existing, ServerLevel level, BlockPos pos, float yRot, float xRot, boolean prepareArrival, Vec3 focus, int durationTicks, RescueMagicPacket.Style style, RescueMagicPacket.Purpose purpose, boolean spawnBlinkEffect, CompanionAnimationPurpose animationPurpose) {
+        existing.setInvulnerable(false);
         if (existing instanceof LivingEntity living) {
             if (prepareArrival) {
                 return moveEntityForArrival(player, living, level, pos, yRot, xRot, focus, durationTicks, style,

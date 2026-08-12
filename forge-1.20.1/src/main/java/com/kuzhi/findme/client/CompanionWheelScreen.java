@@ -65,6 +65,18 @@ extends FindMeScreen {
         return this.kind;
     }
 
+    private Component teamWheelTitle() {
+        CompanionTeamTarget target = this.kind == CompanionKind.MOUNT
+                ? CompanionTeamTarget.MOUNT : CompanionTeamTarget.COMPANION;
+        ClientCompanionTeamState.TeamEntry team = ClientCompanionTeamState.currentEntry(target);
+        if (team == null) return this.title;
+        Component teamName = team.name() == null || team.name().isBlank()
+                ? Component.translatable("screen.find_me.team_short_number", team.number())
+                : Component.literal(team.name());
+        return Component.translatable(this.kind == CompanionKind.MOUNT
+                ? "screen.find_me.mount_team_wheel" : "screen.find_me.companion_team_wheel", teamName);
+    }
+
     protected void init() {
         if (ModNetwork.channel != null) {
             ModNetwork.sendToServer(new FindMeSettingsPacket(FindMeSettingsAction.SYNC,
@@ -151,7 +163,8 @@ extends FindMeScreen {
         FindMeWheelRenderer.drawFieldScrim(graphics, this.width, this.height, openFade);
         this.beginFadeTransform(graphics, centerX, centerY, openFade, pageMotion);
         boolean auiBackdrop = FindMeAuiWheelBackdrop.drawRoster(graphics, this.width, this.height, layout,
-                pageState.visibleSize(), hoveredLocal, stateCode, fade);
+                pageState.visibleSize(), hoveredLocal, stateCode, this.teamWheelTitle(),
+                pageState.index(), pageState.count(), fade);
         if (!auiBackdrop) {
             if (layout == FindMeWheelStyle.TACTICAL_STRIP) {
                 FindMeWheelRenderer.drawRosterRail(graphics, this.width, this.height, fade);
@@ -159,7 +172,8 @@ extends FindMeScreen {
                 FindMeWheelRenderer.drawBackdrop(graphics, centerX, centerY, fade);
             }
         }
-        FindMeWheelRenderer.drawRosterHeader(graphics, this.title, pageState.index(), pageState.count(), layout, fade);
+        if (!auiBackdrop) FindMeWheelRenderer.drawRosterHeader(graphics, this.teamWheelTitle(),
+                pageState.index(), pageState.count(), layout, fade);
         drawSharedMana(graphics, fade);
         if (entries.isEmpty()) {
             graphics.drawCenteredString(this.font, (Component)Component.translatable((String)(this.kind == CompanionKind.MOUNT ? "screen.find_me.no_mounts" : "screen.find_me.no_companions")), centerX, centerY + 56, FindMeWheelRenderer.guiColor(0xFFFFD166, fade));
@@ -309,7 +323,8 @@ extends FindMeScreen {
         FindMeWheelRenderer.drawFieldScrim(graphics, this.width, this.height, openFade);
         this.beginFadeTransform(graphics, centerX, centerY, openFade, pageMotion);
         boolean auiBackdrop = FindMeAuiWheelBackdrop.drawRoster(graphics, this.width, this.height, layout,
-                pageState.visibleSize(), hoveredLocal, stateCode, fade);
+                pageState.visibleSize(), hoveredLocal, stateCode, this.teamWheelTitle(),
+                pageState.index(), pageState.count(), fade);
         if (!auiBackdrop) {
             if (layout == FindMeWheelStyle.TACTICAL_STRIP) {
                 FindMeWheelRenderer.drawRosterRail(graphics, this.width, this.height, fade);
@@ -317,7 +332,8 @@ extends FindMeScreen {
                 FindMeWheelRenderer.drawBackdrop(graphics, centerX, centerY, fade);
             }
         }
-        FindMeWheelRenderer.drawRosterHeader(graphics, this.title, pageState.index(), pageState.count(), layout, fade);
+        if (!auiBackdrop) FindMeWheelRenderer.drawRosterHeader(graphics, this.teamWheelTitle(),
+                pageState.index(), pageState.count(), layout, fade);
         drawSharedMana(graphics, fade);
         if (entries.isEmpty() || (pageState.visibleSize() == 0)) {
             graphics.drawCenteredString(this.font, Component.translatable("screen.find_me.no_mounts"), centerX, centerY + 56,

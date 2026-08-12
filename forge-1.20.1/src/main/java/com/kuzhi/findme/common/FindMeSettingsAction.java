@@ -4,6 +4,7 @@ public enum FindMeSettingsAction {
     SYNC(false),
     SAVE(false),
     EXPORT_DEFAULTS(false),
+    RESET_DEFAULTS(false),
     RESET_BINDING_HISTORY(false),
     UPDATE(true);
 

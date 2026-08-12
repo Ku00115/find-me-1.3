@@ -78,10 +78,24 @@ final class CompanionDetailPreviewRenderer {
     }
 
     void renderCard(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, int w, int h, String fallbackType, float visualScale) {
+        this.renderCard(graphics, entry, x, y, w, h, fallbackType, visualScale,
+                x, y, x + w, y + h);
+    }
+
+    void renderCard(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, int w, int h,
+                    String fallbackType, float visualScale,
+                    int clipLeft, int clipTop, int clipRight, int clipBottom) {
         if (w <= 4 || h <= 4) {
             return;
         }
         int pad = 2;
+        int scissorLeft = Math.max(x + pad, clipLeft);
+        int scissorTop = Math.max(y + pad, clipTop);
+        int scissorRight = Math.min(x + w - pad, clipRight);
+        int scissorBottom = Math.min(y + h - pad, clipBottom);
+        if (scissorLeft >= scissorRight || scissorTop >= scissorBottom) {
+            return;
+        }
         float clampedVisualScale = Math.max(0.25f, Math.min(1.25f, visualScale));
         int previewWidth = Math.max(1, Math.round((w - pad * 2) * clampedVisualScale));
         int previewHeight = Math.max(1, Math.round((h - pad * 2) * clampedVisualScale));
@@ -97,7 +111,12 @@ final class CompanionDetailPreviewRenderer {
         int bottomY = y + h - 5;
         float yaw = ClientWheelPresentationState.rotateModels()
                 ? (System.currentTimeMillis() % 12000L) * 0.03f : DEFAULT_PREVIEW_YAW;
-        CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2, bottomY, scale, yaw, 0.0f);
+        graphics.enableScissor(scissorLeft, scissorTop, scissorRight, scissorBottom);
+        try {
+            CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2, bottomY, scale, yaw, 0.0f);
+        } finally {
+            graphics.disableScissor();
+        }
     }
 
     void renderFitted(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, int w, int h,

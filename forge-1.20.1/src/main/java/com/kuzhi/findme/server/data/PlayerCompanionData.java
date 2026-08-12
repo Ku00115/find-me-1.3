@@ -126,11 +126,11 @@ public class PlayerCompanionData {
         clearedDead |= this.deadKinds.remove(uuid) != null;
         clearedDead |= this.deadRecords.remove(uuid) != null;
         clearedDead |= this.recoveryRecords.remove(uuid) != null;
-        clearedDead |= this.criticalCompanions.remove(uuid);
         int previousTeamIndex = this.teamIndexOf(uuid);
         if (list.contains(uuid)) {
             return clearedDead;
         }
+        clearedDead |= this.criticalCompanions.remove(uuid);
         CompanionKind other = PlayerCompanionData.other(kind);
         this.companions.get((Object)other).remove(uuid);
         this.clearDeployed(other, uuid);
@@ -538,7 +538,15 @@ public class PlayerCompanionData {
         this.teamAutoJoin.get(target).remove(index);
         this.teamNames.get(target).remove(index);
         this.teamNumbers.get(target).remove(index);
+        if (this.uiSettings.autoOrganizeTeams()) renumberTeams(target);
         return true;
+    }
+
+    private void renumberTeams(CompanionTeamTarget target) {
+        List<Integer> numbers = this.teamNumbers.get(target);
+        for (int index = 0; index < numbers.size(); index++) {
+            numbers.set(index, index + 1);
+        }
     }
 
     void ensureTeamCount(CompanionTeamTarget target, int count) {
@@ -649,7 +657,9 @@ public class PlayerCompanionData {
     }
 
     public int autoAssignTeam(CompanionTeamTarget target, UUID uuid) {
-        if (target == null || uuid == null || !this.allowedInTeam(target, uuid) || !this.uiSettings.autoJoinTeams()) {
+        boolean organize = this.uiSettings.autoOrganizeTeams();
+        if (target == null || uuid == null || !this.allowedInTeam(target, uuid)
+                || !organize && !this.uiSettings.autoJoinTeams()) {
             return -1;
         }
         int assigned = this.teamIndexOf(uuid);
@@ -658,17 +668,101 @@ public class PlayerCompanionData {
         }
         List<List<UUID>> targetTeams = this.teams.get(target);
         for (int candidate = 0; candidate < targetTeams.size(); ++candidate) {
-            if (this.teamAutoJoin(target, candidate) && targetTeams.get(candidate).size() < TEAM_SIZE) {
+            if ((organize || this.teamAutoJoin(target, candidate)) && targetTeams.get(candidate).size() < TEAM_SIZE) {
                 targetTeams.get(candidate).add(uuid);
                 return candidate;
             }
         }
-        if (!this.uiSettings.autoCreateTeams()) {
+        if (!organize && !this.uiSettings.autoCreateTeams()) {
             return -1;
         }
         int candidate = this.createTeam(target);
         targetTeams.get(candidate).add(uuid);
         return candidate;
+    }
+
+    public boolean organizeTeams() {
+        if (!this.uiSettings.autoOrganizeTeams()) {
+            return false;
+        }
+        boolean changed = false;
+        for (CompanionTeamTarget target : CompanionTeamTarget.values()) {
+            changed |= this.organizeTeams(target);
+        }
+        return changed;
+    }
+
+    private boolean organizeTeams(CompanionTeamTarget target) {
+        List<List<UUID>> targetTeams = this.teams.get(target);
+        boolean changed = false;
+        Set<UUID> assigned = new HashSet<>();
+
+        // Keep the first valid occurrence of every member and preserve the player's order.
+        for (List<UUID> team : targetTeams) {
+            List<UUID> normalized = new ArrayList<>(TEAM_SIZE);
+            for (UUID uuid : team) {
+                if (uuid != null && normalized.size() < TEAM_SIZE
+                        && this.allowedInTeam(target, uuid) && assigned.add(uuid)) {
+                    normalized.add(uuid);
+                }
+            }
+            if (!team.equals(normalized)) {
+                team.clear();
+                team.addAll(normalized);
+                changed = true;
+            }
+        }
+
+        for (UUID uuid : this.teamRoster(target)) {
+            if (uuid == null || assigned.contains(uuid) || !this.allowedInTeam(target, uuid)) {
+                continue;
+            }
+            int destination = -1;
+            for (int index = 0; index < targetTeams.size(); index++) {
+                if (targetTeams.get(index).size() < TEAM_SIZE) {
+                    destination = index;
+                    break;
+                }
+            }
+            if (destination < 0) {
+                destination = this.createTeam(target);
+            }
+            targetTeams.get(destination).add(uuid);
+            assigned.add(uuid);
+            changed = true;
+        }
+
+        // A custom name marks an intentionally retained empty team.
+        for (int index = targetTeams.size() - 1; index >= 0 && targetTeams.size() > 1; index--) {
+            if (targetTeams.get(index).isEmpty() && this.teamNames.get(target).get(index).isBlank()) {
+                this.removeTeamSlot(target, index);
+                changed = true;
+            }
+        }
+
+        List<Integer> numbers = this.teamNumbers.get(target);
+        for (int index = 0; index < numbers.size(); index++) {
+            if (numbers.get(index) != index + 1) {
+                numbers.set(index, index + 1);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    private List<UUID> teamRoster(CompanionTeamTarget target) {
+        return switch (target) {
+            case MOUNT -> this.companions.get(CompanionKind.MOUNT);
+            case COMPANION -> this.companions.get(CompanionKind.COMPANION);
+            case VEHICLE -> this.vehicles;
+        };
+    }
+
+    private void removeTeamSlot(CompanionTeamTarget target, int index) {
+        this.teams.get(target).remove(index);
+        this.teamAutoJoin.get(target).remove(index);
+        this.teamNames.get(target).remove(index);
+        this.teamNumbers.get(target).remove(index);
     }
 
     public int teamIndexOf(UUID uuid) {

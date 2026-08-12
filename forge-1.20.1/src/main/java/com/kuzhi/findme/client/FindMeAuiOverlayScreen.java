@@ -2,16 +2,13 @@ package com.kuzhi.findme.client;
 
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
-import com.sighs.apricityui.instance.ApricityScreen;
+import com.sighs.apricityui.init.Node;
+import com.sighs.apricityui.screen.ApricityScreen;
 import com.sighs.apricityui.render.Base;
-import com.sighs.apricityui.style.Animation;
 import com.sighs.apricityui.style.Cursor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import org.jetbrains.annotations.NotNull;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /** Apricity screen with a second, truly top-most document for transient menus. */
 abstract class FindMeAuiOverlayScreen extends ApricityScreen {
@@ -20,9 +17,9 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
     private Document overlayDocument;
     private String contextOverlayMarkup;
     private String previewCopyMarkup;
-    private final FindMeAuiTransitionController transitionController = new FindMeAuiTransitionController();
     private boolean closingImmediately;
     private boolean reusedMainDocument;
+    private boolean initialLayoutPending;
 
     protected FindMeAuiOverlayScreen(String templatePath) {
         super(templatePath);
@@ -32,6 +29,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
     protected void init() {
         long totalStartedAt = FindMeAuiPerformanceMonitor.start();
         closingImmediately = false;
+        initialLayoutPending = true;
         reusedMainDocument = cachedMainDocument != null && cachedMainDocument.isActive();
         long mainStartedAt = FindMeAuiPerformanceMonitor.start();
         if (!reusedMainDocument) {
@@ -40,6 +38,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         } else {
             attachDocument(cachedMainDocument);
         }
+        syncManualViewport(cachedMainDocument, reusedMainDocument);
         FindMeAuiPerformanceMonitor.record(this,
                 reusedMainDocument ? "init.main_reattach" : "init.main_create", mainStartedAt, 20.0);
         long overlayStartedAt = FindMeAuiPerformanceMonitor.start();
@@ -48,6 +47,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         } else {
             attachDocument(overlayDocument);
         }
+        syncManualViewport(overlayDocument, true);
         contextOverlayMarkup = null;
         clearOverlayMarkup();
         FindMeAuiPerformanceMonitor.record(this, "init.overlay", overlayStartedAt, 12.0);
@@ -55,10 +55,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         previewCopyMarkup = null;
         clearPreviewCopyMarkup();
         syncOverlaySize();
-        setTransitionBlocked(false);
-        if (ClientWheelPresentationState.uiAnimations()) transitionController.enter(transitionHost);
-        else transitionController.forceSettle(transitionHost);
-        FindMeAuiPerformanceMonitor.record(this, "init.layout_transition", setupStartedAt, 12.0);
+        FindMeAuiPerformanceMonitor.record(this, "init.layout", setupStartedAt, 12.0);
         FindMeAuiPerformanceMonitor.record(this, "init.total", totalStartedAt, 30.0);
     }
 
@@ -71,6 +68,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         syncOverlaySize();
         forceRelayout(cachedMainDocument);
         forceRelayout(overlayDocument);
+        initialLayoutPending = true;
     }
 
     @Override
@@ -91,6 +89,15 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         return overlayDocument == null ? null : overlayDocument.getElementById("findme-context-layer");
     }
 
+    protected static Element eventTargetElement(Object target) {
+        if (target instanceof Element element) return element;
+        if (target instanceof Node node) {
+            Node parent = node.getParentNode();
+            return parent instanceof Element element ? element : null;
+        }
+        return null;
+    }
+
     private Element getPreviewCopyRoot() {
         return overlayDocument == null ? null : overlayDocument.getElementById("findme-preview-copy-layer");
     }
@@ -104,7 +111,9 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         root.setInnerHTML(next);
         overlayDocument.rebuildSelectorIndex();
         overlayDocument.reapplyStylesFromCache();
-        overlayDocument.commitStyleRecalc();
+        // ApricityUI 1.2 commits pending styles at the start of its draw pass.
+        // A synchronous flush while closing/replacing a context menu can expose
+        // the overlay document's white transient backing surface.
         contextOverlayMarkup = next;
     }
 
@@ -134,11 +143,8 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
     }
 
     protected final boolean transitionPage(Runnable pageChange) {
-        if (!ClientWheelPresentationState.uiAnimations()) {
-            pageChange.run();
-            return true;
-        }
-        return transitionController.start(transitionHost, pageChange, true);
+        if (pageChange != null) pageChange.run();
+        return true;
     }
 
     protected final boolean transitionSibling(Runnable pageChange, boolean forward) {
@@ -158,52 +164,66 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
     }
 
     protected final boolean transitionClose() {
-        if (!ClientWheelPresentationState.uiAnimations()) {
-            closeImmediately();
-            return true;
-        }
-        return transitionController.start(transitionHost, this::closeImmediately, false);
+        closeImmediately();
+        return true;
     }
 
     protected final boolean isPageRevealing() {
-        return ClientWheelPresentationState.uiAnimations() && transitionController.isRevealing();
+        return false;
     }
 
     protected final boolean isTransitionRunning() {
-        return ClientWheelPresentationState.uiAnimations() && transitionController.isRunning();
+        return false;
     }
 
-    /** Network-driven page updates must not leave the old fold animation active. */
+    /** Full-page transforms are intentionally disabled; local control animations remain available. */
+    protected boolean pageTransitionsEnabled() {
+        return false;
+    }
+
+    /** Retained for callers that settle after a network-driven refresh. */
     protected final void settlePageTransition() {
-        if (transitionController.isRunning()) {
-            transitionController.forceSettle(transitionHost);
-        }
     }
 
     @Override
     public void tick() {
         super.tick();
-        updateTransitionPreference();
+    }
+
+    @Override
+    public boolean handleViewportZoom(boolean zoomIn) {
+        return true;
+    }
+
+    @Override
+    public boolean resetViewportZoom() {
+        return true;
     }
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         long totalStartedAt = FindMeAuiPerformanceMonitor.start();
-        updateTransitionPreference();
         FindMePreviewElement.beginOverlayPass();
         if (getLinkedDocument() != null) {
+            if (initialLayoutPending) {
+                // Cached Screen documents can be reattached after their previous
+                // layout commit. Submit the restored document before its first draw.
+                forceRelayout(cachedMainDocument);
+                forceRelayout(overlayDocument);
+                initialLayoutPending = false;
+            }
             long mainStartedAt = FindMeAuiPerformanceMonitor.start();
             Base.drawScreenDocument(graphics.pose(), getLinkedDocument());
             FindMeAuiPerformanceMonitor.record(this, "render.main_document", mainStartedAt, 10.0);
             Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
             long previewsStartedAt = FindMeAuiPerformanceMonitor.start();
-            FindMePreviewElement.renderQueuedOverlays(graphics);
+            setPreviewCopyMarkup(FindMePreviewElement.consumeOverlayMarkup(
+                    ClientWheelPresentationState.typographyClasses()));
             FindMeAuiPerformanceMonitor.record(this, "render.previews", previewsStartedAt, 8.0);
             renderMainDocumentOverlay(graphics);
         }
         boolean needsOverlay = contextOverlayMarkup != null && !contextOverlayMarkup.isBlank()
-                || previewCopyMarkup != null && !previewCopyMarkup.isBlank()
-                || transitionController.isRunning();
+                || previewCopyMarkup != null && !previewCopyMarkup.isBlank();
         if (overlayDocument != null && needsOverlay) {
             long overlayStartedAt = FindMeAuiPerformanceMonitor.start();
             graphics.pose().pushPose();
@@ -214,7 +234,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
             FindMeAuiPerformanceMonitor.record(this, "render.overlay_document", overlayStartedAt, 5.0);
         }
         Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
-        Cursor.drawPseudoCursor(graphics);
+        Cursor.drawPseudoCursor(graphics.pose());
         FindMeAuiPerformanceMonitor.record(this, "render.total", totalStartedAt, 16.0);
     }
 
@@ -232,7 +252,6 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
 
     @Override
     public void removed() {
-        transitionController.forceSettle(transitionHost);
         detachDocument(overlayDocument);
         detachDocument(cachedMainDocument);
         Cursor.resetToDefault();
@@ -242,10 +261,12 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         if (overlayDocument != null && overlayDocument.isActive()) {
             attachDocument(overlayDocument);
             overlayDocument.remove();
+            overlayDocument.disposeLifecycle();
         }
         if (cachedMainDocument != null && cachedMainDocument.isActive()) {
             attachDocument(cachedMainDocument);
             cachedMainDocument.remove();
+            cachedMainDocument.disposeLifecycle();
         }
         overlayDocument = null;
         cachedMainDocument = null;
@@ -278,16 +299,12 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         document.commitStyleRecalc();
     }
 
-    private void setTransitionBlocked(boolean blocked) {
-        if (overlayDocument == null) return;
-        syncOverlaySize();
-        Element blocker = overlayDocument.getElementById("findme-transition-input-blocker");
-        if (blocker == null) return;
-        String nextClass = blocked ? "fm-transition-input-blocker active" : "fm-transition-input-blocker";
-        if (nextClass.equals(blocker.getAttribute("class"))) return;
-        blocker.setClassName(nextClass);
-        blocker.invalidateStyle();
-        overlayDocument.commitStyleRecalc();
+    private static void syncManualViewport(Document document, boolean relayout) {
+        if (document == null || !document.isActive()) return;
+        document.applyViewport(relayout);
+        // This screen draws both documents directly in Minecraft GUI coordinates.
+        // Keep AUI hit testing in the same 1:1 coordinate space as that draw pass.
+        document.setViewportTransform(1.0, 1.0, 0.0, 0.0);
     }
 
     private void closeImmediately() {
@@ -299,93 +316,4 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
         Minecraft.getInstance().setScreen(null);
     }
 
-    private void updateTransitionPreference() {
-        if (ClientWheelPresentationState.uiAnimations()) transitionController.update(transitionHost);
-        else if (transitionController.isRunning()) transitionController.forceSettle(transitionHost);
-    }
-
-    private void applyTransitionClass(String requestedClass) {
-        Document document = getLinkedDocument();
-        if (document == null) return;
-        Element page = findPage(document);
-        if (page == null) return;
-
-        String classes = page.getAttribute("class");
-        String padded = " " + (classes == null ? "" : classes.trim()) + " ";
-        String clean = padded.replace(" fm-page-reveal ", " ")
-                .replace(" fm-page-fold-in ", " ").trim();
-        String next = requestedClass == null || requestedClass.isBlank()
-                ? clean : (clean.isBlank() ? requestedClass : clean + " " + requestedClass);
-        if (next.equals(classes == null ? "" : classes.trim())) return;
-
-        List<Element> animated = new ArrayList<>();
-        animated.add(page);
-        for (Element element : document.getElements()) {
-            if (element != page && page.contains(element) && Animation.hasAnimationSpec(element.getRawComputedStyle())) {
-                animated.add(element);
-            }
-        }
-        // Clear the previous frame before installing the next motion class. This avoids carrying a
-        // folded matrix into the new page while keeping the style work to one synchronous commit.
-        for (Element element : animated) clearTransitionRenderCaches(element);
-        page.setClassName(next);
-        page.invalidateStyle();
-        document.commitStyleRecalc();
-        for (Element element : animated) {
-            clearInactiveAnimationState(element);
-            if (!Animation.hasAnimationSpec(element.getRawComputedStyle())) clearTransitionRenderCaches(element);
-        }
-    }
-
-    private static void clearInactiveAnimationState(Element element) {
-        if (element == null) return;
-        var style = element.getRawComputedStyle();
-        if (!Animation.hasAnimationSpec(style)) Animation.updateStyle(element, style);
-    }
-
-    private static void clearTransitionRenderCaches(Element page) {
-        if (page == null) return;
-        // AUI's animation frame only changes the frame cache, so the raw CSS transform remains
-        // "none" before and after the transition. Explicitly clear the render caches that can
-        // otherwise retain the final folded matrix even after the animation spec is gone.
-        page.getRenderer().transform.clear();
-        page.getRenderer().opacity.clear();
-        clearSurfaceRenderCaches(page);
-    }
-
-    private static void clearSurfaceRenderCaches(Element element) {
-        if (element == null) return;
-        element.getRenderer().filter.clear();
-        element.getRenderer().backdropFilter.clear();
-        element.getRenderer().box.clear();
-        element.getRenderer().background.clear();
-    }
-
-    private static Element findPage(Document document) {
-        if (document == null) return null;
-        Element page = document.querySelector(".fm-page");
-        return page != null ? page : document.querySelector(".house-page");
-    }
-
-    private final FindMeAuiTransitionController.Host transitionHost = new FindMeAuiTransitionController.Host() {
-        @Override
-        public void beginFoldIn() {
-            applyTransitionClass("fm-page-fold-in");
-        }
-
-        @Override
-        public void beginFoldOut() {
-            applyTransitionClass("fm-page-reveal");
-        }
-
-        @Override
-        public void finishFoldOut() {
-            applyTransitionClass(null);
-        }
-
-        @Override
-        public void setInputBlocked(boolean blocked) {
-            setTransitionBlocked(blocked);
-        }
-    };
 }

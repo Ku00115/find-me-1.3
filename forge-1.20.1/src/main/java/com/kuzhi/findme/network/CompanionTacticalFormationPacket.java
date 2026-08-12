@@ -42,9 +42,14 @@ public record CompanionTacticalFormationPacket(UUID operationUuid, CompanionDepl
         double z = buffer.readDouble();
         float radius = buffer.readFloat();
         int duration = buffer.readVarInt();
-        List<Member> members = buffer.readCollection(ArrayList::new, source -> new Member(
-                source.readDouble(), source.readDouble(), source.readDouble(), source.readFloat(),
-                source.readVarInt(), source.readEnum(com.kuzhi.findme.common.CompanionMoveType.class)));
+        int memberCount = PacketDecodeLimits.readCount(buffer,
+                PacketDecodeLimits.MAX_TACTICAL_FORMATION_MEMBERS, "tactical formation member");
+        List<Member> members = new ArrayList<>(PacketDecodeLimits.initialCapacity(memberCount));
+        for (int i = 0; i < memberCount; i++) {
+            members.add(new Member(
+                buffer.readDouble(), buffer.readDouble(), buffer.readDouble(), buffer.readFloat(),
+                buffer.readVarInt(), buffer.readEnum(com.kuzhi.findme.common.CompanionMoveType.class)));
+        }
         return new CompanionTacticalFormationPacket(operationUuid, intent, x, y, z, radius, duration, members);
     }
 

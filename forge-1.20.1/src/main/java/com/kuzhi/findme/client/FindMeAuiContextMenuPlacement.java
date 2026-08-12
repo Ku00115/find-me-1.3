@@ -2,8 +2,8 @@ package com.kuzhi.findme.client;
 
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
-import com.sighs.apricityui.style.Position;
-import com.sighs.apricityui.style.Size;
+import com.sighs.apricityui.layout.Position;
+import com.sighs.apricityui.layout.Size;
 
 /** Shared pointer anchoring and viewport clamping for FindMe AUI context menus. */
 final class FindMeAuiContextMenuPlacement {

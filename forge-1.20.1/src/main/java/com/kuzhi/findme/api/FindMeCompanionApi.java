@@ -11,6 +11,7 @@ import java.util.UUID;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import com.kuzhi.findme.server.lifecycle.CompanionDeploymentPlan;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.core.BlockPos;
 import com.kuzhi.findme.common.SmallHouseBlockEntity;
@@ -95,6 +96,17 @@ public final class FindMeCompanionApi {
                                                             UUID requestId, int timeoutTicks) {
         return CompanionActionRequestService.submit(owner, companionUuid, requestId,
                 CompanionActionRequest.Action.TASK_DEPLOY, timeoutTicks);
+    }
+
+    /**
+     * Deploys a temporary task companion at an addon-provided tactical point.
+     * FindMe still owns the lifecycle and may adjust the point to a safe space.
+     */
+    public static CompanionActionRequest requestTaskDeploy(ServerPlayer owner, UUID companionUuid,
+                                                            UUID requestId, int timeoutTicks,
+                                                            CompanionDeploymentPlan plan) {
+        return CompanionActionRequestService.submit(owner, companionUuid, requestId,
+                CompanionActionRequest.Action.TASK_DEPLOY, timeoutTicks, plan);
     }
 
     public static CompanionActionRequest requestStore(ServerPlayer owner, UUID companionUuid,

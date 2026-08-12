@@ -6,6 +6,7 @@ import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.SavedPosition;
 import com.kuzhi.findme.network.RescueMagicPacket;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
+import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
@@ -48,6 +49,12 @@ public final class CompanionDeployRequestService {
     public static Result requestExternalTask(ServerPlayer player, PlayerCompanionData data,
                                              CompanionKind kind, UUID uuid, String source) {
         return request(player, data, kind, uuid, Mode.AUTONOMOUS, source, null, false);
+    }
+
+    public static Result requestExternalTask(ServerPlayer player, PlayerCompanionData data,
+                                             CompanionKind kind, UUID uuid, String source,
+                                             CompanionDeploymentPlan plan) {
+        return request(player, data, kind, uuid, Mode.AUTONOMOUS, source, plan, false);
     }
 
     private static Result request(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
@@ -114,12 +121,47 @@ public final class CompanionDeployRequestService {
         }
 
         Optional<CompoundTag> stored = data.storedEntity(uuid);
+        // Autonomous skill casts need the creature's actual movement type.
+        // moveType() intentionally collapses ordinary companions to COMPANION,
+        // which would place flying dragons on ground spots.
         CompanionMoveType moveType = found instanceof LivingEntity living
-                ? CompanionEntityClassifier.moveType(living, kind)
-                : CompanionEntityClassifier.moveType(
+                ? CompanionEntityClassifier.summonMoveType(living, kind)
+                : CompanionEntityClassifier.summonMoveType(
                         stored.map(CompanionEntitySnapshots::storedEntityType).orElse(""), kind);
+        double width = widthFor(found, stored);
+        double height = heightFor(found, stored);
+        double depth = depthFor(found, stored);
         BlockPos destination = plan != null && plan.destination() != null ? plan.destination()
                 : CompanionSpawnPlacementService.findSummonSpot(player, kind, moveType);
+        if (plan != null && plan.destination() != null) {
+            Optional<BlockPos> safe = moveType == CompanionMoveType.FLY
+                    ? CompanionPlacementFinder.findOpenAirSpace(player.serverLevel(), destination,
+                    Math.max(width, depth), height)
+                    : CompanionPlacementFinder.findOpenDimensionsSpace(player.serverLevel(), width, height,
+                    depth, destination);
+            if (safe.isEmpty()) {
+                FindMeDebugLogger.lifecycle("DEPLOY_REJECTED", player, uuid, found,
+                        "STORED", "STORED", "planned_destination_unsafe", true, false);
+                return new Result(State.REJECTED, null);
+            }
+            destination = safe.get();
+        }
+        // The default spot can also be stale or too small for a stored entity.
+        // Validate it with the same entity-sized collision box before moving or
+        // restoring anything, so a failed search never falls back underground.
+        if (plan == null) {
+            Optional<BlockPos> safe = moveType == CompanionMoveType.FLY
+                    ? CompanionPlacementFinder.findOpenAirSpace(player.serverLevel(), destination,
+                    Math.max(width, depth), height)
+                    : CompanionPlacementFinder.findOpenDimensionsSpace(player.serverLevel(), width, height,
+                    depth, destination);
+            if (safe.isEmpty()) {
+                FindMeDebugLogger.lifecycle("DEPLOY_REJECTED", player, uuid, found,
+                        "STORED", "STORED", "summon_destination_unsafe", true, false);
+                return new Result(State.REJECTED, null);
+            }
+            destination = safe.get();
+        }
         BlockPos spawn = destination;
         LivingEntity deployed;
         if (found instanceof LivingEntity living) {
@@ -157,6 +199,39 @@ public final class CompanionDeployRequestService {
                     RescueMagicPacket.Style.GROUND_CIRCLE, RescueMagicPacket.Purpose.SUMMON);
         }
         return new Result(State.READY, deployed);
+    }
+
+    private static double storedWidth(CompoundTag tag) {
+        return positive(tag, "CompanionPreviewBodyWidth", positive(tag, "CompanionPreviewWidth", 1.0D));
+    }
+
+    private static double storedHeight(CompoundTag tag) {
+        return positive(tag, "CompanionPreviewBodyHeight", positive(tag, "CompanionPreviewHeight", 1.8D));
+    }
+
+    private static double storedDepth(CompoundTag tag) {
+        return positive(tag, "CompanionPreviewBodyDepth", positive(tag, "CompanionPreviewDepth", storedWidth(tag)));
+    }
+
+    private static double widthFor(Entity found, Optional<CompoundTag> stored) {
+        return found instanceof LivingEntity living ? Math.max(1.0D, living.getBbWidth())
+                : stored.map(CompanionDeployRequestService::storedWidth).orElse(1.0D);
+    }
+
+    private static double heightFor(Entity found, Optional<CompoundTag> stored) {
+        return found instanceof LivingEntity living ? Math.max(1.8D, living.getBbHeight())
+                : stored.map(CompanionDeployRequestService::storedHeight).orElse(1.8D);
+    }
+
+    private static double depthFor(Entity found, Optional<CompoundTag> stored) {
+        return found instanceof LivingEntity living ? Math.max(1.0D, living.getBbWidth())
+                : stored.map(CompanionDeployRequestService::storedDepth).orElse(widthFor(found, stored));
+    }
+
+    private static double positive(CompoundTag tag, String key, double fallback) {
+        if (tag == null || !tag.contains(key)) return fallback;
+        float value = tag.getFloat(key);
+        return Float.isFinite(value) && value > 0.0F ? value : fallback;
     }
 
     public enum Mode {

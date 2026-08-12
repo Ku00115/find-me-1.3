@@ -25,9 +25,9 @@ import com.kuzhi.findme.network.PackEntityPresetUpdatePacket;
 import com.sighs.apricityui.event.MouseEvent;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
-import com.sighs.apricityui.style.Box;
-import com.sighs.apricityui.style.Position;
-import com.sighs.apricityui.style.Size;
+import com.sighs.apricityui.layout.Box;
+import com.sighs.apricityui.layout.Position;
+import com.sighs.apricityui.layout.Size;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
@@ -38,6 +38,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -47,6 +48,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     private static final String PATH = "findme/pack/editor.html";
     private static final int ENTRY_ROW_HEIGHT = 33;
     private static final int SOUND_VISIBLE_ROWS = 6;
+    private static final long CLICK_PULSE_NANOS = 150_000_000L;
     private static FindMeAuiPackEditorScreen current;
 
     private final Set<String> selected = new LinkedHashSet<>();
@@ -75,6 +77,12 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     private PreviewDrag previewDrag = PreviewDrag.NONE;
     private double previewLastX;
     private double previewLastY;
+    private long clickPulseStartedAtNanos;
+    private int clickPulseX;
+    private int clickPulseY;
+    private int clickPulseWidth;
+    private int clickPulseHeight;
+    private ClickPulseStyle clickPulseStyle = ClickPulseStyle.DEFAULT;
 
     private FindMeAuiPackEditorScreen() {
         super(PATH);
@@ -119,7 +127,98 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     public void removed() {
         if (current == this) current = null;
         shellBuilt = false;
+        clickPulseStartedAtNanos = 0L;
         super.removed();
+    }
+
+    @Override
+    protected void renderMainDocumentOverlay(GuiGraphics graphics) {
+        renderClickPulse(graphics);
+    }
+
+    private void startClickPulse(Element element) {
+        if (!ClientWheelPresentationState.uiAnimations() || element == null) return;
+        Position position = Position.of(element);
+        Size size = Size.of(element);
+        clickPulseX = (int) Math.floor(position.x);
+        clickPulseY = (int) Math.floor(position.y);
+        clickPulseWidth = Math.max(1, (int) Math.ceil(size.width()));
+        clickPulseHeight = Math.max(1, (int) Math.ceil(size.height()));
+        clickPulseStyle = clickPulseStyle(element);
+        clickPulseStartedAtNanos = System.nanoTime();
+    }
+
+    private ClickPulseStyle clickPulseStyle(Element element) {
+        String action = element.getAttribute("data-action");
+        action = action == null ? "" : action;
+        if ("back".equals(action)) return ClickPulseStyle.BACK;
+        if (hasClass(element, "danger") || action.contains("reset") || action.contains("delete")) {
+            return ClickPulseStyle.DANGER;
+        }
+        if (hasClass(element, "primary")) return ClickPulseStyle.PRIMARY;
+        if (hasClass(element, "page-row") || hasClass(element, "category-button")
+                || hasClass(element, "filter-option") || action.startsWith("page:")) {
+            return ClickPulseStyle.NAVIGATION;
+        }
+        if (hasClass(element, "entry-row") || hasClass(element, "option")) return ClickPulseStyle.CARD;
+        return ClickPulseStyle.DEFAULT;
+    }
+
+    private static boolean hasClass(Element element, String className) {
+        String classes = element == null ? null : element.getAttribute("class");
+        return classes != null && (" " + classes.trim() + " ").contains(" " + className + " ");
+    }
+
+    private void renderClickPulse(GuiGraphics graphics) {
+        if (clickPulseStartedAtNanos == 0L) return;
+        long elapsed = System.nanoTime() - clickPulseStartedAtNanos;
+        if (elapsed < 0L || elapsed >= CLICK_PULSE_NANOS) {
+            clickPulseStartedAtNanos = 0L;
+            return;
+        }
+        double progress = elapsed / (double) CLICK_PULSE_NANOS;
+        int alpha = (int) Math.round(205.0 * (1.0 - progress));
+        int cyan = (alpha << 24) | 0x16B5DF;
+        int dark = (Math.max(0, alpha - 45) << 24) | 0x172027;
+        int left = clickPulseX - 1;
+        int top = clickPulseY - 1;
+        int right = clickPulseX + clickPulseWidth + 1;
+        int bottom = clickPulseY + clickPulseHeight + 1;
+        if (clickPulseStyle == ClickPulseStyle.BACK) {
+            int sweep = Math.max(2, (int) Math.round(clickPulseWidth * (1.0 - progress)));
+            graphics.fill(left, top, Math.min(right, left + sweep), bottom, dark);
+            graphics.fill(left, top, left + 1, bottom, cyan);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.PRIMARY) {
+            int rise = Math.max(1, (int) Math.round(clickPulseHeight * (1.0 - progress)));
+            graphics.fill(left, Math.max(top, bottom - rise), right, bottom, dark);
+            graphics.fill(left, bottom - 1, right, bottom, cyan);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.DANGER) {
+            int red = (alpha << 24) | 0xD85C5C;
+            int sweep = Math.max(1, (int) Math.round(clickPulseWidth * (1.0 - progress)));
+            graphics.fill(Math.max(left, right - sweep), top, right, top + 1, red);
+            graphics.fill(right - 1, top, right, bottom, red);
+            graphics.fill(left, bottom - 1, right, bottom, red);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.NAVIGATION) {
+            int sweep = Math.max(2, (int) Math.round(clickPulseWidth * progress));
+            graphics.fill(left, bottom - 1, Math.min(right, left + sweep), bottom, cyan);
+            graphics.fill(left, top, left + 1, bottom, dark);
+            return;
+        }
+        if (clickPulseStyle == ClickPulseStyle.CARD) {
+            graphics.fill(left, top, left + 1, bottom, cyan);
+            graphics.fill(left, bottom - 1, right, bottom, cyan);
+            return;
+        }
+        graphics.fill(left, top, right, top + 1, cyan);
+        graphics.fill(left, bottom - 1, right, bottom, cyan);
+        graphics.fill(left, top, left + 1, bottom, cyan);
+        graphics.fill(right - 1, top, right, bottom, cyan);
     }
 
     @Override
@@ -160,14 +259,18 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         if (document == null || document.body == null || "1".equals(document.body.getAttribute("data-findme-bound"))) return;
         document.body.setAttribute("data-findme-bound", "1");
         document.body.addEventListener("click", event -> {
-            Element target = event.target instanceof Element element ? element.closest("[data-action]") : null;
+            Element element = eventTargetElement(event.target);
+            Element target = element == null ? null : element.closest("[data-action]");
             if (target == null) return;
             FindMeAuiSound.click();
+            startClickPulse(target);
             action(target.getAttribute("data-action"), target.getAttribute("data-value"));
             event.preventDefault();
         });
         document.body.addEventListener("mousedown", event -> {
-            if (event instanceof MouseEvent mouse && event.target instanceof Element element) {
+            if (event instanceof MouseEvent mouse) {
+                Element element = eventTargetElement(event.target);
+                if (element == null) return;
                 if (beginPreviewInteraction(mouse, element)) {
                     event.preventDefault();
                     return;
@@ -183,7 +286,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
                     return;
                 }
                 updateScrollbarDrag(mouse);
-                updateSelectionDrag(mouse, event.target instanceof Element element ? element : null);
+                updateSelectionDrag(mouse, eventTargetElement(event.target));
             }
         });
         document.body.addEventListener("mouseup", event -> {
@@ -199,7 +302,9 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
             }
         });
         document.body.addEventListener("wheel", event -> {
-            if (!(event instanceof MouseEvent mouse) || !(event.target instanceof Element element)) return;
+            if (!(event instanceof MouseEvent mouse)) return;
+            Element element = eventTargetElement(event.target);
+            if (element == null) return;
             double delta = mouse.scrollDelta != 0.0 ? mouse.scrollDelta : mouse.deltaY;
             if (delta == 0.0) return;
             if (element.closest(".preview-panel") != null) {
@@ -321,20 +426,13 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         }
         if (action.startsWith("style:")) {
             String[] parts = action.split(":", 3);
-            if (parts.length == 3) {
-                CompanionEffectPurpose purpose = CompanionEffectPurpose.valueOf(parts[1]);
-                sendStyle(purpose, CompanionEffectStyle.valueOf(parts[2]));
-            }
+            if (parts.length == 3) sendStyle(CompanionEffectPurpose.valueOf(parts[1]), CompanionEffectStyle.valueOf(parts[2]));
             return;
         }
         if (action.startsWith("animation:")) {
             String[] parts = action.split(":", 3);
-            if (parts.length == 3) {
-                CompanionAnimationPurpose purpose = CompanionAnimationPurpose.valueOf(parts[1]);
-                if (purpose != CompanionAnimationPurpose.SUMMON || supportsSummonPresentationEditing()) {
-                    sendAnimation(purpose, CompanionAnimationStyle.valueOf(parts[2]));
-                }
-            }
+            if (parts.length == 3) sendAnimation(CompanionAnimationPurpose.valueOf(parts[1]),
+                    CompanionAnimationStyle.valueOf(parts[2]));
             return;
         }
         if (action.equals("save-sound")) {
@@ -1067,8 +1165,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         clampEntryScroll();
         root.setAttribute("style", layoutStyle());
         root.setInnerHTML("<div class='editor-page fm-page " + ClientWheelPresentationState.typographyClasses()
-                + (isPageRevealing() ? " fm-page-reveal" : "") + "'>"
-                + foldDecoration() + "<div id='pack-topbar' class='topbar'>" + topbarMarkup()
+                + "'><div id='pack-topbar' class='topbar'>" + topbarMarkup()
                 + "</div><div id='pack-sidebar' class='editor-sidebar'><div class='editor-sidebar-sheet'></div>"
                 + "<div id='pack-sidebar-content' class='editor-sidebar-content'>" + sidebarMarkup()
                 + "</div></div><div class='editor-content'><div id='pack-entry-panel' class='entry-panel'>" + entryPanelMarkup()
@@ -1293,17 +1390,10 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     }
 
     private void animationFields(StringBuilder html, PackAnimationPresetCategory category) {
-        if (supportsSummonPresentationEditing()) {
-            animationGroup(html, CompanionAnimationPurpose.SUMMON, PackAnimationPresetListPacket.Entry::summonAnimation, category);
-        }
+        animationGroup(html, CompanionAnimationPurpose.SUMMON, PackAnimationPresetListPacket.Entry::summonAnimation, category);
         animationGroup(html, CompanionAnimationPurpose.RESCUE, PackAnimationPresetListPacket.Entry::rescueAnimation, category);
         animationGroup(html, CompanionAnimationPurpose.STORAGE, PackAnimationPresetListPacket.Entry::storageAnimation, category);
         animationGroup(html, CompanionAnimationPurpose.SWITCH, PackAnimationPresetListPacket.Entry::switchAnimation, category);
-    }
-
-    private boolean supportsSummonPresentationEditing() {
-        return selectedEntries().stream()
-                .noneMatch(entry -> entry.category() == PackAnimationPresetCategory.COMPANION);
     }
 
     private void animationGroup(StringBuilder html, CompanionAnimationPurpose purpose,
@@ -1442,10 +1532,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
                 + ";--fm-editor-option:" + optionWidth + "px"
                 + ";--fm-editor-step-value:" + stepValueWidth + "px"
                 + ";--fm-editor-sound-input:" + soundInputWidth + "px"
-                + ";--fm-editor-gap:" + gap + "px"
-                + ";--fm-fold-left:" + Math.max(0, scaled(75) - 10) + "px"
-                + ";--fm-fold-dark-top:" + Math.max(0, scaled(39) - 5) + "px"
-                + ";--fm-fold-light-top:" + scaled(43) + "px";
+                + ";--fm-editor-gap:" + gap + "px";
     }
 
     private int entryPanelWidth() {
@@ -1466,11 +1553,6 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
 
     private int entryRailLeft() {
         return Math.max(1, 5 + entryContentWidth() + 3);
-    }
-
-    private String foldDecoration() {
-        return "<i class='fm-fold-crease'></i><i class='fm-fold-shard fm-fold-shard-dark'></i>"
-                + "<i class='fm-fold-shard fm-fold-shard-light'></i>";
     }
 
     private int editorListHeight() {
@@ -1649,6 +1731,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         }
     }
 
+    private enum ClickPulseStyle { BACK, PRIMARY, DANGER, NAVIGATION, CARD, DEFAULT }
     private enum ScrollbarDrag { NONE, ENTRY, SOUND, FIELDS }
     private enum PreviewDrag { NONE, ROTATE, PAN }
 }

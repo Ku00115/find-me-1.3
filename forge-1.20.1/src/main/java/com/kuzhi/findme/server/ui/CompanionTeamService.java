@@ -27,6 +27,13 @@ public final class CompanionTeamService {
 
     public static void syncToClient(ServerPlayer player) {
         PlayerCompanionData data = CompanionDataService.data(player);
+        if (data.organizeTeams()) {
+            CompanionDataService.save(player, data);
+        }
+        sendSnapshot(player, data);
+    }
+
+    private static void sendSnapshot(ServerPlayer player, PlayerCompanionData data) {
         ArrayList<CompanionTeamListPacket.Entry> entries = new ArrayList<>();
         for (CompanionTeamTarget target : CompanionTeamTarget.values()) {
             for (int i = 0; i < data.teamCount(target); ++i) {
@@ -47,7 +54,8 @@ public final class CompanionTeamService {
         PlayerCompanionData data = CompanionDataService.data(player);
         data.createTeam(target);
         CompanionDataService.save(player, data);
-        syncToClient(player);
+        // Keep a newly created empty team visible long enough to name it or add members.
+        sendSnapshot(player, data);
     }
 
     public static void toggleAutoJoin(ServerPlayer player, CompanionTeamTarget target, int teamIndex) {

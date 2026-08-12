@@ -1,19 +1,17 @@
 package com.kuzhi.findme.client;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
-import com.sighs.apricityui.instance.element.MinecraftElement;
+import com.sighs.apricityui.element.MinecraftElement;
 import com.sighs.apricityui.render.Base;
 import com.sighs.apricityui.render.Rect;
-import com.sighs.apricityui.style.Position;
-import com.sighs.apricityui.style.Size;
+import com.sighs.apricityui.layout.Position;
+import com.sighs.apricityui.layout.Size;
 import com.kuzhi.findme.server.profile.CompanionEntityVisualBoundsService;
 import com.kuzhi.findme.server.profile.CompanionMountContactService;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.Font;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.TagParser;
 import net.minecraft.world.entity.Entity;
@@ -27,7 +25,8 @@ import java.nio.charset.StandardCharsets;
 /** A bounded, shared entity preview used by the AUI management cards. */
 public final class FindMePreviewElement extends MinecraftElement {
     public static final String TAG_NAME = "findme-preview";
-    private static int frameBudget = 8;
+    private static final int MAX_PREVIEWS_PER_FRAME = 16;
+    private static int frameBudget = MAX_PREVIEWS_PER_FRAME;
     private static long budgetFrame = Long.MIN_VALUE;
     private static final List<CardOverlay> CARD_OVERLAYS = new ArrayList<>();
 
@@ -37,30 +36,70 @@ public final class FindMePreviewElement extends MinecraftElement {
 
     public static void beginFrame(long frame) {
         budgetFrame = frame;
-        frameBudget = 8;
+        frameBudget = MAX_PREVIEWS_PER_FRAME;
     }
 
     public static void beginOverlayPass() {
         CARD_OVERLAYS.clear();
     }
 
-    public static void renderQueuedOverlays(GuiGraphics graphics) {
-        if (graphics == null || CARD_OVERLAYS.isEmpty()) return;
-        RenderSystem.disableDepthTest();
-        for (CardOverlay overlay : CARD_OVERLAYS) {
+    public static String consumeOverlayMarkup(String typographyClasses) {
+        if (CARD_OVERLAYS.isEmpty()) return "";
+        StringBuilder html = new StringBuilder("<div class='findme-preview-copy-stack ")
+                .append(escapeHtmlAttribute(typographyClasses)).append("'>");
+        for (CardOverlay overlay : CARD_OVERLAYS) appendOverlayMarkup(html, overlay);
+        CARD_OVERLAYS.clear();
+        return html.append("</div>").toString();
+    }
+
+    private static void appendOverlayMarkup(StringBuilder html, CardOverlay overlay) {
+        int clipWidth = Math.max(0, overlay.clipRight() - overlay.clipLeft());
+        int clipHeight = Math.max(0, overlay.clipBottom() - overlay.clipTop());
+        if (clipWidth == 0 || clipHeight == 0) return;
+        html.append("<div class='findme-preview-copy-clip' style='left:").append(overlay.clipLeft())
+                .append("px;top:").append(overlay.clipTop()).append("px;width:").append(clipWidth)
+                .append("px;height:").append(clipHeight).append("px'><div class='findme-preview-copy-card ")
+                .append(escapeHtmlAttribute(overlay.mode())).append("' style='left:")
+                .append(overlay.x() - overlay.clipLeft()).append("px;top:")
+                .append(overlay.y() - overlay.clipTop()).append("px;width:").append(overlay.width())
+                .append("px;height:").append(overlay.height()).append("px'>");
+        if ("profile".equals(overlay.mode())) {
+            html.append("<div class='profile-preview-copy'><small>")
+                    .append(escapeHtml(overlay.type())).append("</small><strong>").append(escapeHtml(overlay.name()))
+                    .append("</strong><span>").append(escapeHtml(overlay.team())).append("</span></div>");
+        } else {
+            if (overlay.number() != null && !overlay.number().isBlank()) {
+                html.append("<span class='").append("expanded".equals(overlay.mode())
+                                ? "selected-number" : "warehouse-number")
+                        .append("'>").append(escapeHtml(overlay.number())).append("</span>");
+            }
+            if (overlay.status() != null && !overlay.status().isBlank()) {
+                html.append("<span class='").append("expanded".equals(overlay.mode())
+                                ? "selected-status" : "warehouse-status")
+                        .append(" ")
+                        .append(escapeHtmlAttribute(overlay.statusTone())).append("'>")
+                        .append(escapeHtml(overlay.status())).append("</span>");
+            }
             if ("expanded".equals(overlay.mode())) {
-                renderExpandedOverlay(graphics, overlay.name(), overlay.type(), overlay.team(), overlay.x(), overlay.y(),
-                        overlay.width(), overlay.height(), overlay.number(), overlay.status(), overlay.statusTone());
-            } else if ("profile".equals(overlay.mode())) {
-                renderProfileOverlay(graphics, overlay.name(), overlay.type(), overlay.team(), overlay.x(), overlay.y(),
-                        overlay.width(), overlay.height());
+                html.append("<div class='selected-info'><small class='selected-type'>")
+                        .append(escapeHtml(overlay.type())).append("</small><strong>")
+                        .append(escapeHtml(overlay.name())).append("</strong><small class='selected-state'>")
+                        .append(escapeHtml(overlay.team())).append("</small></div>");
             } else {
-                renderWarehouseOverlay(graphics, overlay.name(), overlay.team(), overlay.x(), overlay.y(),
-                        overlay.width(), overlay.height(), overlay.number(), overlay.status(), overlay.statusTone());
+                html.append("<div class='warehouse-copy'><strong>").append(escapeHtml(overlay.name()))
+                        .append("</strong><small>").append(escapeHtml(overlay.team())).append("</small></div>");
             }
         }
-        graphics.flush();
-        CARD_OVERLAYS.clear();
+        html.append("</div></div>");
+    }
+
+    private static String escapeHtml(String value) {
+        if (value == null || value.isEmpty()) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static String escapeHtmlAttribute(String value) {
+        return escapeHtml(value).replace("'", "&#39;").replace("\"", "&quot;");
     }
 
     @Override
@@ -90,13 +129,39 @@ public final class FindMePreviewElement extends MinecraftElement {
         Size size = rect.getBodyRectSize();
         int width = Math.max(1, (int) Math.round(size.width()));
         int height = Math.max(1, (int) Math.round(size.height()));
+        int renderX = (int) Math.round(position.x);
+        int renderY = (int) Math.round(position.y);
+        int clipLeft = renderX;
+        int clipTop = renderY;
+        int clipRight = renderX + width;
+        int clipBottom = renderY + height;
+        String viewportId = getAttribute("data-preview-viewport");
+        if (viewportId != null && !viewportId.isBlank()) {
+            Element viewport = document.getElementById(viewportId);
+            if (viewport != null) {
+                Rect viewportRect = Rect.of(viewport);
+                Position viewportPosition = viewportRect.getBodyRectPosition();
+                Size viewportSize = viewportRect.getBodyRectSize();
+                int viewportLeft = (int) Math.round(viewportPosition.x);
+                int viewportTop = (int) Math.round(viewportPosition.y);
+                int viewportRight = viewportLeft + Math.max(1, (int) Math.round(viewportSize.width()));
+                int viewportBottom = viewportTop + Math.max(1, (int) Math.round(viewportSize.height()));
+                clipLeft = Math.max(renderX, viewportLeft);
+                clipTop = Math.max(renderY, viewportTop);
+                clipRight = Math.min(renderX + width, viewportRight);
+                clipBottom = Math.min(renderY + height, viewportBottom);
+                if (clipLeft >= clipRight || clipTop >= clipBottom) return;
+            }
+        }
         float previewScale = parsePreviewScale(getAttribute("data-preview-scale"));
         Minecraft minecraft = Minecraft.getInstance();
-        if (!isVisible(minecraft, position.x, position.y, width, height)) {
+        if (!isVisible(minecraft, renderX, renderY, width, height)) {
             return;
         }
-        if (!allowPreview(minecraft)) return;
         GuiGraphics graphics = new GuiGraphics(minecraft, minecraft.renderBuffers().bufferSource());
+        if ("profile".equals(overlayMode)) {
+            renderExpandedCardBackground(graphics, renderX, renderY, width, height);
+        }
         CompanionDetailPreviewRenderer renderer = new CompanionDetailPreviewRenderer();
         com.kuzhi.findme.network.CompanionListPacket.Entry previewEntry = entry.vehicle() != null
                 ? entry.vehicle().asPreviewEntry() : entry.companion();
@@ -105,31 +170,58 @@ public final class FindMePreviewElement extends MinecraftElement {
         // Do not leave orphaned metadata when the preview entity cannot be created. This is
         // especially important for dead/recovery records whose saved preview tag is optional.
         if (renderer.previewEntityForBounds(previewEntry, fallbackType) == null) return;
+        queueCardOverlay(overlayMode, entry, renderX, renderY, width, height,
+                clipLeft, clipTop, clipRight, clipBottom);
+        if (!allowPreview(minecraft)) return;
         String interactionId = getAttribute("data-interaction-id");
         FindMePreviewInteractionState.View view = FindMePreviewInteractionState.view(interactionId);
         if (interactionId == null || interactionId.isBlank()) {
-            renderer.renderCard(graphics, previewEntry, (int) Math.round(position.x), (int) Math.round(position.y),
-                    width, height, fallbackType, previewScale);
+            renderer.renderCard(graphics, previewEntry, renderX, renderY,
+                    width, height, fallbackType, previewScale, clipLeft, clipTop, clipRight, clipBottom);
         } else {
-            renderer.render(graphics, previewEntry, (int)Math.round(position.x), (int)Math.round(position.y), width, height,
+            renderer.render(graphics, previewEntry, renderX, renderY, width, height,
                     view.yaw(), view.pitch(), view.zoom() * previewScale, view.offsetX(), view.offsetY(), fallbackType);
-        }
-        if ("warehouse".equals(overlayMode) || "expanded".equals(overlayMode) || "profile".equals(overlayMode)) {
-            String name = getAttribute("data-preview-name");
-            if (name == null || name.isBlank()) {
-                name = entry.vehicle() != null ? entry.vehicle().name() : entry.companion().name();
-            }
-            CARD_OVERLAYS.add(new CardOverlay(overlayMode, name, getAttribute("data-preview-type"), getAttribute("data-preview-team"),
-                    (int) Math.round(position.x), (int) Math.round(position.y), width, height,
-                    getAttribute("data-preview-number"), getAttribute("data-preview-status"),
-                    getAttribute("data-preview-status-tone")));
         }
         if ("true".equals(getAttribute("data-show-bounds"))) {
             renderBoundsOverlay(graphics, renderer.previewEntityForBounds(previewEntry, fallbackType), previewEntry,
-                    (int)Math.round(position.x), (int)Math.round(position.y), width, height, previewScale,
+                    renderX, renderY, width, height, previewScale,
                     parseBoundsScale(getAttribute("data-bounds-scale")), parseBoundsScale(getAttribute("data-effect-scale")),
                     interactionId == null || interactionId.isBlank() ? FindMePreviewInteractionState.view("") : view);
             graphics.flush();
+        }
+    }
+
+    private static void renderExpandedCardBackground(GuiGraphics graphics, int x, int y, int width, int height) {
+        graphics.fill(x, y, x + width, y + height, 0xFF10191D);
+        int shadowTop = y + Math.max(1, height / 2);
+        graphics.fillGradient(x, shadowTop, x + width, y + height, 0x0010191D, 0xD9040A0D);
+        graphics.fill(x, y + height - 1, x + width, y + height, 0xFF16B5DF);
+    }
+
+    private void queueCardOverlay(String overlayMode, CompanionListPacketEntry entry,
+                                  int x, int y, int width, int height,
+                                  int clipLeft, int clipTop, int clipRight, int clipBottom) {
+        if (!"warehouse".equals(overlayMode) && !"expanded".equals(overlayMode)
+                && !"profile".equals(overlayMode)) return;
+        String name = getAttribute("data-preview-name");
+        if (name == null || name.isBlank()) {
+            name = entry.vehicle() != null ? entry.vehicle().name() : entry.companion().name();
+        }
+        int overlayHeight = parseOverlayHeight(getAttribute("data-preview-overlay-height"), height);
+        int overlayClipBottom = "expanded".equals(overlayMode)
+                ? Math.max(clipBottom, y + overlayHeight) : clipBottom;
+        CARD_OVERLAYS.add(new CardOverlay(overlayMode, name, getAttribute("data-preview-type"),
+                getAttribute("data-preview-team"), x, y, width, overlayHeight,
+                getAttribute("data-preview-number"), getAttribute("data-preview-status"),
+                getAttribute("data-preview-status-tone"), clipLeft, clipTop, clipRight, overlayClipBottom));
+    }
+
+    private static int parseOverlayHeight(String value, int fallback) {
+        try {
+            if (value == null || value.isBlank()) return fallback;
+            return Math.max(fallback, Integer.parseInt(value));
+        } catch (NumberFormatException ignored) {
+            return fallback;
         }
     }
 
@@ -143,7 +235,7 @@ public final class FindMePreviewElement extends MinecraftElement {
         long frame = minecraft.getFrameTimeNs();
         if (frame != budgetFrame) {
             budgetFrame = frame;
-            frameBudget = 8;
+            frameBudget = MAX_PREVIEWS_PER_FRAME;
         }
         return frameBudget-- > 0;
     }
@@ -258,132 +350,13 @@ public final class FindMePreviewElement extends MinecraftElement {
         }
     }
 
-    private static void renderWarehouseOverlay(GuiGraphics graphics, String name, String team, int x, int y, int width, int height,
-                                               String number, String status, String statusTone) {
-        Minecraft minecraft = Minecraft.getInstance();
-        float nameScale = 10.0f / 9.0f;
-        float teamScale = ("death".equals(statusTone) || "recovery".equals(statusTone))
-                ? 7.0f / 9.0f : 6.0f / 9.0f;
-        int availableWidth = Math.max(1, width - 11);
-        graphics.enableScissor(x, y, x + width, y + height);
-        try {
-            drawScaledString(graphics, minecraft.font, fitText(minecraft.font, name, availableWidth, nameScale),
-                    x + 6, y + height - 31, nameScale, 0xFFFFFFFF);
-            drawScaledString(graphics, minecraft.font, fitText(minecraft.font, team, availableWidth, teamScale),
-                    x + 6, y + height - 12, teamScale, 0xFFD0D6D8);
-            drawScaledString(graphics, minecraft.font, number, x + 6, y + 5, 7.0f / 9.0f, 0xDEFFFFFF);
-            if (status != null && !status.isBlank()) {
-                float statusScale = 7.0f / 9.0f;
-                int statusWidth = Math.max(22, Math.round(minecraft.font.width(status) * statusScale) + 8);
-                graphics.pose().pushPose();
-                try {
-                    graphics.pose().translate(0.0f, 0.0f, 295.0f);
-                    int statusColor = "recovery".equals(statusTone) ? 0xE6D3A83D : 0xE6A94F4F;
-                    graphics.fill(x + width - statusWidth, y + 4, x + width, y + 15, statusColor);
-                } finally {
-                    graphics.pose().popPose();
-                }
-                drawScaledString(graphics, minecraft.font, status, x + width - statusWidth + 4, y + 6,
-                        statusScale, 0xFFFFFFFF, false);
-            }
-        } finally {
-            graphics.disableScissor();
-        }
-    }
-
-    private static void renderExpandedOverlay(GuiGraphics graphics, String name, String type, String state,
-                                              int x, int y, int width, int height, String number, String status,
-                                              String statusTone) {
-        Minecraft minecraft = Minecraft.getInstance();
-        int left = x + Math.max(6, width / 18);
-        int availableWidth = Math.max(1, width - (left - x) - Math.max(7, width / 24));
-        int infoTop = y + Math.max(34, height - Math.max(49, height / 3));
-        float typeScale = clamp(width / 180.0f, 7.0f / 9.0f, 1.0f);
-        float nameScale = clamp(width / 115.0f, 10.0f / 9.0f, 14.0f / 9.0f);
-        float stateScale = clamp(width / 160.0f, 7.0f / 9.0f, 10.0f / 9.0f);
-        drawScaledString(graphics, minecraft.font, fitText(minecraft.font, type, availableWidth, typeScale),
-                left, infoTop, typeScale, 0xFFAAB4B8);
-        int nameTop = infoTop + Math.max(8, Math.round(9 * typeScale));
-        drawScaledString(graphics, minecraft.font, fitText(minecraft.font, name, availableWidth, nameScale),
-                left, nameTop, nameScale, 0xFFFFFFFF);
-        int stateTop = nameTop + Math.max(11, Math.round(10 * nameScale));
-        drawScaledString(graphics, minecraft.font, fitText(minecraft.font, state, availableWidth, stateScale),
-                left, stateTop, stateScale, 0xFFD0D6D8);
-        drawScaledString(graphics, minecraft.font, number, x + 7, y + 7, 8.0f / 9.0f, 0xDEFFFFFF);
-        if (status != null && !status.isBlank()) {
-            float statusScale = 6.0f / 9.0f;
-            int statusWidth = Math.max(25, Math.round(minecraft.font.width(status) * statusScale) + 10);
-            graphics.pose().pushPose();
-            try {
-                graphics.pose().translate(0.0f, 0.0f, 295.0f);
-                graphics.fill(x + width - statusWidth, y + 7, x + width, y + 18, 0xFFF1C94D);
-            } finally {
-                graphics.pose().popPose();
-            }
-            drawScaledString(graphics, minecraft.font, status, x + width - statusWidth + 5, y + 9,
-                    statusScale, 0xFF172027);
-        }
-    }
-
-    private static void renderProfileOverlay(GuiGraphics graphics, String name, String type, String state,
-                                             int x, int y, int width, int height) {
-        Minecraft minecraft = Minecraft.getInstance();
-        int left = x + 10;
-        int bottom = y + height - 10;
-        int availableWidth = Math.max(1, width - 20);
-        float typeScale = 7.0f / 9.0f;
-        float nameScale = 14.0f / 9.0f;
-        float stateScale = 8.0f / 9.0f;
-        graphics.pose().pushPose();
-        try {
-            graphics.pose().translate(0.0f, 0.0f, 294.0f);
-            graphics.fill(x, bottom - 55, x + width, y + height, 0xA80A1115);
-        } finally {
-            graphics.pose().popPose();
-        }
-        drawScaledString(graphics, minecraft.font, fitText(minecraft.font, type, availableWidth, typeScale),
-                left, bottom - 48, typeScale, 0xFF9EAAAF);
-        drawScaledString(graphics, minecraft.font, fitText(minecraft.font, name, availableWidth, nameScale),
-                left, bottom - 35, nameScale, 0xFFFFFFFF);
-        drawScaledString(graphics, minecraft.font, fitText(minecraft.font, state, availableWidth, stateScale),
-                left, bottom - 13, stateScale, 0xFFC9D1D4);
-    }
-
-    private static float clamp(float value, float minimum, float maximum) {
-        return Math.max(minimum, Math.min(maximum, value));
-    }
-
-    private static String fitText(Font font, String text, int availableWidth, float scale) {
-        if (text == null || text.isBlank()) return "";
-        int logicalWidth = Math.max(1, (int) Math.floor(availableWidth / Math.max(0.1f, scale)));
-        if (font.width(text) <= logicalWidth) return text;
-        int ellipsisWidth = font.width("...");
-        return font.plainSubstrByWidth(text, Math.max(1, logicalWidth - ellipsisWidth)) + "...";
-    }
-
-    private static void drawScaledString(GuiGraphics graphics, Font font, String text, int x, int y, float scale, int color) {
-        drawScaledString(graphics, font, text, x, y, scale, color, true);
-    }
-
-    private static void drawScaledString(GuiGraphics graphics, Font font, String text, int x, int y, float scale,
-                                         int color, boolean dropShadow) {
-        if (text == null || text.isBlank()) return;
-        graphics.pose().pushPose();
-        try {
-            graphics.pose().translate(x, y, 300.0f);
-            graphics.pose().scale(scale, scale, 1.0f);
-            graphics.drawString(font, text, 0, 0, color, dropShadow);
-        } finally {
-            graphics.pose().popPose();
-        }
-    }
-
     static void register() {
         Element.register(TAG_NAME, (document, ignored) -> new FindMePreviewElement(document));
     }
 
     private record CardOverlay(String mode, String name, String type, String team, int x, int y, int width, int height,
-                               String number, String status, String statusTone) {
+                               String number, String status, String statusTone,
+                               int clipLeft, int clipTop, int clipRight, int clipBottom) {
     }
 
     record CompanionListPacketEntry(java.util.UUID uuid, com.kuzhi.findme.network.CompanionListPacket.Entry companion,

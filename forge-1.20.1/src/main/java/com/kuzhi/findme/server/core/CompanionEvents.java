@@ -10,6 +10,7 @@ import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.server.safety.CompanionDeathService;
 import com.kuzhi.findme.server.safety.CompanionRecoveryService;
 import com.kuzhi.findme.server.safety.CompanionThreatMemoryService;
+import com.kuzhi.findme.server.safety.CompanionFriendlyFireService;
 import com.kuzhi.findme.server.safety.CompanionCriticalStateService;
 import com.kuzhi.findme.server.api.ExternalActionLeaseService;
 import com.kuzhi.findme.server.api.CompanionActionRequestService;
@@ -28,6 +29,7 @@ import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
 import net.minecraftforge.event.entity.living.LivingChangeTargetEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
@@ -161,6 +163,16 @@ public class CompanionEvents {
     @SubscribeEvent
     public void onLivingDrops(LivingDropsEvent event) {
         CompanionDeathService.handleLivingDrops(event);
+    }
+
+    @SubscribeEvent
+    public void onLivingAttack(LivingAttackEvent event) {
+        CompanionFriendlyFireService.handleAttack(event);
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onLivingChangeTargetFriendlyFire(LivingChangeTargetEvent event) {
+        CompanionFriendlyFireService.handleTargetChange(event);
     }
 
     @SubscribeEvent

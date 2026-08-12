@@ -141,6 +141,37 @@ public final class CompanionPlacementFinder {
                 Math.max(2, Config.DEFAULT_SAFE_SEARCH_RADIUS), 3);
     }
 
+    /** Generic air placement used before a stored entity has been restored. */
+    public static Optional<BlockPos> findOpenAirSpace(ServerLevel level, BlockPos origin,
+                                                       double width, double height) {
+        if (level == null || origin == null) return Optional.empty();
+        double safeWidth = Math.max(1.0D, width);
+        double safeHeight = Math.max(2.0D, height);
+        int radius = Math.max(4, Config.DEFAULT_SAFE_SEARCH_RADIUS);
+        // A tactical plan is a block anchor, not an entity origin. Starting at
+        // the anchor itself can restore a flying companion into a ground-level
+        // cavity or the underside of a ledge. Keep a small air clearance and
+        // let the normal ring search handle low ceilings.
+        for (int lift = 2; lift <= 14; lift++) {
+            for (int ring = 0; ring <= radius; ring++) {
+                for (int x = -ring; x <= ring; x++) {
+                    for (int z = -ring; z <= ring; z++) {
+                        if (ring > 0 && Math.abs(x) != ring && Math.abs(z) != ring) continue;
+                        BlockPos candidate = origin.offset(x, lift, z);
+                        if (!level.hasChunkAt(candidate) || !level.getFluidState(candidate).isEmpty()) continue;
+                        AABB box = new AABB(candidate.getX() + 0.5D - safeWidth * 0.5D,
+                                candidate.getY(), candidate.getZ() + 0.5D - safeWidth * 0.5D,
+                                candidate.getX() + 0.5D + safeWidth * 0.5D,
+                                candidate.getY() + safeHeight,
+                                candidate.getZ() + 0.5D + safeWidth * 0.5D);
+                        if (hasOpenBox(level, box) && level.noCollision(null, box)) return Optional.of(candidate);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     public static Optional<BlockPos> findTacticalEntitySpace(ServerLevel level, LivingEntity entity,
                                                                BlockPos origin, CompanionMoveType moveType) {
         int radius = Math.max(12, (int)Math.ceil(entity.getBbWidth() * 1.5) + 6);

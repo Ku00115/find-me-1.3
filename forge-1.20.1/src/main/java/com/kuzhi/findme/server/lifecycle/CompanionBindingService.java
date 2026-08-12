@@ -83,6 +83,25 @@ public final class CompanionBindingService {
         return bindAndStore(player, target, kind, false);
     }
 
+    static boolean bindAndDeploy(ServerPlayer player, LivingEntity target, CompanionKind kind) {
+        FindMeModule module = kind == CompanionKind.MOUNT ? FindMeModule.RIDING : FindMeModule.COMPANIONS;
+        if (!FindMeModuleService.require(player, module)) {
+            return false;
+        }
+        if (!CompanionBindingProfileService.applyForBinding(player, target)) {
+            return false;
+        }
+        PlayerCompanionData data = CompanionDataService.data(player);
+        if (data.uiSettings().autoStoreOnBinding()) {
+            if (!CompanionRegistrationService.registerContractedForStorage(player, target, kind)) {
+                return false;
+            }
+            CompanionLifecycleFacade.storeBoundTarget(player, data, kind, target, "binding:auto_store");
+            return true;
+        }
+        return CompanionRegistrationService.registerContracted(player, target, kind);
+    }
+
     private static boolean bindAndStore(ServerPlayer player, LivingEntity target, CompanionKind kind,
                                         boolean force) {
         FindMeModule module = kind == CompanionKind.MOUNT ? FindMeModule.RIDING : FindMeModule.COMPANIONS;
