@@ -157,7 +157,7 @@ final class CompanionCommandWheelScreen extends FindMeScreen {
                 : Component.literal(this.target.entry().name());
         FindMeWheelRenderer.drawCommandHeader(graphics, this.title, subject.getString(), fade);
         com.kuzhi.findme.api.CompanionMagicState magicState = displayedMagicState();
-        if (magicState.available()) {
+        if (FindMeReleaseFeatures.COMPANION_ABILITIES && magicState.available()) {
             String mana = Component.translatable("screen.find_me.spell_slot.mana").getString() + "  "
                     + Math.round(magicState.mana()) + " / " + Math.round(magicState.maxMana());
             FindMeWheelRenderer.drawManaBar(graphics, mana, magicState.mana() / magicState.maxMana(), fade);

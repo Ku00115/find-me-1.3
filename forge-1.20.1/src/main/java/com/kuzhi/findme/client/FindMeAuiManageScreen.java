@@ -4446,9 +4446,10 @@ public final class FindMeAuiManageScreen extends FindMeAuiOverlayScreen {
     }
 
     private boolean spellUiAvailable(Card card) {
-        return com.kuzhi.findme.api.FindMeApi.hasCompanionSpellProviders()
+        return FindMeReleaseFeatures.COMPANION_ABILITIES
+                && (com.kuzhi.findme.api.FindMeApi.hasCompanionSpellProviders()
                 || card != null && card.previewEntry() != null
-                && card.previewEntry().spellBindings().stream().anyMatch(java.util.Objects::nonNull);
+                && card.previewEntry().spellBindings().stream().anyMatch(java.util.Objects::nonNull));
     }
 
     private void appendSpellPicker(StringBuilder html) {

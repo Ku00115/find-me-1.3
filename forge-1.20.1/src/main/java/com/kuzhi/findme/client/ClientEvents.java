@@ -98,7 +98,9 @@ public final class ClientEvents {
         event.register(MOUNT_KEY);
         event.register(COMPANION_KEY);
         event.register(COMMAND_KEY);
-        event.register(ABILITY_KEY);
+        if (FindMeReleaseFeatures.COMPANION_ABILITIES) {
+            event.register(ABILITY_KEY);
+        }
         event.register(MANAGE_KEY);
         event.register(GUI_INSPECTOR_KEY);
     }
@@ -571,7 +573,8 @@ public final class ClientEvents {
                 rawCompanionDown = event.getAction() != 0;
             } else if (COMMAND_KEY.matches(event.getKey(), event.getScanCode())) {
                 rawCommandDown = event.getAction() != GLFW.GLFW_RELEASE;
-            } else if (ABILITY_KEY.matches(event.getKey(), event.getScanCode())) {
+            } else if (FindMeReleaseFeatures.COMPANION_ABILITIES
+                    && ABILITY_KEY.matches(event.getKey(), event.getScanCode())) {
                 rawAbilityDown = event.getAction() != GLFW.GLFW_RELEASE;
             }
         }
@@ -584,7 +587,8 @@ public final class ClientEvents {
                 rawCompanionDown = event.getAction() != 0;
             } else if (COMMAND_KEY.matchesMouse(event.getButton())) {
                 rawCommandDown = event.getAction() != GLFW.GLFW_RELEASE;
-            } else if (ABILITY_KEY.matchesMouse(event.getButton())) {
+            } else if (FindMeReleaseFeatures.COMPANION_ABILITIES
+                    && ABILITY_KEY.matchesMouse(event.getButton())) {
                 rawAbilityDown = event.getAction() != GLFW.GLFW_RELEASE;
             }
         }
@@ -631,7 +635,9 @@ public final class ClientEvents {
             ClientEvents.tickKey(CompanionKind.MOUNT, MOUNT_KEY);
             ClientEvents.tickKey(CompanionKind.COMPANION, COMPANION_KEY);
             ClientEvents.tickCommandKey();
-            ClientEvents.tickAbilityKey();
+            if (FindMeReleaseFeatures.COMPANION_ABILITIES) {
+                ClientEvents.tickAbilityKey();
+            }
             ClientCameraLock.tick();
             ClientContractCamera.tick();
             ClientMountApproachPresentationState.tick();

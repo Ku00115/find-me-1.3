@@ -447,6 +447,7 @@ extends FindMeScreen {
     }
 
     private static void drawSharedMana(GuiGraphics graphics, float fade) {
+        if (!FindMeReleaseFeatures.COMPANION_ABILITIES) return;
         com.kuzhi.findme.api.CompanionMagicState state = ClientCompanionState.allEntries(CompanionKind.COMPANION)
                 .stream().map(CompanionListPacket.Entry::magicState)
                 .filter(com.kuzhi.findme.api.CompanionMagicState::available).findFirst()
