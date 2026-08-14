@@ -354,6 +354,43 @@ public final class CompanionStorageService {
         return true;
     }
 
+    /** Immediate presentation-free storage boundary for bounded addon tasks. */
+    public static boolean storeExternalTaskSilently(ServerPlayer player, PlayerCompanionData data,
+                                                    LivingEntity living, String source) {
+        if (player == null || data == null || living == null || !living.isAlive()
+                || !data.contains(living.getUUID()) || isStoragePending(living)) {
+            return false;
+        }
+        UUID uuid = living.getUUID();
+        CompanionKind kind = data.kindOf(uuid).orElse(CompanionKind.COMPANION);
+        String operationSource = source == null || source.isBlank() ? "api:silent_store" : source;
+        if (!CompanionOperationLockService.tryBegin(player, uuid,
+                CompanionOperationLockService.Operation.STORE, operationSource)) {
+            return false;
+        }
+        CompanionTransientStateService.cancelTarget(player, data, uuid,
+                CompanionTransientStateService.Reason.MANUAL_STORE);
+        CompanionHomeResidentService.clearResident(living);
+        if (!storeEntity(player, data, living) || !hasValidStoredSnapshot(data, uuid)) {
+            CompanionOperationLockService.end(player, uuid,
+                    CompanionOperationLockService.Operation.STORE, "external_silent_snapshot_failed");
+            return false;
+        }
+        if (player.getVehicle() == living) player.stopRiding();
+        living.stopRiding();
+        markIntentionalStorageRemoval(player.getServer(), uuid);
+        living.discard();
+        data.clearDeployed(kind, uuid);
+        data.setLifecycleState(uuid, CompanionLifecycleState.STORED);
+        CompanionDataService.save(player, data);
+        CompanionSyncService.syncToClient(player, kind);
+        CompanionOperationLockService.end(player, uuid,
+                CompanionOperationLockService.Operation.STORE, "external_silent_stored");
+        FindMeDebugLogger.lifecycle("EXTERNAL_SILENT_STORED", player, uuid, living,
+                "DEPLOYED", "STORED", operationSource, true, false);
+        return true;
+    }
+
     /** Immediate write-before-remove boundary used by an authoritative category transfer. */
     public static boolean storeImmediatelyForCategoryTransfer(ServerPlayer player, PlayerCompanionData data,
                                                                CompanionKind kind, LivingEntity living) {

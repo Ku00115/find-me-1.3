@@ -5,6 +5,7 @@ import com.kuzhi.findme.api.CompanionActionRequest.Action;
 import com.kuzhi.findme.api.CompanionActionRequest.Reason;
 import com.kuzhi.findme.api.CompanionActionRequest.State;
 import com.kuzhi.findme.api.CompanionDescriptor;
+import com.kuzhi.findme.api.FindMeCompanionApi;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.server.core.CompanionOperationLockService;
 import com.kuzhi.findme.server.data.CompanionDataService;
@@ -22,6 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
 
 public final class CompanionActionRequestService {
     private static final int DEFAULT_TIMEOUT_TICKS = 20 * 30;
@@ -41,6 +43,18 @@ public final class CompanionActionRequestService {
     public static CompanionActionRequest submit(ServerPlayer owner, UUID companionUuid, UUID requestId,
                                                  Action action, int timeoutTicks,
                                                  CompanionDeploymentPlan plan) {
+        return submit(owner, companionUuid, requestId, action, timeoutTicks, plan, false);
+    }
+
+    public static CompanionActionRequest submitSilent(ServerPlayer owner, UUID companionUuid, UUID requestId,
+                                                       Action action, int timeoutTicks,
+                                                       CompanionDeploymentPlan plan) {
+        return submit(owner, companionUuid, requestId, action, timeoutTicks, plan, true);
+    }
+
+    private static CompanionActionRequest submit(ServerPlayer owner, UUID companionUuid, UUID requestId,
+                                                  Action action, int timeoutTicks,
+                                                  CompanionDeploymentPlan plan, boolean silent) {
         if (owner == null) return invalid(requestId, null, companionUuid, action, 0L);
         long now = owner.serverLevel().getGameTime();
         if (requestId == null || companionUuid == null || action == null) {
@@ -79,7 +93,7 @@ public final class CompanionActionRequestService {
                 action, now, now + duration, State.PENDING, Reason.NONE, 0L);
         REQUESTS.put(key, entry);
         PlayerCompanionData data = CompanionDataService.data(owner);
-        StartResult started = start(owner, data, descriptor, action, requestId, plan);
+        StartResult started = start(owner, data, descriptor, action, requestId, plan, silent);
         entry.operationOwned = started.operationOwned();
         if (!started.accepted()) {
             entry.finish(State.REJECTED, Reason.UNAVAILABLE, now);
@@ -157,20 +171,36 @@ public final class CompanionActionRequestService {
 
     private static StartResult start(ServerPlayer owner, PlayerCompanionData data,
                                      CompanionDescriptor descriptor, Action action, UUID requestId,
-                                     CompanionDeploymentPlan plan) {
+                                     CompanionDeploymentPlan plan, boolean silent) {
         if (action == Action.STORE) {
+            if (silent) {
+                LivingEntity living = FindMeCompanionApi.liveEntity(owner.getServer(), owner.getUUID(),
+                        descriptor.companionUuid()).orElse(null);
+                boolean accepted = living != null && CompanionStorageService.storeExternalTaskSilently(
+                        owner, data, living, "api:silent_store:" + requestId);
+                return new StartResult(accepted, false);
+            }
             boolean alreadyPending = CompanionStorageService.isStoragePending(descriptor.companionUuid());
             boolean accepted = CompanionCollectionService.collectUuid(owner, data, descriptor.kind(),
                     descriptor.companionUuid());
             return new StartResult(accepted, accepted && !alreadyPending && CompanionStorageService.isStoragePending(
                     descriptor.companionUuid()));
         }
-        CompanionDeployRequestService.Result result = action == Action.TASK_DEPLOY
-                ? CompanionDeployRequestService.requestExternalTask(owner, data, descriptor.kind(),
-                descriptor.companionUuid(), "api:task_deploy:" + requestId, plan)
-                : CompanionDeployRequestService.request(owner, data, descriptor.kind(),
-                descriptor.companionUuid(), CompanionDeployRequestService.Mode.AUTONOMOUS,
-                "api:external_deploy:" + requestId);
+        CompanionDeployRequestService.Result result;
+        if (action == Action.TASK_DEPLOY) {
+            result = silent
+                    ? CompanionDeployRequestService.requestExternalTaskSilent(owner, data, descriptor.kind(),
+                    descriptor.companionUuid(), "api:silent_task_deploy:" + requestId, plan)
+                    : CompanionDeployRequestService.requestExternalTask(owner, data, descriptor.kind(),
+                    descriptor.companionUuid(), "api:task_deploy:" + requestId, plan);
+        } else {
+            result = silent
+                    ? CompanionDeployRequestService.requestExternalDeploySilent(owner, data, descriptor.kind(),
+                    descriptor.companionUuid(), "api:silent_deploy:" + requestId)
+                    : CompanionDeployRequestService.request(owner, data, descriptor.kind(),
+                    descriptor.companionUuid(), CompanionDeployRequestService.Mode.AUTONOMOUS,
+                    "api:external_deploy:" + requestId);
+        }
         return new StartResult(result.state() != CompanionDeployRequestService.State.REJECTED,
                 result.operationStarted());
     }

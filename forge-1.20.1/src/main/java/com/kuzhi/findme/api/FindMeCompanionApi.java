@@ -88,6 +88,13 @@ public final class FindMeCompanionApi {
                 CompanionActionRequest.Action.DEPLOY, timeoutTicks);
     }
 
+    /** Deploys a companion without summon presentation effects. */
+    public static CompanionActionRequest requestDeploySilent(ServerPlayer owner, UUID companionUuid,
+                                                              UUID requestId, int timeoutTicks) {
+        return CompanionActionRequestService.submitSilent(owner, companionUuid, requestId,
+                CompanionActionRequest.Action.DEPLOY, timeoutTicks, null);
+    }
+
     /**
      * Deploys a companion for a bounded addon task without consuming the player's normal deployment limit.
      * The task owner must release companions it temporarily deployed through {@link #requestStore}.
@@ -109,10 +116,25 @@ public final class FindMeCompanionApi {
                 CompanionActionRequest.Action.TASK_DEPLOY, timeoutTicks, plan);
     }
 
+    /** Deploys an addon task companion without summon presentation effects. */
+    public static CompanionActionRequest requestTaskDeploySilent(ServerPlayer owner, UUID companionUuid,
+                                                                  UUID requestId, int timeoutTicks,
+                                                                  CompanionDeploymentPlan plan) {
+        return CompanionActionRequestService.submitSilent(owner, companionUuid, requestId,
+                CompanionActionRequest.Action.TASK_DEPLOY, timeoutTicks, plan);
+    }
+
     public static CompanionActionRequest requestStore(ServerPlayer owner, UUID companionUuid,
                                                        UUID requestId, int timeoutTicks) {
         return CompanionActionRequestService.submit(owner, companionUuid, requestId,
                 CompanionActionRequest.Action.STORE, timeoutTicks);
+    }
+
+    /** Stores an addon task companion immediately without storage presentation effects. */
+    public static CompanionActionRequest requestStoreSilent(ServerPlayer owner, UUID companionUuid,
+                                                             UUID requestId, int timeoutTicks) {
+        return CompanionActionRequestService.submitSilent(owner, companionUuid, requestId,
+                CompanionActionRequest.Action.STORE, timeoutTicks, null);
     }
 
     public static Optional<CompanionActionRequest> requestStatus(MinecraftServer server, UUID ownerUuid,

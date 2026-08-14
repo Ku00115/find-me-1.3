@@ -54,12 +54,29 @@ public final class CompanionDeployRequestService {
     public static Result requestExternalTask(ServerPlayer player, PlayerCompanionData data,
                                              CompanionKind kind, UUID uuid, String source,
                                              CompanionDeploymentPlan plan) {
-        return request(player, data, kind, uuid, Mode.AUTONOMOUS, source, plan, false);
+        return request(player, data, kind, uuid, Mode.AUTONOMOUS, source, plan, false, true);
+    }
+
+    public static Result requestExternalTaskSilent(ServerPlayer player, PlayerCompanionData data,
+                                                   CompanionKind kind, UUID uuid, String source,
+                                                   CompanionDeploymentPlan plan) {
+        return request(player, data, kind, uuid, Mode.AUTONOMOUS, source, plan, false, false);
+    }
+
+    public static Result requestExternalDeploySilent(ServerPlayer player, PlayerCompanionData data,
+                                                     CompanionKind kind, UUID uuid, String source) {
+        return request(player, data, kind, uuid, Mode.AUTONOMOUS, source, null, true, false);
     }
 
     private static Result request(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
                                   UUID uuid, Mode mode, String source, CompanionDeploymentPlan plan,
                                   boolean countTowardDeploymentLimit) {
+        return request(player, data, kind, uuid, mode, source, plan, countTowardDeploymentLimit, true);
+    }
+
+    private static Result request(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
+                                  UUID uuid, Mode mode, String source, CompanionDeploymentPlan plan,
+                                  boolean countTowardDeploymentLimit, boolean presentationEnabled) {
         if (data.isRecovery(uuid)) {
             return new Result(State.REJECTED, null);
         }
@@ -79,7 +96,8 @@ public final class CompanionDeployRequestService {
             CompanionSyncService.syncToClient(player, kind);
         }
         if (mode == Mode.AUTONOMOUS) {
-            return deployDirect(player, data, kind, uuid, source, plan, countTowardDeploymentLimit);
+            return deployDirect(player, data, kind, uuid, source, plan, countTowardDeploymentLimit,
+                    presentationEnabled);
         }
         boolean accepted = mode == Mode.AUTONOMOUS
                 ? CompanionLifecycleFacade.summonActiveForTacticalOrder(player, data, kind, source)
@@ -107,7 +125,7 @@ public final class CompanionDeployRequestService {
 
     private static Result deployDirect(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
                                        UUID uuid, String source, CompanionDeploymentPlan plan,
-                                       boolean countTowardDeploymentLimit) {
+                                       boolean countTowardDeploymentLimit, boolean presentationEnabled) {
         Entity found = CompanionEntityLookup.locateEntity(player.getServer(), data, uuid).orElse(null);
         if (found instanceof LivingEntity resident && CompanionHomeResidentService.isResident(uuid)) {
             if (!CompanionStorageService.snapshotAndDiscardHomeResidentForSummon(player, data, resident)) {
@@ -194,7 +212,7 @@ public final class CompanionDeployRequestService {
                 deployed.getZ(), deployed.getYRot(), deployed.getXRot()));
         CompanionDataService.save(player, data);
         if (plan == null) CompanionSyncService.syncToClient(player, kind);
-        if (kind == CompanionKind.COMPANION) {
+        if (presentationEnabled && kind == CompanionKind.COMPANION) {
             CompanionArrivalMagicService.openEffectAt(player, deployed, deployed.position(), player.position(), 42,
                     RescueMagicPacket.Style.GROUND_CIRCLE, RescueMagicPacket.Purpose.SUMMON);
         }
