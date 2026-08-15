@@ -63,6 +63,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.decoration.HangingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -1094,10 +1095,17 @@ public final class VehicleManager {
     }
 
     private static boolean isBindableVehicle(Entity entity) {
-        if (entity == null || entity instanceof Player || entity instanceof LivingEntity || entity instanceof ItemEntity || entity instanceof ExperienceOrb || entity instanceof Projectile) {
-            return false;
-        }
-        return true;
+        return entity != null && isBindableVehicleClass(entity.getClass());
+    }
+
+    static boolean isBindableVehicleClass(Class<?> entityClass) {
+        return entityClass != null
+                && !Player.class.isAssignableFrom(entityClass)
+                && !LivingEntity.class.isAssignableFrom(entityClass)
+                && !HangingEntity.class.isAssignableFrom(entityClass)
+                && !ItemEntity.class.isAssignableFrom(entityClass)
+                && !ExperienceOrb.class.isAssignableFrom(entityClass)
+                && !Projectile.class.isAssignableFrom(entityClass);
     }
 
     public static Entity unwrapPart(Entity entity) {
