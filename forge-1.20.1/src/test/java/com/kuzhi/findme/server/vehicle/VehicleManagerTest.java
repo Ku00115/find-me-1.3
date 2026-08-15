@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class VehicleManagerTest {
     @Test
-    void itemFramesAreNotBindableVehicles() {
+    void itemFramesAreLeftForVanillaInteraction() {
         assertFalse(VehicleManager.isBindableVehicleClass(ItemFrame.class));
         assertFalse(VehicleManager.isBindableVehicleClass(GlowItemFrame.class));
     }

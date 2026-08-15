@@ -94,6 +94,10 @@ public final class VehicleManager {
         if (!isBinder(event.getItemStack())) {
             return false;
         }
+        Entity target = unwrapPart(event.getTarget());
+        if (!isBindableVehicle(target)) {
+            return false;
+        }
         Player player = event.getEntity();
         event.setCanceled(true);
         if (player.level().isClientSide()) {
@@ -104,7 +108,7 @@ public final class VehicleManager {
             event.setCancellationResult(InteractionResult.FAIL);
             return true;
         }
-        boolean bound = bindVehicle(serverPlayer, event.getTarget(), event.getHand());
+        boolean bound = bindVehicle(serverPlayer, target, event.getHand());
         event.setCancellationResult(bound ? InteractionResult.CONSUME : InteractionResult.FAIL);
         return true;
     }
