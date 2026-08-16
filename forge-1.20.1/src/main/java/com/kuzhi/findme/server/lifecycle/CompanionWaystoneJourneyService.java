@@ -111,6 +111,16 @@ public final class CompanionWaystoneJourneyService {
         return 1;
     }
 
+    static boolean cancelAcquiringRescue(ServerPlayer player, UUID mountUuid, String reason) {
+        Journey journey = player == null ? null : JOURNEYS.get(player.getUUID());
+        if (journey == null || journey.stage != Stage.ACQUIRING
+                || !journey.mountUuid.equals(mountUuid)) {
+            return false;
+        }
+        cancel(player, journey, reason, null);
+        return true;
+    }
+
     public static void resetServerState(MinecraftServer server) {
         for (Journey journey : new ArrayList<>(JOURNEYS.values())) abandon(server, journey, "server_stopped");
     }

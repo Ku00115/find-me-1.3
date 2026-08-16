@@ -164,6 +164,16 @@ public final class CompanionRideHomeJourneyService {
         return 1;
     }
 
+    static boolean cancelAcquiringRescue(ServerPlayer player, UUID mountUuid, String reason) {
+        Journey journey = player == null ? null : JOURNEYS.get(player.getUUID());
+        if (journey == null || journey.stage != Stage.ACQUIRING
+                || !journey.mountUuid.equals(mountUuid)) {
+            return false;
+        }
+        cancel(player, journey, reason);
+        return true;
+    }
+
     public static boolean bypassesTravelLifecycle(ServerPlayer player) {
         if (player == null) {
             return false;

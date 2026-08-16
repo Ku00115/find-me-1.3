@@ -898,7 +898,9 @@ public final class CompanionMountCinematicFlowService {
     }
 
     private static void failMountCinematicTransactions(ServerPlayer player, UUID mountUuid,
-                                                        String reason) {
+                                                         String reason) {
+        CompanionRideHomeJourneyService.cancelAcquiringRescue(player, mountUuid, reason);
+        CompanionWaystoneJourneyService.cancelAcquiringRescue(player, mountUuid, reason);
         CompanionWheelTransactionService.failLatest(player, CompanionKind.MOUNT, mountUuid, reason);
         MountRosterTransactionService.failLatest(player, mountUuid, reason);
     }

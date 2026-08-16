@@ -58,13 +58,25 @@ public final class CompanionCinematicMovementService {
             horizontal = horizontal.normalize();
             moveMountedWalkStep(mount, horizontal, speed);
             motionDirection = horizontal;
+        } else if (moveType == CompanionMoveType.FLY && mount.level() instanceof ServerLevel level) {
+            double climbSpeed = Math.max(speed,
+                    CompanionCinematicSpeedService.normalSummonSpeed(CompanionMoveType.FLY, 8.0));
+            boolean forwardOpen = CompanionPlacementFinder.hasOpenEntitySpace(level, mount,
+                    mount.getX() + step.x, mount.getY() + step.y, mount.getZ() + step.z);
+            boolean upwardOpen = CompanionPlacementFinder.hasOpenEntitySpace(level, mount,
+                    mount.getX(), mount.getY() + climbSpeed, mount.getZ());
+            step = selectMountedFlightStep(direction, speed, forwardOpen, upwardOpen, climbSpeed);
+            motionDirection = step.lengthSqr() < 1.0E-6 ? direction : step.normalize();
+            mount.move(MoverType.SELF, step);
         } else {
             mount.move(MoverType.SELF, step);
         }
-        float yaw = CompanionCinematicOrientationHelper.yawTowardStable(mount, direction);
+        Vec3 facingDirection = motionDirection.horizontalDistanceSqr() < 1.0E-4
+                ? direction : motionDirection;
+        float yaw = CompanionCinematicOrientationHelper.yawTowardStable(mount, facingDirection);
         CompanionCinematicOrientationHelper.faceYaw(mount, yaw);
         if (moveType == CompanionMoveType.FLY) {
-            mount.setXRot(CompanionCinematicOrientationHelper.pitchToward(direction));
+            mount.setXRot(CompanionCinematicOrientationHelper.pitchToward(motionDirection));
             CompanionAnimationHelper.forceFlyingAnimationPose(mount);
         }
         mount.setDeltaMovement(motionDirection.scale(speed * (moveType == CompanionMoveType.FLY ? 0.35 : 0.55)));
@@ -72,6 +84,16 @@ public final class CompanionCinematicMovementService {
         mount.hurtMarked = true;
         player.fallDistance = 0.0f;
         return Math.sqrt(step.x * step.x + step.z * step.z);
+    }
+
+    static Vec3 selectMountedFlightStep(Vec3 direction, double speed, boolean forwardOpen,
+                                        boolean upwardOpen, double climbSpeed) {
+        Vec3 safeDirection = direction == null || direction.lengthSqr() < 1.0E-6
+                ? new Vec3(0.0, 0.0, 1.0) : direction.normalize();
+        if (!forwardOpen && upwardOpen) {
+            return new Vec3(0.0, Math.max(speed, climbSpeed), 0.0);
+        }
+        return safeDirection.scale(speed);
     }
 
     private static void moveMountedWalkStep(LivingEntity mount, Vec3 horizontal, double speed) {
