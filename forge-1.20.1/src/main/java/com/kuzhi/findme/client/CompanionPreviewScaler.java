@@ -1,6 +1,5 @@
 package com.kuzhi.findme.client;
 
-import com.kuzhi.findme.Config;
 import com.kuzhi.findme.network.CompanionListPacket;
 import java.util.Collections;
 import java.util.Map;
@@ -29,7 +28,7 @@ final class CompanionPreviewScaler {
         double scale = usableDiameter / Math.max(0.75, diagonal);
         scale = Math.min(scale, usableDiameter * 0.94 / Math.max(0.75, height));
         scale = Math.min(scale, usableDiameter * 0.94 / Math.max(0.75, horizontal));
-        return applyOverride(entry, scale, 0.18, 42.0);
+        return clampScale(scale, 0.18, 42.0);
     }
 
     static int wheelBottomOffset(CompanionListPacket.Entry entry, Entity entity, float scale, float radius) {
@@ -45,7 +44,7 @@ final class CompanionPreviewScaler {
         double depth = dimensions.depth();
         double maxSize = Math.max(Math.max(width, depth) * 1.15, height);
         double scale = (double)boxSize / Math.max(0.75, maxSize);
-        return applyOverride(entry, scale, 0.12, maxScale);
+        return clampScale(scale, 0.12, maxScale);
     }
 
     static float fittedScale(CompanionListPacket.Entry entry, Entity entity, float availableWidth, float availableHeight) {
@@ -54,7 +53,7 @@ final class CompanionPreviewScaler {
         double projectedHeight = dimensions.height() * 1.08;
         double scale = Math.min(Math.max(4.0, availableWidth) / Math.max(0.75, projectedWidth),
                 Math.max(4.0, availableHeight) / Math.max(0.75, projectedHeight));
-        return applyOverride(entry, scale, 0.12, 42.0);
+        return clampScale(scale, 0.12, 42.0);
     }
 
     static float silhouetteScale(CompanionListPacket.Entry entry, Entity entity) {
@@ -66,15 +65,18 @@ final class CompanionPreviewScaler {
     }
 
     private static double previewWidth(CompanionListPacket.Entry entry, Entity entity) {
-        return CompanionPreviewScaler.previewDimension(entry, "CompanionPreviewWidth", entity.getBbWidth(), CompanionPreviewScaler.iceAndFireDragonMinimum(entry, 7.5));
+        return CompanionPreviewScaler.previewDimension(entry.previewTag(), "CompanionPreviewBodyWidth",
+                "CompanionPreviewWidth", entity.getBbWidth(), CompanionPreviewScaler.iceAndFireDragonMinimum(entry, 7.5));
     }
 
     private static double previewHeight(CompanionListPacket.Entry entry, Entity entity) {
-        return CompanionPreviewScaler.previewDimension(entry, "CompanionPreviewHeight", entity.getBbHeight(), CompanionPreviewScaler.iceAndFireDragonMinimum(entry, 5.5));
+        return CompanionPreviewScaler.previewDimension(entry.previewTag(), "CompanionPreviewBodyHeight",
+                "CompanionPreviewHeight", entity.getBbHeight(), CompanionPreviewScaler.iceAndFireDragonMinimum(entry, 5.5));
     }
 
     private static double previewDepth(CompanionListPacket.Entry entry, Entity entity) {
-        return CompanionPreviewScaler.previewDimension(entry, "CompanionPreviewDepth", entity.getBbWidth(), CompanionPreviewScaler.iceAndFireDragonMinimum(entry, 7.5));
+        return CompanionPreviewScaler.previewDimension(entry.previewTag(), "CompanionPreviewBodyDepth",
+                "CompanionPreviewDepth", entity.getBbWidth(), CompanionPreviewScaler.iceAndFireDragonMinimum(entry, 7.5));
     }
 
     private static PreviewDimensions stableDimensions(CompanionListPacket.Entry entry, Entity entity) {
@@ -96,9 +98,9 @@ final class CompanionPreviewScaler {
             return;
         }
         STABLE_DIMENSIONS.put(entity, new PreviewDimensions(
-                Math.max(0.75, previewDimension(previewTag, "CompanionPreviewWidth", entity.getBbWidth(), iceAndFireDragonMinimum(entry, 7.5))),
-                Math.max(0.75, previewDimension(previewTag, "CompanionPreviewHeight", entity.getBbHeight(), iceAndFireDragonMinimum(entry, 5.5))),
-                Math.max(0.75, previewDimension(previewTag, "CompanionPreviewDepth", entity.getBbWidth(), iceAndFireDragonMinimum(entry, 7.5)))
+                Math.max(0.75, previewDimension(previewTag, "CompanionPreviewBodyWidth", "CompanionPreviewWidth", entity.getBbWidth(), iceAndFireDragonMinimum(entry, 7.5))),
+                Math.max(0.75, previewDimension(previewTag, "CompanionPreviewBodyHeight", "CompanionPreviewHeight", entity.getBbHeight(), iceAndFireDragonMinimum(entry, 5.5))),
+                Math.max(0.75, previewDimension(previewTag, "CompanionPreviewBodyDepth", "CompanionPreviewDepth", entity.getBbWidth(), iceAndFireDragonMinimum(entry, 7.5)))
         ));
     }
 
@@ -106,10 +108,6 @@ final class CompanionPreviewScaler {
         if (entity != null) {
             STABLE_DIMENSIONS.remove(entity);
         }
-    }
-
-    private static double previewDimension(CompanionListPacket.Entry entry, String key, double fallback, double minimum) {
-        return previewDimension(entry.previewTag(), key, fallback, minimum);
     }
 
     private static double previewDimension(CompoundTag tag, String key, double fallback, double minimum) {
@@ -122,20 +120,24 @@ final class CompanionPreviewScaler {
         return Math.max(fallback, minimum);
     }
 
+    static double previewDimension(CompoundTag tag, String bodyKey, String visualKey,
+                                   double fallback, double minimum) {
+        if (tag != null && tag.contains(bodyKey)) {
+            float value = tag.getFloat(bodyKey);
+            if (Float.isFinite(value) && value > 0.0f) {
+                return Math.max((double)value, minimum);
+            }
+        }
+        return previewDimension(tag, visualKey, fallback, minimum);
+    }
+
     private static double iceAndFireDragonMinimum(CompanionListPacket.Entry entry, double minimum) {
         String key = entry.entityType() == null ? "" : entry.entityType().toLowerCase(Locale.ROOT);
         return key.equals("iceandfire:fire_dragon") || key.equals("iceandfire:ice_dragon") || key.equals("iceandfire:lightning_dragon") ? minimum : 0.0;
     }
 
-    private static float applyOverride(CompanionListPacket.Entry entry, double scale, double minimum, double maximum) {
-        Double override = override(entry);
-        double multiplier = override == null || !Double.isFinite(override) ? 1.0 : Math.max(0.1, Math.min(4.0, override));
-        return (float)Math.max(minimum, Math.min(maximum, scale * multiplier));
-    }
-
-    private static Double override(CompanionListPacket.Entry entry) {
-        String key = entry.entityType() == null ? "" : entry.entityType().toLowerCase(Locale.ROOT);
-        return Config.previewScaleOverrides.get(key);
+    private static float clampScale(double scale, double minimum, double maximum) {
+        return (float)Math.max(minimum, Math.min(maximum, scale));
     }
 
     private record PreviewDimensions(double width, double height, double depth) {

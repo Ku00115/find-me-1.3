@@ -13,7 +13,6 @@ public final class CompanionRescuePlanner {
     private static final int MAX_SIMULATION_TICKS = 240;
     private static final int RAPID_TICKS = 30;
     private static final int SAFETY_MARGIN_TICKS = 6;
-    private static final double LANDING_SUMMON_MAX_DISTANCE = 10.0;
 
     private CompanionRescuePlanner() {
     }
@@ -44,11 +43,12 @@ public final class CompanionRescuePlanner {
         double predictedFallDistance = reliableLanding ? player.fallDistance + groundDistance : Double.POSITIVE_INFINITY;
         double expectedDamage = waterLanding || slowFalling ? 0.0
                 : Math.max(0.0, predictedFallDistance - 3.0);
-        double configuredDanger = Math.max(1.0, Config.rescueMinFallDistance - 3.0);
+        double configuredDanger = Math.max(1.0, Config.DEFAULT_RESCUE_DANGER_DISTANCE - 3.0);
         boolean waterRescue = waterLanding
-                && shouldRescueWaterLanding(predictedFallDistance, Config.rescueMinFallDistance);
+                && shouldRescueWaterLanding(predictedFallDistance, Config.DEFAULT_RESCUE_DANGER_DISTANCE);
         boolean landingSummon = reliableLanding && !waterLanding && !slowFalling
-                && groundDistance > 0.5 && groundDistance <= LANDING_SUMMON_MAX_DISTANCE;
+                && groundDistance > 0.5 && !canPlayCinematic(groundDistance,
+                Config.rescueCinematicMinHeight, Config.rescueHoverMinHeight);
         boolean shouldRescue = !reliableLanding || waterRescue || landingSummon
                 || expectedDamage >= configuredDanger;
         Urgency urgency = !shouldRescue ? Urgency.NONE
@@ -106,6 +106,16 @@ public final class CompanionRescuePlanner {
                 && predictedFallDistance >= Math.max(1.0, configuredThreshold);
     }
 
+    static boolean canPlayCinematic(double groundDistance, double configuredMinimumHeight,
+                                    double hoverMinimumHeight) {
+        if (!Double.isFinite(groundDistance)) {
+            return true;
+        }
+        double requiredHeight = Math.max(Math.max(4.0, configuredMinimumHeight),
+                Math.max(2.0, hoverMinimumHeight) + 3.0);
+        return groundDistance >= requiredHeight;
+    }
+
     private static boolean isWaterLanding(ServerLevel level, BlockPos landing) {
         return level.getFluidState(landing).is(FluidTags.WATER)
                 || level.getFluidState(landing.below()).is(FluidTags.WATER);
@@ -138,8 +148,13 @@ public final class CompanionRescuePlanner {
         }
 
         public RescueFlightMode flightMode() {
-            return this.shouldRescue && this.reliableLanding && this.groundDistance <= LANDING_SUMMON_MAX_DISTANCE
+            return this.shouldRescue && this.reliableLanding && !this.playsCinematic()
                     ? RescueFlightMode.LANDING_SUMMON : RescueFlightMode.HOVER;
+        }
+
+        public boolean playsCinematic() {
+            return !this.shouldRescue || canPlayCinematic(this.groundDistance,
+                    Config.rescueCinematicMinHeight, Config.rescueHoverMinHeight);
         }
 
         public double approachDistance(boolean flying) {

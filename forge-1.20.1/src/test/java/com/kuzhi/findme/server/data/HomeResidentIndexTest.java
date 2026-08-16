@@ -43,6 +43,7 @@ class HomeResidentIndexTest {
         storedTag.putFloat("CompanionPreviewHeight", 2.2f);
         data.storeEntity(storedMount, storedTag);
         data.setLifecycleState(storedMount, CompanionLifecycleState.HOME_STORED);
+        data.setCritical(storedMount, true);
 
         data.add(CompanionKind.COMPANION, deployedCompanion);
         data.setDeployed(CompanionKind.COMPANION, deployedCompanion);
@@ -59,6 +60,7 @@ class HomeResidentIndexTest {
         assertEquals(CompanionLifecycleState.HOME_STORED, mount.lifecycleState());
         assertFalse(mount.deployed());
         assertTrue(mount.stored());
+        assertTrue(mount.critical());
         assertEquals(home, mount.homePosition());
         assertEquals(nest, mount.homeNestBlock());
         assertEquals(house, mount.houseId());
@@ -71,6 +73,7 @@ class HomeResidentIndexTest {
         assertEquals(CompanionLifecycleState.DEPLOYED, companion.lifecycleState());
         assertTrue(companion.deployed());
         assertFalse(companion.stored());
+        assertFalse(companion.critical());
         assertNull(companion.homePosition());
         assertThrows(UnsupportedOperationException.class, () -> index.entries().clear());
     }

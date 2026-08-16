@@ -4,13 +4,12 @@ import com.kuzhi.findme.FindMeMod;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.lifecycle.CompanionBindingService;
+import com.kuzhi.findme.server.lifecycle.CompanionMountCinematicFlowService;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.api.FindMeCompanionInteractionItem;
 import com.kuzhi.findme.common.FindMeModule;
-import com.kuzhi.findme.common.MountInteractionPolicy;
 import com.kuzhi.findme.server.module.FindMeModuleService;
-import com.kuzhi.findme.server.profile.PackAnimationPresetService;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -44,22 +43,13 @@ public final class CompanionInteractionService {
                 || !CompanionDataService.runtimeIndex(player).contains(CompanionKind.MOUNT, mount.getUUID())) {
             return null;
         }
-        if (!FindMeModuleService.require(player, FindMeModule.RIDING)) {
-            return new MountInteractionPlan(false, InteractionResult.FAIL);
+        if (!CompanionMountCinematicFlowService.isBoardingTransition(player, mount)) {
+            return null;
         }
-        var data = CompanionDataService.data(player);
-        MountInteractionPolicy policy = PackAnimationPresetService.mountInteractionPolicy(
-                EntityType.getKey(mount.getType()).toString());
-        boolean nativeFirst = policy == MountInteractionPolicy.FORCE_NATIVE
-                || policy == MountInteractionPolicy.FOLLOW_PLAYER && data.uiSettings().preferNativeMountInteraction();
-        return nativeFirst
-                ? new MountInteractionPlan(true, null)
-                : new MountInteractionPlan(false, mount(player, mount));
-    }
-
-    public static InteractionResult mountAfterNativeInteraction(ServerPlayer player, LivingEntity mount,
-                                                                 InteractionResult nativeResult) {
-        return nativeResult == InteractionResult.PASS ? mount(player, mount) : nativeResult;
+        if (!FindMeModuleService.require(player, FindMeModule.RIDING)) {
+            return new MountInteractionPlan(InteractionResult.FAIL);
+        }
+        return new MountInteractionPlan(mount(player, mount));
     }
 
     private static InteractionResult mount(ServerPlayer player, LivingEntity mount) {
@@ -72,7 +62,7 @@ public final class CompanionInteractionService {
         return riding ? InteractionResult.CONSUME : InteractionResult.FAIL;
     }
 
-    public record MountInteractionPlan(boolean nativeFirst, InteractionResult immediateResult) {
+    public record MountInteractionPlan(InteractionResult immediateResult) {
     }
 
     private static boolean handleSkillBookInteract(PlayerInteractEvent.EntityInteractSpecific event) {

@@ -16,28 +16,32 @@ class CompanionRescuePlannerTest {
 
 
     @Test
-    void landingSummonUsesTenBlockBoundary() {
+    void rescueAnimationRequiresEnoughRoomForConfiguredWaitHeight() {
         CompanionRescuePlanner.Plan atBoundary = new CompanionRescuePlanner.Plan(true,
                 CompanionRescuePlanner.Urgency.LANDING_SUMMON, true, false,
-                10.0, 8, 6, 4.0, 7.0);
+                16.0, 8, 6, 4.0, 7.0);
         CompanionRescuePlanner.Plan aboveBoundary = new CompanionRescuePlanner.Plan(true,
                 CompanionRescuePlanner.Urgency.RAPID, true, false,
-                10.01, 9, 7, 4.0, 7.01);
+                16.01, 9, 7, 4.0, 7.01);
 
-        assertEquals(RescueFlightMode.LANDING_SUMMON, atBoundary.flightMode());
+        assertEquals(RescueFlightMode.HOVER, atBoundary.flightMode());
         assertEquals(RescueFlightMode.HOVER, aboveBoundary.flightMode());
+        assertFalse(CompanionRescuePlanner.canPlayCinematic(15.99, 16.0, 8.0));
+        assertTrue(CompanionRescuePlanner.canPlayCinematic(16.0, 16.0, 8.0));
+        assertFalse(CompanionRescuePlanner.canPlayCinematic(10.99, 8.0, 8.0));
+        assertTrue(CompanionRescuePlanner.canPlayCinematic(11.0, 8.0, 8.0));
     }
 
     @Test
     void flyingHoverHeightScalesWithFallDistanceAndRespectsLimits() {
-        double near = CompanionCinematicLandingService.flyingHoverHeight(14.0, 12.0, 0.25, 48.0);
-        double medium = CompanionCinematicLandingService.flyingHoverHeight(50.0, 12.0, 0.25, 48.0);
-        double high = CompanionCinematicLandingService.flyingHoverHeight(300.0, 12.0, 0.25, 48.0);
+        double near = CompanionCinematicLandingService.flyingHoverHeight(16.0, 16.0, 8.0, 48.0);
+        double medium = CompanionCinematicLandingService.flyingHoverHeight(64.0, 16.0, 8.0, 48.0);
+        double high = CompanionCinematicLandingService.flyingHoverHeight(300.0, 16.0, 8.0, 48.0);
 
         assertTrue(medium > near);
         assertTrue(high > medium);
         assertEquals(48.0, high, 0.0001);
-        assertTrue(near <= 11.0);
+        assertEquals(8.0, near, 0.0001);
     }
 
     @Test

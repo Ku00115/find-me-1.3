@@ -22,4 +22,20 @@ class CompanionCinematicSpeedServiceTest {
         assertTrue(far > near);
         assertTrue(near > contact);
     }
+
+    @Test
+    void groundedSwitchKeepsUpWithRunningPlayer() {
+        double walking = CompanionCinematicSpeedService.movingSwitchSpeed(
+                CompanionMoveType.WALK, 0.42, 0.12);
+        double running = CompanionCinematicSpeedService.movingSwitchSpeed(
+                CompanionMoveType.WALK, 0.42, 0.72);
+        assertEquals(0.42, walking);
+        assertTrue(running > 1.0);
+    }
+
+    @Test
+    void flyingSwitchRetainsExistingSpeedPolicy() {
+        assertEquals(1.2, CompanionCinematicSpeedService.movingSwitchSpeed(
+                CompanionMoveType.FLY, 1.2, 2.0));
+    }
 }

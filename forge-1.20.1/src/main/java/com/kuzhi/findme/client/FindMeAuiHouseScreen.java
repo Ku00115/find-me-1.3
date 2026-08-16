@@ -34,6 +34,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
     private HousePagePacket page;
     private HouseView view = HouseView.PARTNERS;
     private String search = "";
+    private boolean pendingSearchCommit;
     private int homeFirstVisible;
     private int outsideFirstVisible;
     private int partnerFirstVisible;
@@ -125,8 +126,26 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
     }
 
     @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        Document document = getLinkedDocument();
+        Element focused = document == null ? null : document.getFocusedElement();
+        boolean searchFocused = focused != null && "house-search".equals(focused.getAttribute("id"));
+        boolean handled = super.keyPressed(keyCode, scanCode, modifiers);
+        if (searchFocused && FindMeUiKeys.isConfirm(keyCode)) {
+            focused.blur();
+            pendingSearchCommit = true;
+            return true;
+        }
+        return handled;
+    }
+
+    @Override
     public void tick() {
         super.tick();
+        if (pendingSearchCommit) {
+            pendingSearchCommit = false;
+            applySearchFromInput();
+        }
         if (suppressClickTicks > 0) suppressClickTicks--;
         updateScrollThumb(SIDE_HOME);
         updateScrollThumb(SIDE_OUTSIDE);
@@ -145,6 +164,12 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
         if (document == null || document.body == null || "1".equals(document.body.getAttribute("data-findme-bound"))) return;
         Element root = document.body;
         root.setAttribute("data-findme-bound", "1");
+        root.addEventListener("compositionend", event -> {
+            Element target = eventTargetElement(event.target);
+            if (target != null && "house-search".equals(target.getAttribute("id"))) {
+                pendingSearchCommit = true;
+            }
+        });
         root.addEventListener("click", event -> {
             if (suppressClickTicks > 0) {
                 suppressClickTicks = 0;
@@ -266,15 +291,40 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
             return;
         }
         if (action.equals("apply-search")) {
-            Element input = getLinkedDocument().getElementById("house-search");
-            search = input == null ? "" : input.getValue().trim();
-            homeFirstVisible = 0;
-            outsideFirstVisible = 0;
-            partnerFirstVisible = 0;
-            refresh();
+            applySearchFromInput();
+            return;
+        }
+        if (action.equals("save-house-settings") && !page.readOnly()) {
+            Document document = getLinkedDocument();
+            Element capacity = document == null ? null : document.getElementById("house-setting-capacity");
+            Element patrol = document == null ? null : document.getElementById("house-setting-patrol");
+            Element hard = document == null ? null : document.getElementById("house-setting-hard");
+            if (capacity == null || patrol == null || hard == null) return;
+            String valueText = capacity.getValue().trim() + "," + patrol.getValue().trim() + ","
+                    + hard.getValue().trim();
+            ModNetwork.sendToServer(new HouseCommandPacket(HouseCommandAction.SET_SETTINGS,
+                    page.houseId(), null, valueText));
             return;
         }
         if (action.equals("house-context:close")) {
+            closeContext();
+            return;
+        }
+        if (action.equals("house-all-mode:open") && !page.readOnly()) {
+            contextUuid = null;
+            contextSide = SIDE_HOME;
+            contextPage = HouseContextPage.ALL_RESIDENTS;
+            contextAnchorX = Math.max(4.0, width - 135.0);
+            contextAnchorY = 31.0;
+            contextOpen = true;
+            contextMotionClass = "fm-context-open";
+            refreshContextOverlay();
+            return;
+        }
+        if (action.startsWith("house-all-mode:set:") && !page.readOnly()) {
+            HouseResidentMode mode = HouseResidentMode.parse(action.substring("house-all-mode:set:".length()));
+            ModNetwork.sendToServer(new HouseCommandPacket(HouseCommandAction.SET_ALL_RESIDENT_MODES,
+                    page.houseId(), null, mode.name()));
             closeContext();
             return;
         }
@@ -472,6 +522,16 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
         dragActive = false;
     }
 
+    private void applySearchFromInput() {
+        Document document = getLinkedDocument();
+        Element input = document == null ? null : document.getElementById("house-search");
+        search = input == null ? "" : input.getValue().trim();
+        homeFirstVisible = 0;
+        outsideFirstVisible = 0;
+        partnerFirstVisible = 0;
+        refresh();
+    }
+
     private void refresh() {
         Document document = getLinkedDocument();
         if (document == null || document.body == null) return;
@@ -500,7 +560,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
             document.commitStyleRecalc();
         }
 
-        if (contextOpen && resident(contextUuid) == null) closeContext();
+        if (contextOpen && contextPage != HouseContextPage.ALL_RESIDENTS && resident(contextUuid) == null) closeContext();
         refreshContextOverlay();
 
         lastHomeThumbStyle = "";
@@ -608,6 +668,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
         int innerWidth = Math.max(1, width - scaled(75) - scaled(10) - scaled(9));
         html.append(view == HouseView.PARTNERS
                 ? partnerMarkup(filtered(page.residents(), true), innerWidth)
+                : view == HouseView.SETTINGS ? settingsMarkup(innerWidth)
                 : assignmentMarkup(home, outside, innerWidth, totalVisible, total));
         html.append("<div id='findme-house-drag-ghost' class='house-drag-ghost'></div>");
         html.append("</div>");
@@ -615,6 +676,22 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
     }
 
     private String contextMarkup() {
+        if (contextPage == HouseContextPage.ALL_RESIDENTS) {
+            StringBuilder bulk = new StringBuilder("<div id='findme-house-context-menu' class='house-context-menu ")
+                    .append(ClientWheelPresentationState.typographyClasses()).append("'>")
+                    .append("<span class='house-menu-title'>")
+                    .append(escape(tr("screen.find_me.aui.house.all_resident_modes"))).append("</span>")
+                    .append("<span class='house-mode-label'>")
+                    .append(escape(tr("screen.find_me.aui.house.set_all_mode"))).append("</span>")
+                    .append("<div class='house-mode-segments'>");
+            for (HouseResidentMode mode : HouseResidentMode.values()) {
+                bulk.append(button("house-all-mode:set:" + mode.name().toLowerCase(Locale.ROOT),
+                        modeLabel(mode), "house-mode-button"));
+            }
+            return bulk.append("</div>")
+                    .append(button("house-context:close", tr("screen.find_me.cancel"), "house-menu-button muted"))
+                    .append("</div>").toString();
+        }
         HousePagePacket.Resident resident = resident(contextUuid);
         if (resident == null) return "";
         StringBuilder html = new StringBuilder("<div id='findme-house-context-menu' class='house-context-menu")
@@ -673,6 +750,29 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                 .append("<div class='pane-divider' style='width:").append(paneGap).append("px'></div>")
                 .append(paneMarkup(SIDE_OUTSIDE, outside, paneWidth, page.available().size()))
                 .append("</div>").append(footerMarkup(totalVisible, total, innerWidth)).append("</div>").toString();
+    }
+
+    private String settingsMarkup(int innerWidth) {
+        return new StringBuilder("<div class='house-workspace house-settings' style='width:")
+                .append(innerWidth).append("px'><div class='house-settings-head'><strong>")
+                .append(escape(tr("screen.find_me.aui.house.settings")))
+                .append("</strong><small>").append(escape(page.houseName())).append("</small></div>")
+                .append(settingField("house-setting-capacity", "screen.find_me.aui.house.setting_capacity",
+                        "screen.find_me.aui.house.setting_capacity_hint", page.capacity()))
+                .append(settingField("house-setting-patrol", "screen.find_me.aui.house.setting_patrol",
+                        "screen.find_me.aui.house.setting_patrol_hint", page.patrolRadius()))
+                .append(settingField("house-setting-hard", "screen.find_me.aui.house.setting_hard",
+                        "screen.find_me.aui.house.setting_hard_hint", page.hardRadius()))
+                .append("<div class='house-settings-actions'>")
+                .append(button("house-view:partners", tr("screen.find_me.cancel"), "house-settings-button muted"))
+                .append(button("save-house-settings", tr("screen.find_me.config_save"), "house-settings-button primary"))
+                .append("</div></div>").toString();
+    }
+
+    private String settingField(String id, String labelKey, String hintKey, int value) {
+        return "<label class='house-setting-row'><span><strong>" + escape(tr(labelKey))
+                + "</strong><small>" + escape(tr(hintKey)) + "</small></span><input id='" + id
+                + "' type='text' inputmode='numeric' maxlength='3' value='" + value + "'></label>";
     }
 
     private String paneMarkup(String side, List<HousePagePacket.Resident> residents, int paneWidth, int sourceCount) {
@@ -735,7 +835,8 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
                 .append(escape(tr("screen.find_me.aui.house.home_partners_grid_subtitle")))
                 .append("</small></span>");
         if (!page.readOnly()) {
-            html.append(button("house-view:assignment", tr("screen.find_me.aui.house.manage_assignment"), "partner-manage"));
+            html.append(button("house-all-mode:open", tr("screen.find_me.aui.house.all_resident_modes"), "partner-all-mode"));
+            html.append(button("house-view:settings", tr("screen.find_me.aui.house.manage_assignment"), "partner-manage"));
         }
         html.append("</div><div class='house-partner-grid-shell'><div class='house-partner-grid'>");
         for (int i = firstVisible; i < lastVisible; i++) {
@@ -779,6 +880,7 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
     private String cardStatus(HousePagePacket.Resident resident, String side) {
         String state = resident.dead()
                 ? tr("screen.find_me.state_dead")
+                : resident.critical() ? tr("screen.find_me.aui.house.recovering")
                 : resident.active() ? tr("screen.find_me.manage.state_deployed")
                 : resident.otherHouse() ? tr("screen.find_me.aui.house.other_home")
                 : tr(SIDE_HOME.equals(side) ? "screen.find_me.aui.house.at_home" : "screen.find_me.aui.house.not_home");
@@ -928,13 +1030,15 @@ public final class FindMeAuiHouseScreen extends FindMeAuiOverlayScreen {
 
     private enum HouseView {
         ASSIGNMENT,
-        PARTNERS
+        PARTNERS,
+        SETTINGS
     }
 
     private enum HouseContextPage {
         MAIN,
         RENAME,
-        DETAIL
+        DETAIL,
+        ALL_RESIDENTS
     }
 
     private static final class MinecraftAccess {

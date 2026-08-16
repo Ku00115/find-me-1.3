@@ -13,7 +13,8 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 
 public record HousePagePacket(UUID houseId, UUID owner, String ownerName, String houseName, boolean readOnly,
-                              int capacity, List<Resident> residents, List<Resident> available) {
+                              int capacity, int patrolRadius, int hardRadius,
+                              List<Resident> residents, List<Resident> available) {
 public static void encode(HousePagePacket packet, FriendlyByteBuf buffer) {
         buffer.writeUUID(packet.houseId);
         buffer.writeUUID(packet.owner);
@@ -21,6 +22,8 @@ public static void encode(HousePagePacket packet, FriendlyByteBuf buffer) {
         buffer.writeUtf(packet.houseName == null ? "" : packet.houseName, 64);
         buffer.writeBoolean(packet.readOnly);
         buffer.writeVarInt(Math.max(1, packet.capacity));
+        buffer.writeVarInt(Math.max(4, packet.patrolRadius));
+        buffer.writeVarInt(Math.max(8, packet.hardRadius));
         writeResidents(buffer, packet.residents);
         writeResidents(buffer, packet.available);
     }
@@ -35,6 +38,7 @@ public static void encode(HousePagePacket packet, FriendlyByteBuf buffer) {
             buffer.writeEnum(resident.kind());
             buffer.writeBoolean(resident.active());
             buffer.writeBoolean(resident.dead());
+            buffer.writeBoolean(resident.critical());
             buffer.writeBoolean(resident.otherHouse());
             buffer.writeEnum(resident.mode());
             buffer.writeNbt(resident.previewTag());
@@ -43,7 +47,8 @@ public static void encode(HousePagePacket packet, FriendlyByteBuf buffer) {
 
     public static HousePagePacket decode(FriendlyByteBuf buffer) {
         return new HousePagePacket(buffer.readUUID(), buffer.readUUID(), buffer.readUtf(64), buffer.readUtf(64),
-                buffer.readBoolean(), Math.max(1, buffer.readVarInt()), readResidents(buffer), readResidents(buffer));
+                buffer.readBoolean(), Math.max(1, buffer.readVarInt()), Math.max(4, buffer.readVarInt()),
+                Math.max(8, buffer.readVarInt()), readResidents(buffer), readResidents(buffer));
     }
 
     private static List<Resident> readResidents(FriendlyByteBuf buffer) {
@@ -52,7 +57,7 @@ public static void encode(HousePagePacket packet, FriendlyByteBuf buffer) {
         ArrayList<Resident> residents = new ArrayList<>(PacketDecodeLimits.initialCapacity(size));
         for (int i = 0; i < size; i++) {
             residents.add(new Resident(buffer.readUUID(), buffer.readUtf(128), buffer.readUtf(128), buffer.readEnum(CompanionKind.class),
-                    buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(),
+                    buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(),
                     buffer.readEnum(HouseResidentMode.class), buffer.readNbt()));
         }
         return List.copyOf(residents);
@@ -68,7 +73,7 @@ public static void encode(HousePagePacket packet, FriendlyByteBuf buffer) {
     }
 
     public record Resident(UUID uuid, String name, String entityType, CompanionKind kind,
-                           boolean active, boolean dead, boolean otherHouse, HouseResidentMode mode,
+                           boolean active, boolean dead, boolean critical, boolean otherHouse, HouseResidentMode mode,
                            CompoundTag previewTag) {
         public Resident {
             name = name == null ? "Unknown" : name;

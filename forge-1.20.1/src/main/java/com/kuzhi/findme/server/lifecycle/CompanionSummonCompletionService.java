@@ -33,7 +33,8 @@ public final class CompanionSummonCompletionService {
     public static void complete(ServerPlayer player, PlayerCompanionData data, CompanionKind kind, LivingEntity living,
                                 CompanionMoveType moveType, MountCinematicMode mode, boolean restoredFromStorage,
                                 boolean inCombat, boolean companionRescue, LivingEntity companionRescueTarget,
-                                boolean arrivalStarted, boolean presentationAlreadyPlayed, long now,
+                                boolean arrivalStarted, boolean presentationAlreadyPlayed,
+                                boolean rescueCinematicEnabled, long now,
                                 boolean tacticalDeploy) {
         CompanionHomeResidentService.clearResident(living);
         collectOtherVisibleEntitiesBeforeSummon(player, data, kind, living.getUUID());
@@ -44,7 +45,8 @@ public final class CompanionSummonCompletionService {
         } else if (kind == CompanionKind.MOUNT) {
             completeMountSummon(player, living, moveType, mode, restoredFromStorage, inCombat,
                     !arrivalStarted && !presentationAlreadyPlayed,
-                    data.uiSettings().mountSummonAnimations() || mode.isRescue());
+                    rescueCinematicEnabled
+                            && (data.uiSettings().mountSummonAnimations() || mode.isRescue()));
         } else {
             completeCompanionSummon(player, data, kind, living, companionRescue, companionRescueTarget,
                     !arrivalStarted && !presentationAlreadyPlayed);
@@ -105,9 +107,8 @@ public final class CompanionSummonCompletionService {
         CompanionMoveType cinematicMoveType = CompanionSummonModeService.landPresentationMoveType(moveType);
         player.fallDistance = 0.0f;
         player.invulnerableTime = Math.max(player.invulnerableTime, Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
-        // All flying rescues use the same approach/wait cinematic. The former
-        // direct catch shortcut skipped the visible hover phase and mounted too
-        // early for a player still in free fall.
+        // Low rescues skip the approach stage but keep the physical catch stage,
+        // so the mount still waits for contact instead of forcing a distant ride.
         CompanionMountCinematicFlowService.scheduleMountCinematic(player, living, cinematicMoveType, mode,
                 restoredFromStorage, sendArrivalMagic && presentationEnabled, presentationEnabled);
     }

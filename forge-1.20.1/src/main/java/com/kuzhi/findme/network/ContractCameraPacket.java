@@ -72,6 +72,8 @@ public ContractCameraPacket(boolean active, int targetEntityId, int durationTick
             if (packet.mode == Mode.MOUNT_APPROACH) {
                 if (packet.active) {
                     ClientMountApproachPresentationState.hide(packet.targetEntityId(), packet.durationTicks());
+                } else {
+                    ClientMountApproachPresentationState.show(packet.targetEntityId());
                 }
             } else if (packet.mode == Mode.START || packet.active) {
                 if (packet.cameraEnabled) {

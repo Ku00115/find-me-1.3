@@ -83,6 +83,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
     private int clickPulseWidth;
     private int clickPulseHeight;
     private ClickPulseStyle clickPulseStyle = ClickPulseStyle.DEFAULT;
+    private String pendingEnterCommit = "";
 
     private FindMeAuiPackEditorScreen() {
         super(PATH);
@@ -239,25 +240,57 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         }
         if (FindMeUiKeys.isConfirm(keyCode)) {
             if ("arrival-sound".equals(focusedId)) {
-                sendField(PackEntityPresetField.ARRIVAL_SOUND, focused.getValue().trim());
+                super.keyPressed(keyCode, scanCode, modifiers);
+                focused.blur();
+                pendingEnterCommit = focusedId;
                 return true;
             }
             if ("sound-picker-search".equals(focusedId)) {
-                applySoundSearch();
+                super.keyPressed(keyCode, scanCode, modifiers);
+                focused.blur();
+                pendingEnterCommit = focusedId;
                 return true;
             }
             if (focused == null || "pack-search".equals(focusedId)) {
-                applySearch();
+                super.keyPressed(keyCode, scanCode, modifiers);
+                if (focused != null) focused.blur();
+                pendingEnterCommit = "pack-search";
                 return true;
             }
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
+    @Override
+    public void tick() {
+        super.tick();
+        if (pendingEnterCommit.isEmpty()) return;
+        String commit = pendingEnterCommit;
+        pendingEnterCommit = "";
+        if ("sound-picker-search".equals(commit)) {
+            applySoundSearch();
+        } else if ("arrival-sound".equals(commit)) {
+            Document document = getLinkedDocument();
+            Element input = document == null ? null : document.getElementById("arrival-sound");
+            if (input != null) sendField(PackEntityPresetField.ARRIVAL_SOUND, input.getValue().trim());
+        } else {
+            applySearch();
+        }
+    }
+
     private void bind() {
         Document document = getLinkedDocument();
         if (document == null || document.body == null || "1".equals(document.body.getAttribute("data-findme-bound"))) return;
         document.body.setAttribute("data-findme-bound", "1");
+        document.body.addEventListener("compositionend", event -> {
+            Element target = eventTargetElement(event.target);
+            if (target == null) return;
+            String id = target.getAttribute("id");
+            if ("pack-search".equals(id) || "sound-picker-search".equals(id)
+                    || "arrival-sound".equals(id)) {
+                pendingEnterCommit = id;
+            }
+        });
         document.body.addEventListener("click", event -> {
             Element element = eventTargetElement(event.target);
             Element target = element == null ? null : element.closest("[data-action]");
@@ -580,7 +613,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
 
     private void updateSelectionDrag(MouseEvent mouse, Element target) {
         if (selectionDragStartType == null || selectionDragStartIndex < 0) return;
-        long holdNanos = FindMeUiSettings.defaults().dragHoldMillis() * 1_000_000L;
+        long holdNanos = 300_000_000L;
         if (!selectionDragActive && System.nanoTime() - selectionPressedAtNanos >= holdNanos) {
             selectionDragActive = true;
             selected.clear();
@@ -1510,7 +1543,7 @@ public final class FindMeAuiPackEditorScreen extends FindMeAuiOverlayScreen {
         int gap = scaled(4);
         int editorWidth = Math.max(1, width - scaled(84) - scaled(9));
         int fieldsWidth = Math.max(1, editorWidth - entryWidth - previewWidth - gap * 2);
-        int fieldsInnerWidth = Math.max(1, fieldsWidth - 16);
+        int fieldsInnerWidth = Math.max(1, fieldsWidth - 20);
         int optionWidth = Math.max(32, (fieldsInnerWidth - 3) / 2);
         int stepValueWidth = Math.max(32, fieldsInnerWidth - 56);
         int soundInputWidth = Math.max(32, fieldsInnerWidth - 38);

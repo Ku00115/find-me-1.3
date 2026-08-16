@@ -76,12 +76,12 @@ public final class WarehouseEntityService {
             return false;
         }
         String name = value == null ? "" : value.trim();
-        int max = data.uiSettings().nameMaxLength();
-        if (name.length() > max) {
-            name = name.substring(0, max);
+        name = net.minecraft.ChatFormatting.stripFormatting(name);
+        if (name == null) {
+            name = "";
         }
-        if (!data.uiSettings().allowNameColors()) {
-            name = name.replace("\u00A7", "");
+        if (name.length() > 32) {
+            name = name.substring(0, 32);
         }
         data.setDisplayName(uuid, name);
         DeadCompanionRecord old = data.deadRecord(uuid).orElse(null);

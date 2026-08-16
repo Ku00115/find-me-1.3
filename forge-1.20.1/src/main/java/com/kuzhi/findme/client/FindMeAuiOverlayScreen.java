@@ -217,6 +217,7 @@ abstract class FindMeAuiOverlayScreen extends ApricityScreen {
             FindMeAuiPerformanceMonitor.record(this, "render.main_document", mainStartedAt, 10.0);
             Minecraft.getInstance().renderBuffers().bufferSource().endBatch();
             long previewsStartedAt = FindMeAuiPerformanceMonitor.start();
+            FindMePreviewElement.renderQueuedPreviews(graphics);
             setPreviewCopyMarkup(FindMePreviewElement.consumeOverlayMarkup(
                     ClientWheelPresentationState.typographyClasses()));
             FindMeAuiPerformanceMonitor.record(this, "render.previews", previewsStartedAt, 8.0);

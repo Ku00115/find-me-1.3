@@ -16,6 +16,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public final class CompanionCinematicPositionService {
@@ -24,13 +25,11 @@ public final class CompanionCinematicPositionService {
 
     public static void stabilizeAirRescueMount(PendingMountCinematic cinematic,
                                                LivingEntity mount, ServerPlayer player) {
-        double minY = player.getY() - 1.2;
-        Level level = player.level();
-        if (level instanceof ServerLevel serverLevel && CompanionCinematicLandingService.hasReliableLandingBelow(serverLevel, player)) {
-            minY = Math.max(minY, (double)CompanionCinematicLandingService.predictedLanding(serverLevel, player).getY() + 1.2);
-        }
-        mount.moveTo(player.getX(), minY, player.getZ(), player.getYRot(), 0.0f);
-        mount.setPos(player.getX(), minY, player.getZ());
+        AABB contactBox = com.kuzhi.findme.server.profile.CompanionMountContactService.mountContactBox(mount);
+        double contactTopOffset = Math.max(0.35, contactBox.maxY - mount.getY());
+        double catchY = player.getBoundingBox().minY + 0.2 - contactTopOffset;
+        mount.moveTo(player.getX(), catchY, player.getZ(), player.getYRot(), 0.0f);
+        mount.setPos(player.getX(), catchY, player.getZ());
         CompanionCinematicOrientationHelper.faceYaw(mount, player.getYRot());
         mount.setDeltaMovement(Vec3.ZERO);
         mount.fallDistance = 0.0f;
@@ -168,16 +167,16 @@ public final class CompanionCinematicPositionService {
 
     public static void lockMountAtGroundWait(PendingMountCinematic cinematic, LivingEntity mount, ServerPlayer player) {
         Vec3 waitPos;
-        boolean followPredictedLanding = cinematic.mode().isAirToGroundSwitch()
+        boolean followPredictedLanding = cinematic.mode().isGroundOrWaterRescue()
                 && CompanionCinematicLandingService.distanceToGround(player) > 8.0;
         if (!cinematic.waitLocked() || followPredictedLanding) {
             Level level;
-            if (cinematic.moveType() == CompanionMoveType.WALK && (level = player.level()) instanceof ServerLevel serverLevel) {
+            if (cinematic.presentationMoveType() == CompanionMoveType.WALK && (level = player.level()) instanceof ServerLevel serverLevel) {
                 waitPos = Vec3.atBottomCenterOf((Vec3i)CompanionCinematicLandingService.rescueAnchor(serverLevel, player)).add(0.0, CompanionCinematicLandingService.rescueGroundYOffset(cinematic), 0.0);
             } else {
                 waitPos = mount.position();
             }
-            if (cinematic.moveType() == CompanionMoveType.WALK) {
+            if (cinematic.presentationMoveType() == CompanionMoveType.WALK) {
                 double groundY = CompanionCinematicLandingService.walkGroundY(mount.level(), waitPos.x, waitPos.y, waitPos.z, waitPos.y);
                 waitPos = new Vec3(waitPos.x, groundY + CompanionCinematicLandingService.rescueGroundYOffset(cinematic), waitPos.z);
             }
@@ -185,14 +184,14 @@ public final class CompanionCinematicPositionService {
         }
         if ((waitPos = cinematic.waitPosition()) != null && mount.position().distanceToSqr(waitPos) > 0.0025) {
             mount.setPos(waitPos.x, waitPos.y, waitPos.z);
-        } else if (cinematic.moveType() == CompanionMoveType.WALK) {
+        } else if (cinematic.presentationMoveType() == CompanionMoveType.WALK) {
             double groundY = CompanionCinematicLandingService.walkGroundY(mount.level(), mount.getX(), mount.getY(), mount.getZ(), mount.getY());
             if (Math.abs((groundY += CompanionCinematicLandingService.rescueGroundYOffset(cinematic)) - mount.getY()) > 0.001) {
                 mount.setPos(mount.getX(), groundY, mount.getZ());
             }
         }
         mount.setDeltaMovement(Vec3.ZERO);
-        mount.setNoGravity(cinematic.moveType() != CompanionMoveType.WALK);
+        mount.setNoGravity(cinematic.presentationMoveType() != CompanionMoveType.WALK);
         mount.fallDistance = 0.0f;
         mount.hurtMarked = true;
         cinematic.rememberPosition(mount.position());

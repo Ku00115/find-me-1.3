@@ -33,15 +33,9 @@ public final class FindMeDefaultSettingsService {
             copyBoolean(json, tag, "showOriginalNames");
             copyBoolean(json, tag, "showHealth");
             copyBoolean(json, tag, "rotateModels");
-            copyBoolean(json, tag, "reduceBackgroundAnimation");
-            copyInt(json, tag, "dragHoldMillis");
             copyBoolean(json, tag, "operationSounds");
-            copyBoolean(json, tag, "controlHints");
             copyBoolean(json, tag, "autoJoinTeams");
             copyBoolean(json, tag, "autoCreateTeams");
-            copyInt(json, tag, "defaultTeamIndex");
-            copyBoolean(json, tag, "allowNameColors");
-            copyInt(json, tag, "nameMaxLength");
             copyString(json, tag, "wheelStyle");
             copyString(json, tag, "textMode");
             copyBoolean(json, tag, "uiAnimations");
@@ -52,11 +46,13 @@ public final class FindMeDefaultSettingsService {
             copyBoolean(json, tag, "preferNativeMountInteraction");
             copyBoolean(json, tag, "autoPromoteRiddenCompanions");
             copyBoolean(json, tag, "mountSummonAnimations");
-            copyBoolean(json, tag, "companionSummonAnimations");
             copyBoolean(json, tag, "hideRiddenMountWhenLookingDown");
             copyBoolean(json, tag, "friendlyFireProtection");
+            copyBoolean(json, tag, "boundCreatureBlockProtection");
             copyBoolean(json, tag, "autoStoreOnBinding");
             copyBoolean(json, tag, "autoOrganizeTeams");
+            copyBoolean(json, tag, "fallingAnimation");
+            copyInt(json, tag, "guiOpacityPercent");
             return FindMeUiSettings.load(tag);
         } catch (RuntimeException | IOException exception) {
             FindMeMod.LOGGER.warn("Could not read FindMe UI defaults from {}", UI_DEFAULTS, exception);
@@ -89,15 +85,9 @@ public final class FindMeDefaultSettingsService {
         json.addProperty("showOriginalNames", value.showOriginalNames());
         json.addProperty("showHealth", value.showHealth());
         json.addProperty("rotateModels", value.rotateModels());
-        json.addProperty("reduceBackgroundAnimation", value.reduceBackgroundAnimation());
-        json.addProperty("dragHoldMillis", value.dragHoldMillis());
         json.addProperty("operationSounds", value.operationSounds());
-        json.addProperty("controlHints", value.controlHints());
         json.addProperty("autoJoinTeams", value.autoJoinTeams());
         json.addProperty("autoCreateTeams", value.autoCreateTeams());
-        json.addProperty("defaultTeamIndex", value.defaultTeamIndex());
-        json.addProperty("allowNameColors", value.allowNameColors());
-        json.addProperty("nameMaxLength", value.nameMaxLength());
         json.addProperty("wheelStyle", value.wheelStyle().name());
         json.addProperty("textMode", value.textMode().name());
         json.addProperty("uiAnimations", value.uiAnimations());
@@ -108,11 +98,13 @@ public final class FindMeDefaultSettingsService {
         json.addProperty("preferNativeMountInteraction", value.preferNativeMountInteraction());
         json.addProperty("autoPromoteRiddenCompanions", value.autoPromoteRiddenCompanions());
         json.addProperty("mountSummonAnimations", value.mountSummonAnimations());
-        json.addProperty("companionSummonAnimations", value.companionSummonAnimations());
         json.addProperty("hideRiddenMountWhenLookingDown", value.hideRiddenMountWhenLookingDown());
         json.addProperty("friendlyFireProtection", value.friendlyFireProtection());
+        json.addProperty("boundCreatureBlockProtection", value.boundCreatureBlockProtection());
         json.addProperty("autoStoreOnBinding", value.autoStoreOnBinding());
         json.addProperty("autoOrganizeTeams", value.autoOrganizeTeams());
+        json.addProperty("fallingAnimation", value.fallingAnimation());
+        json.addProperty("guiOpacityPercent", value.guiOpacityPercent());
         return json;
     }
 

@@ -54,13 +54,17 @@ public final class CompanionCinematicLandingService {
     public static Vec3 cinematicTarget(PendingMountCinematic cinematic, Level level,
                                        ServerPlayer player, LivingEntity mount) {
         if (cinematic.mode().isRescue()) {
-            if (cinematic.moveType() == CompanionMoveType.WALK && level instanceof ServerLevel serverLevel) {
+            if (cinematic.presentationMoveType() == CompanionMoveType.WALK && level instanceof ServerLevel serverLevel) {
                 BlockPos landing = rescueAnchor(serverLevel, player);
                 return Vec3.atBottomCenterOf((Vec3i)landing).add(0.0, rescueGroundYOffset(cinematic), 0.0);
             }
-            if (cinematic.moveType() == CompanionMoveType.SWIM && level instanceof ServerLevel serverLevel) {
+            if (cinematic.presentationMoveType() == CompanionMoveType.SWIM && level instanceof ServerLevel serverLevel) {
                 BlockPos landing = rescueAnchor(serverLevel, player);
-                return Vec3.atBottomCenterOf((Vec3i)landing);
+                return CompanionPlacementFinder.findWaterWithOpenSurface(serverLevel, landing)
+                        .map(Vec3::atBottomCenterOf)
+                        .orElseGet(() -> cinematic.rescueLandingPosition() == null
+                                ? Vec3.atBottomCenterOf((Vec3i)landing)
+                                : cinematic.rescueLandingPosition());
             }
             if (cinematic.moveType() == CompanionMoveType.FLY && cinematic.mode().isRescue()
                     && level instanceof ServerLevel serverLevel) {
@@ -117,22 +121,24 @@ public final class CompanionCinematicLandingService {
     public static Vec3 flyingHoverTarget(ServerLevel level, ServerPlayer player) {
         BlockPos landing = rescueAnchor(level, player);
         double groundDistance = Math.max(0.0, player.getY() - landing.getY());
-        double hoverHeight = flyingHoverHeight(groundDistance, Config.rescueHoverBaseHeight,
-                Config.rescueHoverHeightRatio, Config.rescueHoverMaxHeight);
+        double hoverHeight = flyingHoverHeight(groundDistance, Config.rescueCinematicMinHeight,
+                Config.rescueHoverMinHeight, Config.rescueHoverMaxHeight);
         return new Vec3((double) landing.getX() + 0.5,
                 (double) landing.getY() + hoverHeight,
                 (double) landing.getZ() + 0.5);
     }
 
-    static double flyingHoverHeight(double groundDistance, double baseHeight,
-                                    double heightRatio, double maxHeight) {
+    static double flyingHoverHeight(double groundDistance, double cinematicMinimumHeight,
+                                    double minimumHeight, double maximumHeight) {
         double safeDistance = Double.isFinite(groundDistance) ? Math.max(0.0, groundDistance) : 0.0;
-        double safeBase = Math.max(2.0, baseHeight);
-        double safeRatio = Mth.clamp(heightRatio, 0.0, 1.0);
-        double safeMax = Math.max(safeBase, maxHeight);
-        double scaledHeight = safeBase + Math.max(0.0, safeDistance - 10.0) * safeRatio;
+        double safeMinimum = Math.max(2.0, minimumHeight);
+        double safeMaximum = Math.max(safeMinimum, maximumHeight);
+        double startHeight = Math.max(4.0, cinematicMinimumHeight);
+        double progress = Mth.clamp((safeDistance - startHeight) / 96.0, 0.0, 1.0);
+        double smoothProgress = progress * progress * (3.0 - 2.0 * progress);
+        double calculatedHeight = Mth.lerp(smoothProgress, safeMinimum, safeMaximum);
         double belowPlayerLimit = Math.max(2.0, safeDistance - 3.0);
-        return Math.min(Mth.clamp(scaledHeight, safeBase, safeMax), belowPlayerLimit);
+        return Math.min(calculatedHeight, belowPlayerLimit);
     }
 
     public static BlockPos predictedLanding(ServerLevel level, ServerPlayer player) {
@@ -198,7 +204,8 @@ public final class CompanionCinematicLandingService {
     }
 
     public static double rescueGroundYOffset(PendingMountCinematic cinematic) {
-        return cinematic.mode().isGroundOrWaterRescue() && cinematic.moveType() == CompanionMoveType.WALK ? 0.18 : 0.0;
+        return cinematic.mode().isGroundOrWaterRescue()
+                && cinematic.presentationMoveType() == CompanionMoveType.WALK ? 0.18 : 0.0;
     }
 
     public static double landingSurfaceY(Level level, BlockPos surfacePos) {

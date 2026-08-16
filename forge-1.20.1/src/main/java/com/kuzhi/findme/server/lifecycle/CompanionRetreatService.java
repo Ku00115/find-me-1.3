@@ -13,6 +13,7 @@ import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.core.CompanionOperationLockService;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
+import com.kuzhi.findme.server.compat.CompanionFixedPostService;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.server.MinecraftServer;
@@ -35,7 +36,7 @@ public final class CompanionRetreatService {
             if (!PENDING_RETREATS.contains(retreat)) continue;
             Entity entity = CompanionEntityLookup.findEntity(server, retreat.entityUuid()).orElse(null);
             if (!(entity instanceof LivingEntity living) || !living.isAlive()) {
-                PENDING_RETREATS.remove(retreat);
+                    removePending(retreat);
                 continue;
             }
             PlayerCompanionData retirementData = null;
@@ -71,6 +72,19 @@ public final class CompanionRetreatService {
                     }
                 }
                 CompanionAnimationHelper.forceFlyingAnimationPose(living);
+            }
+            if (retreat.switchRetreat() && retreat.moveType() != CompanionMoveType.FLY) {
+                Vec3 horizontal = new Vec3(direction.x, 0.0, direction.z).normalize();
+                double departureSpeed = 0.28;
+                float yaw = CompanionCinematicOrientationHelper.yawTowardStable(living, horizontal);
+                CompanionCinematicOrientationHelper.faceYaw(living, yaw);
+                living.setDeltaMovement(horizontal.x * departureSpeed,
+                        living.getDeltaMovement().y, horizontal.z * departureSpeed);
+                living.hasImpulse = true;
+                if (living instanceof Mob mob) {
+                    mob.getNavigation().moveTo(retreat.destination().x, retreat.destination().y,
+                            retreat.destination().z, 1.25);
+                }
             }
             if (!retreat.switchRetreat() && retreat.moveType() == CompanionMoveType.FLY) {
                 living.noPhysics = true;
@@ -119,19 +133,19 @@ public final class CompanionRetreatService {
                     data.clearDeployed(retreat.kind(), living.getUUID());
                     CompanionDataService.save(player, data);
                     CompanionSyncService.syncToClient(player, retreat.kind());
-                    PENDING_RETREATS.remove(retreat);
+                    removePending(retreat);
                     continue;
                 }
                 if (!CompanionOperationLockService.tryBegin(player, living.getUUID(), CompanionOperationLockService.Operation.STORE, "retreat:store")) {
                     FindMeDebugLogger.lifecycle("ENTITY_REMOVE_BLOCKED", player, living.getUUID(), living, "RETREATING", "ACTIVE", "retreat_lock_active", data.storedEntity(living.getUUID()).isPresent(), true);
-                    PENDING_RETREATS.remove(retreat);
+                    removePending(retreat);
                     continue;
                 }
                 safeToRemove = CompanionStorageService.storeEntity(player, data, living);
                 if (!safeToRemove) {
                     FindMeDebugLogger.lifecycle("ENTITY_REMOVE_BLOCKED", player, living.getUUID(), living, "RETREATING", "ACTIVE", "retreat_snapshot_failed", false, true);
                     CompanionOperationLockService.end(player, living.getUUID(), CompanionOperationLockService.Operation.STORE, "retreat_snapshot_failed");
-                    PENDING_RETREATS.remove(retreat);
+                    removePending(retreat);
                     continue;
                 }
                 if (retreat.kind() != null) {
@@ -144,7 +158,7 @@ public final class CompanionRetreatService {
             }
             if (!safeToRemove) {
                 FindMeDebugLogger.lifecycle("ENTITY_REMOVE_BLOCKED", player, living.getUUID(), living, "RETREATING", "ACTIVE", "retreat_owner_unavailable", false, true);
-                PENDING_RETREATS.remove(retreat);
+                removePending(retreat);
                 continue;
             }
             boolean presentationFinished = retreat.switchRetreat()
@@ -155,15 +169,18 @@ public final class CompanionRetreatService {
                         "RETREATING", "ACTIVE", "retreat_presentation_failed", true, true);
                 CompanionOperationLockService.end(player, living.getUUID(),
                         CompanionOperationLockService.Operation.STORE, "retreat_presentation_failed");
-                PENDING_RETREATS.remove(retreat);
+                removePending(retreat);
                 continue;
             }
-            PENDING_RETREATS.remove(retreat);
+            removePending(retreat);
         }
     }
 
     public static void cancelRetreat(LivingEntity living) {
-        PENDING_RETREATS.removeIf(retreat -> retreat.entityUuid().equals(living.getUUID()));
+        if (living == null) return;
+        for (PendingRetreat retreat : List.copyOf(PENDING_RETREATS)) {
+            if (retreat.entityUuid().equals(living.getUUID())) removePending(retreat);
+        }
     }
 
     public static void sendAway(Entity entity, ServerPlayer player, PlayerCompanionData data) {
@@ -183,6 +200,7 @@ public final class CompanionRetreatService {
         float capturedYRot = living.getYRot();
         float capturedXRot = living.getXRot();
         living.stopRiding();
+        CompanionAnimationHelper.forceStandingPose(living);
         if (living instanceof Mob mob) {
             mob.getNavigation().stop();
             mob.setTarget(null);
@@ -208,6 +226,7 @@ public final class CompanionRetreatService {
                 player.getUUID(), kind, moveType, switchRetreat, capturedVelocity,
                 capturedYRot, capturedXRot);
         if (switchRetreat) {
+            CompanionFixedPostService.acquire(living, CompanionFixedPostService.Reason.RETREAT);
             CompanionStorageService.beginMovingRetreatPresentation(player, data, living);
             pending.markPresentationStarted();
         }
@@ -253,6 +272,12 @@ public final class CompanionRetreatService {
     private static Vec3 randomSwitchDepartureDirection(ServerPlayer player) {
         double angle = player.getRandom().nextDouble() * Math.PI * 2.0;
         return new Vec3(Math.cos(angle), 0.0, Math.sin(angle));
+    }
+
+    private static void removePending(PendingRetreat retreat) {
+        if (retreat == null) return;
+        PENDING_RETREATS.remove(retreat);
+        CompanionFixedPostService.release(retreat.entityUuid(), CompanionFixedPostService.Reason.RETREAT);
     }
 }
 

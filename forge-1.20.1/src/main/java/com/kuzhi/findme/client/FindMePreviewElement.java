@@ -29,6 +29,7 @@ public final class FindMePreviewElement extends MinecraftElement {
     private static int frameBudget = MAX_PREVIEWS_PER_FRAME;
     private static long budgetFrame = Long.MIN_VALUE;
     private static final List<CardOverlay> CARD_OVERLAYS = new ArrayList<>();
+    private static final List<PendingPreview> PENDING_PREVIEWS = new ArrayList<>();
 
     public FindMePreviewElement(Document document) {
         super(document, TAG_NAME);
@@ -41,6 +42,37 @@ public final class FindMePreviewElement extends MinecraftElement {
 
     public static void beginOverlayPass() {
         CARD_OVERLAYS.clear();
+        PENDING_PREVIEWS.clear();
+    }
+
+    public static void renderQueuedPreviews(GuiGraphics graphics) {
+        if (PENDING_PREVIEWS.isEmpty()) return;
+        CompanionDetailPreviewRenderer renderer = new CompanionDetailPreviewRenderer(true);
+        for (PendingPreview preview : PENDING_PREVIEWS) {
+            if ("profile".equals(preview.overlayMode())) {
+                renderExpandedCardBackground(graphics, preview.x(), preview.y(), preview.width(), preview.height());
+                graphics.flush();
+            }
+            FindMePreviewInteractionState.View view = FindMePreviewInteractionState.view(preview.interactionId());
+            if (preview.interactionId() == null || preview.interactionId().isBlank()) {
+                renderer.renderCard(graphics, preview.entry(), preview.x(), preview.y(),
+                        preview.width(), preview.height(), preview.fallbackType(), preview.previewScale(),
+                        preview.clipLeft(), preview.clipTop(), preview.clipRight(), preview.clipBottom());
+            } else {
+                renderer.render(graphics, preview.entry(), preview.x(), preview.y(), preview.width(), preview.height(),
+                        view.yaw(), view.pitch(), view.zoom() * preview.previewScale(),
+                        view.offsetX(), view.offsetY(), preview.fallbackType());
+            }
+            if (preview.showBounds()) {
+                renderBoundsOverlay(graphics, renderer.previewEntityForBounds(preview.entry(), preview.fallbackType()),
+                        preview.entry(), preview.x(), preview.y(), preview.width(), preview.height(),
+                        preview.previewScale(), preview.boundsScale(), preview.effectScale(),
+                        preview.interactionId() == null || preview.interactionId().isBlank()
+                                ? FindMePreviewInteractionState.view("") : view);
+                graphics.flush();
+            }
+        }
+        PENDING_PREVIEWS.clear();
     }
 
     public static String consumeOverlayMarkup(String typographyClasses) {
@@ -158,10 +190,6 @@ public final class FindMePreviewElement extends MinecraftElement {
         if (!isVisible(minecraft, renderX, renderY, width, height)) {
             return;
         }
-        GuiGraphics graphics = new GuiGraphics(minecraft, minecraft.renderBuffers().bufferSource());
-        if ("profile".equals(overlayMode)) {
-            renderExpandedCardBackground(graphics, renderX, renderY, width, height);
-        }
         CompanionDetailPreviewRenderer renderer = new CompanionDetailPreviewRenderer();
         com.kuzhi.findme.network.CompanionListPacket.Entry previewEntry = entry.vehicle() != null
                 ? entry.vehicle().asPreviewEntry() : entry.companion();
@@ -174,21 +202,11 @@ public final class FindMePreviewElement extends MinecraftElement {
                 clipLeft, clipTop, clipRight, clipBottom);
         if (!allowPreview(minecraft)) return;
         String interactionId = getAttribute("data-interaction-id");
-        FindMePreviewInteractionState.View view = FindMePreviewInteractionState.view(interactionId);
-        if (interactionId == null || interactionId.isBlank()) {
-            renderer.renderCard(graphics, previewEntry, renderX, renderY,
-                    width, height, fallbackType, previewScale, clipLeft, clipTop, clipRight, clipBottom);
-        } else {
-            renderer.render(graphics, previewEntry, renderX, renderY, width, height,
-                    view.yaw(), view.pitch(), view.zoom() * previewScale, view.offsetX(), view.offsetY(), fallbackType);
-        }
-        if ("true".equals(getAttribute("data-show-bounds"))) {
-            renderBoundsOverlay(graphics, renderer.previewEntityForBounds(previewEntry, fallbackType), previewEntry,
-                    renderX, renderY, width, height, previewScale,
-                    parseBoundsScale(getAttribute("data-bounds-scale")), parseBoundsScale(getAttribute("data-effect-scale")),
-                    interactionId == null || interactionId.isBlank() ? FindMePreviewInteractionState.view("") : view);
-            graphics.flush();
-        }
+        PENDING_PREVIEWS.add(new PendingPreview(previewEntry, renderX, renderY, width, height, fallbackType,
+                previewScale, clipLeft, clipTop, clipRight, clipBottom, overlayMode, interactionId,
+                "true".equals(getAttribute("data-show-bounds")),
+                parseBoundsScale(getAttribute("data-bounds-scale")),
+                parseBoundsScale(getAttribute("data-effect-scale"))));
     }
 
     private static void renderExpandedCardBackground(GuiGraphics graphics, int x, int y, int width, int height) {
@@ -357,6 +375,13 @@ public final class FindMePreviewElement extends MinecraftElement {
     private record CardOverlay(String mode, String name, String type, String team, int x, int y, int width, int height,
                                String number, String status, String statusTone,
                                int clipLeft, int clipTop, int clipRight, int clipBottom) {
+    }
+
+    private record PendingPreview(com.kuzhi.findme.network.CompanionListPacket.Entry entry,
+                                  int x, int y, int width, int height, String fallbackType, float previewScale,
+                                  int clipLeft, int clipTop, int clipRight, int clipBottom,
+                                  String overlayMode, String interactionId, boolean showBounds,
+                                  float boundsScale, float effectScale) {
     }
 
     record CompanionListPacketEntry(java.util.UUID uuid, com.kuzhi.findme.network.CompanionListPacket.Entry companion,

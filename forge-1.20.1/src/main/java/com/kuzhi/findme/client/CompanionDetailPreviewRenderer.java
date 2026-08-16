@@ -22,6 +22,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
 import org.joml.Quaternionf;
+import org.lwjgl.opengl.GL11;
 
 final class CompanionDetailPreviewRenderer {
     static final float DEFAULT_PREVIEW_YAW = 180.0f;
@@ -40,6 +41,15 @@ final class CompanionDetailPreviewRenderer {
     private static final ArrayDeque<WarmEntry> WARM_QUEUE = new ArrayDeque<WarmEntry>();
     private static final Map<UUID, String> PENDING_KEYS = new HashMap<UUID, String>();
     private static final Map<UUID, Long> LIVE_MIRROR_SUPPRESSION = new HashMap<UUID, Long>();
+    private final boolean clearDepthBeforePreview;
+
+    CompanionDetailPreviewRenderer() {
+        this(false);
+    }
+
+    CompanionDetailPreviewRenderer(boolean clearDepthBeforePreview) {
+        this.clearDepthBeforePreview = clearDepthBeforePreview;
+    }
 
     void render(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, int w, int h, float yaw, float pitch, float zoom, float cameraOffsetX, float cameraOffsetY, String fallbackType) {
         this.render(graphics, entry, x, y, w, h, yaw, pitch, zoom, cameraOffsetX, cameraOffsetY, fallbackType, 78.0f, 28.0f);
@@ -53,8 +63,13 @@ final class CompanionDetailPreviewRenderer {
         stabilizeStoredPreviewPose(entity, yaw, pitch);
         float scale = CompanionPreviewScaler.detailScale(entry, entity, baseSize, padding) * zoom;
         graphics.enableScissor(x + 2, y + 2, x + w - 2, y + h - 2);
-        CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2 + Math.round(cameraOffsetX), y + h - 12 + Math.round(cameraOffsetY), scale, yaw, pitch);
-        graphics.disableScissor();
+        try {
+            CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity,
+                    x + w / 2 + Math.round(cameraOffsetX), y + h - 12 + Math.round(cameraOffsetY),
+                    scale, yaw, pitch, clearDepthBeforePreview);
+        } finally {
+            graphics.disableScissor();
+        }
     }
 
     void renderWheel(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, String fallbackType) {
@@ -70,7 +85,8 @@ final class CompanionDetailPreviewRenderer {
         }
         float scale = CompanionPreviewScaler.wheelScale(entry, entity, Math.max(clipRadius, radius + 4)) * 0.75f;
         int bottomY = y + CompanionPreviewScaler.wheelBottomOffset(entry, entity, scale, clipRadius);
-        CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x, bottomY, scale, DEFAULT_PREVIEW_YAW, 0.0f);
+        CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x, bottomY, scale,
+                DEFAULT_PREVIEW_YAW, 0.0f, clearDepthBeforePreview);
     }
 
     void renderCard(GuiGraphics graphics, CompanionListPacket.Entry entry, int x, int y, int w, int h, String fallbackType) {
@@ -113,7 +129,8 @@ final class CompanionDetailPreviewRenderer {
                 ? (System.currentTimeMillis() % 12000L) * 0.03f : DEFAULT_PREVIEW_YAW;
         graphics.enableScissor(scissorLeft, scissorTop, scissorRight, scissorBottom);
         try {
-            CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2, bottomY, scale, yaw, 0.0f);
+            CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2, bottomY,
+                    scale, yaw, 0.0f, clearDepthBeforePreview);
         } finally {
             graphics.disableScissor();
         }
@@ -132,7 +149,7 @@ final class CompanionDetailPreviewRenderer {
         stabilizeStoredPreviewPose(entity, DEFAULT_PREVIEW_YAW, 0.0f);
         float scale = CompanionPreviewScaler.fittedScale(entry, entity, w - 2.0f, h - 2.0f);
         CompanionDetailPreviewRenderer.renderPreviewEntity(graphics, entity, x + w / 2, y + h - 1,
-                scale, DEFAULT_PREVIEW_YAW, 0.0f);
+                scale, DEFAULT_PREVIEW_YAW, 0.0f, clearDepthBeforePreview);
     }
 
     private Entity previewEntity(CompanionListPacket.Entry entry, String fallbackType) {
@@ -284,7 +301,8 @@ final class CompanionDetailPreviewRenderer {
         LIVE_MIRROR_SUPPRESSION.clear();
     }
 
-    static void renderPreviewEntity(GuiGraphics graphics, Entity entity, int x, int bottomY, float scale, float yaw, float pitch) {
+    static void renderPreviewEntity(GuiGraphics graphics, Entity entity, int x, int bottomY,
+                                    float scale, float yaw, float pitch, boolean clearDepthBeforePreview) {
         Minecraft minecraft = Minecraft.getInstance();
         boolean liveWorldEntity = isLiveWorldEntity(entity);
         advancePreviewAnimation(minecraft, entity);
@@ -310,6 +328,9 @@ final class CompanionDetailPreviewRenderer {
             }
             graphics.pose().scale(scale, scale, -scale);
             RenderSystem.enableDepthTest();
+            if (clearDepthBeforePreview) {
+                RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
+            }
             RenderSystem.runAsFancy(() -> {
                 dispatcher.setRenderShadow(false);
                 ClientEntityPreviewRenderGuard.enter();

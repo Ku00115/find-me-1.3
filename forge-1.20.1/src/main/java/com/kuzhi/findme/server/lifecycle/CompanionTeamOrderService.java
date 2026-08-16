@@ -110,7 +110,8 @@ public final class CompanionTeamOrderService {
 
         List<UUID> deployed = data.deployedList(CompanionKind.COMPANION);
         if (action == CompanionTeamCommandAction.PAUSE_RESUME) {
-            List<UUID> recipients = selectRecipients(team, deployed, Config.companionDeploymentLimit, false);
+            List<UUID> recipients = selectRecipients(team, deployed,
+                    Math.min(Config.companionDeploymentLimit, data.companionDeploymentLimit()), false);
             if (recipients.isEmpty()) {
                 CompanionMessageService.tell(player, "message.find_me.command_no_deployed_team_members",
                         ChatFormatting.YELLOW);
@@ -143,7 +144,8 @@ public final class CompanionTeamOrderService {
                 .filter(uuid -> data.spellBindings(uuid).stream()
                         .anyMatch(binding -> binding != null && binding.role() == requiredRole))
                 .toList();
-        List<UUID> recipients = selectRecipients(eligibleTeam, deployed, Config.companionDeploymentLimit,
+        int deploymentLimit = Math.min(Config.companionDeploymentLimit, data.companionDeploymentLimit());
+        List<UUID> recipients = selectRecipients(eligibleTeam, deployed, deploymentLimit,
                 action.deploysTeam());
         if (recipients.isEmpty()) {
             CompanionMessageService.tell(player, requiredRole == null
@@ -226,7 +228,7 @@ public final class CompanionTeamOrderService {
         FindMeDebugLogger.info("command-team",
                 "requested player={} team={} action={} selected={} queued={} limit={}",
                 player.getUUID(), teamIndex, action, recipients.size(), queued.size(),
-                Config.companionDeploymentLimit);
+                deploymentLimit);
     }
 
     public static void tick(MinecraftServer server) {

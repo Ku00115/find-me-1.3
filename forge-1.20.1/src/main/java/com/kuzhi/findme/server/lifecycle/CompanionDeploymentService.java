@@ -54,7 +54,8 @@ public final class CompanionDeploymentService {
 
     private static void enforceCompanionDeploymentLimit(ServerPlayer player, PlayerCompanionData data, UUID keepUuid) {
         ArrayList<UUID> deployed = new ArrayList<>(data.deployedList(CompanionKind.COMPANION));
-        int limit = Math.max(1, Config.companionDeploymentLimit);
+        int limit = Math.max(1, Math.min(Config.companionDeploymentLimit,
+                data.companionDeploymentLimit()));
         while (deployed.size() > limit) {
             // setDeployed appends a newly deployed UUID, so this list is oldest
             // first. Capacity enforcement must evict that oldest entry instead of

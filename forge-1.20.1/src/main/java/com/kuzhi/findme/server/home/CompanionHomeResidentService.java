@@ -135,10 +135,10 @@ public final class CompanionHomeResidentService {
                         && validLoadedHouse(homeTarget.level, homeTarget.housePos)
                         && isHouseChunkTrackedByAnyPlayer(homeTarget.level, homeTarget.housePos)) {
                     CompanionMoveType residentMoveType = CompanionEntityClassifier.moveType(living, kind);
-                    CompanionHomeBehaviorService.applyResidentBehavior(living, behaviorCenter(homeTarget, living),
+                    CompanionHomeBehaviorService.ensureResidentBehavior(living, behaviorCenter(homeTarget, living),
                             residentMoveType, CompanionHomeBehaviorService.isAirborneResident(living)
                                     || residentMoveType == CompanionMoveType.FLY && !living.onGround(),
-                            homeTarget.mode);
+                            homeTarget.mode, homeTarget.patrolRadius, homeTarget.hardRadius);
                     RESTORE_RETRIES.remove(uuid);
                     continue;
                 }
@@ -257,6 +257,18 @@ public final class CompanionHomeResidentService {
         }
     }
 
+    private static void markResidentEntity(LivingEntity living, BlockPos center,
+                                           CompanionMoveType moveType, boolean airborne,
+                                           HouseResidentMode mode, int patrolRadius, int hardRadius) {
+        if (living != null) {
+            keepResidentPersistent(living);
+            markResident(living.getUUID());
+            RESIDENT_ENTITIES.put(living.getUUID(), living);
+            CompanionHomeBehaviorService.applyResidentBehavior(living, center, moveType, airborne, mode,
+                    patrolRadius, hardRadius);
+        }
+    }
+
     public static void refreshResidentMode(ServerPlayer player, PlayerCompanionData data, UUID uuid,
                                            HouseResidentMode mode) {
         if (player == null || data == null || uuid == null || mode == null) {
@@ -277,7 +289,8 @@ public final class CompanionHomeResidentService {
         markResidentEntity(living, mode == HouseResidentMode.REST ? living.blockPosition() : target.housePos,
                 moveType,
                 CompanionHomeBehaviorService.isAirborneResident(living)
-                        || moveType == CompanionMoveType.FLY && !living.onGround(), mode);
+                        || moveType == CompanionMoveType.FLY && !living.onGround(), mode,
+                target.patrolRadius, target.hardRadius);
     }
 
     public static void forgetPlayer(ServerPlayer player) {
@@ -455,7 +468,8 @@ public final class CompanionHomeResidentService {
     private static boolean shouldRestoreResident(PlayerCompanionData data, CompanionKind kind, UUID uuid,
                                                  HomeTarget homeTarget) {
         if (uuid == null || kind == null
-                || isResident(uuid) || data.isDeployed(kind, uuid) || !data.storedEntity(uuid).isPresent()) {
+                || data.isCritical(uuid) || isResident(uuid) || data.isDeployed(kind, uuid)
+                || !data.storedEntity(uuid).isPresent()) {
             return false;
         }
         if (CompanionOperationLockService.get(uuid) != null) {
@@ -476,7 +490,7 @@ public final class CompanionHomeResidentService {
     }
 
     private static boolean shouldRestoreResident(HomeResidentIndex.Entry entry, HomeTarget homeTarget) {
-        if (entry == null || isResident(entry.uuid()) || entry.deployed() || !entry.stored()
+        if (entry == null || entry.critical() || isResident(entry.uuid()) || entry.deployed() || !entry.stored()
                 || CompanionOperationLockService.get(entry.uuid()) != null
                 || CompanionStorageService.isStoragePending(entry.uuid())
                 || entry.homeNestBlock() == null || entry.homePosition() == null || homeTarget == null) {
@@ -572,7 +586,9 @@ public final class CompanionHomeResidentService {
                     behaviorCenter(homeTarget, resident),
                     moveType, CompanionHomeBehaviorService.isAirborneResident(resident)
                             || moveType == CompanionMoveType.FLY && !resident.onGround(),
-                    homeTarget == null ? HouseResidentMode.WANDER : homeTarget.mode);
+                    homeTarget == null ? HouseResidentMode.WANDER : homeTarget.mode,
+                    homeTarget == null ? com.kuzhi.findme.Config.housePatrolRadius : homeTarget.patrolRadius,
+                    homeTarget == null ? com.kuzhi.findme.Config.houseHardRadius : homeTarget.hardRadius);
             return false;
         }
         if (entity instanceof LivingEntity living && living.isAlive()) {
@@ -580,7 +596,9 @@ public final class CompanionHomeResidentService {
             markResidentEntity(living, behaviorCenter(homeTarget, living),
                     moveType, CompanionHomeBehaviorService.isAirborneResident(living)
                             || moveType == CompanionMoveType.FLY && !living.onGround(),
-                    homeTarget == null ? HouseResidentMode.WANDER : homeTarget.mode);
+                    homeTarget == null ? HouseResidentMode.WANDER : homeTarget.mode,
+                    homeTarget == null ? com.kuzhi.findme.Config.housePatrolRadius : homeTarget.patrolRadius,
+                    homeTarget == null ? com.kuzhi.findme.Config.houseHardRadius : homeTarget.hardRadius);
             return true;
         }
         clearResident(uuid);
@@ -709,7 +727,7 @@ public final class CompanionHomeResidentService {
             return false;
         }
         markResidentEntity(living, homeTarget.mode == HouseResidentMode.REST ? target : housePos,
-                moveType, airborne, homeTarget.mode);
+                moveType, airborne, homeTarget.mode, homeTarget.patrolRadius, homeTarget.hardRadius);
         if (com.kuzhi.findme.server.core.FindMeDebugLogger.enabled()) {
             com.kuzhi.findme.server.core.FindMeDebugLogger.info("home-resident",
                     "restore complete owner={} companion={} kind={} type={} house={} position={} residents={}",
@@ -730,7 +748,10 @@ public final class CompanionHomeResidentService {
         ServerLevel level = player.getServer().getLevel(position.dimension());
         HouseResidentMode mode = house == null ? HouseResidentMode.WANDER : house.residentMode(uuid);
         BlockPos residentPos = data.homePosition(uuid).map(SavedPosition::blockPos).orElse(null);
-        return level == null ? null : new HomeTarget(player, level, position.blockPos(), residentPos, mode);
+        int patrolRadius = house == null ? com.kuzhi.findme.Config.housePatrolRadius : house.patrolRadius();
+        int hardRadius = house == null ? com.kuzhi.findme.Config.houseHardRadius : house.hardRadius();
+        return level == null ? null : new HomeTarget(player, level, position.blockPos(), residentPos, mode,
+                patrolRadius, hardRadius);
     }
 
     private static HomeTarget resolveHomeTarget(ServerPlayer player, HomeResidentIndex.Entry entry) {
@@ -743,7 +764,10 @@ public final class CompanionHomeResidentService {
         ServerLevel level = player.getServer().getLevel(position.dimension());
         HouseResidentMode mode = house == null ? HouseResidentMode.WANDER : house.residentMode(entry.uuid());
         BlockPos residentPos = entry.homePosition() == null ? null : entry.homePosition().blockPos();
-        return level == null ? null : new HomeTarget(player, level, position.blockPos(), residentPos, mode);
+        int patrolRadius = house == null ? com.kuzhi.findme.Config.housePatrolRadius : house.patrolRadius();
+        int hardRadius = house == null ? com.kuzhi.findme.Config.houseHardRadius : house.hardRadius();
+        return level == null ? null : new HomeTarget(player, level, position.blockPos(), residentPos, mode,
+                patrolRadius, hardRadius);
     }
 
     private static boolean restoreRetryReady(UUID uuid, long gameTime) {
@@ -1039,7 +1063,7 @@ public final class CompanionHomeResidentService {
     }
 
     private record HomeTarget(ServerPlayer player, ServerLevel level, BlockPos housePos,
-                              BlockPos residentPos, HouseResidentMode mode) {
+                              BlockPos residentPos, HouseResidentMode mode, int patrolRadius, int hardRadius) {
     }
 
     private record RestoreRetry(UUID playerUuid, int failures, long nextAttemptAt) {

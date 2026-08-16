@@ -9,6 +9,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.living.LivingChangeTargetEvent;
 
@@ -23,9 +25,13 @@ public final class CompanionFriendlyFireService {
             return;
         }
         UUID victimOwner = ownerOf(level, event.getEntity());
-        UUID attackerOwner = ownerOf(level, attacker(event.getSource()));
+        Entity attackingEntity = attacker(event.getSource());
+        UUID attackerOwner = ownerOf(level, attackingEntity);
         if (sameProtectedOwner(level.getServer(), victimOwner, attackerOwner)) {
             event.setCanceled(true);
+            if (attackingEntity instanceof Mob mob) {
+                clearCombatIntent(mob, event.getEntity());
+            }
         }
     }
 
@@ -39,11 +45,46 @@ public final class CompanionFriendlyFireService {
         if (newTarget == null) {
             return;
         }
-        UUID mobOwner = ownerOf(level, target);
-        UUID newTargetOwner = ownerOf(level, newTarget);
-        if (sameProtectedOwner(level.getServer(), mobOwner, newTargetOwner)) {
+        if (isFriendlyTarget(target, newTarget)) {
             event.setNewTarget(null);
+            if (target instanceof Mob mob) {
+                clearCombatIntent(mob, newTarget);
+            }
         }
+    }
+
+    /** Shared target blacklist used by Forge events and the vanilla AI entry points. */
+    public static boolean isFriendlyTarget(Entity attacker, Entity target) {
+        if (attacker == null || target == null || attacker == target
+                || attacker.level().isClientSide()
+                || !(attacker.level() instanceof ServerLevel level)) {
+            return false;
+        }
+        return sameProtectedOwner(level.getServer(), ownerOf(level, attacker), ownerOf(level, target));
+    }
+
+    /** Global command/automation blacklist: bound creatures are never implicit attack targets. */
+    public static boolean isBoundCompanion(Entity entity) {
+        if (entity == null || entity.level().isClientSide()
+                || !(entity.level() instanceof ServerLevel level)) {
+            return false;
+        }
+        return FindMeWorldSavedData.get(level.getServer()).companionOwner(entity.getUUID()).isPresent();
+    }
+
+    private static void clearCombatIntent(Mob mob, LivingEntity friendlyTarget) {
+        if (mob.getTarget() == friendlyTarget) {
+            mob.setTarget(null);
+        }
+        if (mob.getLastHurtByMob() == friendlyTarget) {
+            mob.setLastHurtByMob(null);
+        }
+        if (mob.getLastHurtMob() == friendlyTarget) {
+            mob.setLastHurtMob(null);
+        }
+        mob.getBrain().eraseMemory(MemoryModuleType.ATTACK_TARGET);
+        mob.getBrain().eraseMemory(MemoryModuleType.ANGRY_AT);
+        mob.getNavigation().stop();
     }
 
     private static Entity attacker(DamageSource source) {

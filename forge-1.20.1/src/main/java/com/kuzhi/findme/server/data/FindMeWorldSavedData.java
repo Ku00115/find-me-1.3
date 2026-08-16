@@ -1,5 +1,6 @@
 package com.kuzhi.findme.server.data;
 
+import com.kuzhi.findme.Config;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -127,7 +128,11 @@ public final class FindMeWorldSavedData extends SavedData {
         }
         Set<UUID> residents = previous == null ? new HashSet<>() : previous.residents();
         Map<UUID, HouseResidentMode> residentModes = previous == null ? new HashMap<>() : previous.residentModes();
-        houses.put(houseId, new HouseRecord(houseId, owner, position, displayName, residents, residentModes));
+        int capacity = previous == null ? Config.houseResidentCapacity : previous.residentCapacity();
+        int patrolRadius = previous == null ? Config.housePatrolRadius : previous.patrolRadius();
+        int hardRadius = previous == null ? Config.houseHardRadius : previous.hardRadius();
+        houses.put(houseId, new HouseRecord(houseId, owner, position, displayName, residents, residentModes,
+                capacity, patrolRadius, hardRadius));
         setDirty();
         return true;
     }
@@ -202,6 +207,22 @@ public final class FindMeWorldSavedData extends SavedData {
         if (previous == mode) {
             return false;
         }
+        setDirty();
+        return true;
+    }
+
+    public boolean setHouseSettings(UUID houseId, int residentCapacity, int patrolRadius, int hardRadius) {
+        HouseRecord house = houses.get(houseId);
+        if (house == null) return false;
+        int capacity = HouseRecord.clampCapacity(residentCapacity);
+        int patrol = HouseRecord.clampPatrolRadius(patrolRadius);
+        int hard = HouseRecord.clampHardRadius(hardRadius, patrol);
+        if (house.residentCapacity == capacity && house.patrolRadius == patrol && house.hardRadius == hard) {
+            return false;
+        }
+        house.residentCapacity = capacity;
+        house.patrolRadius = patrol;
+        house.hardRadius = hard;
         setDirty();
         return true;
     }
@@ -374,7 +395,13 @@ public final class FindMeWorldSavedData extends SavedData {
                     SavedPosition.load(entry.getCompound("position")),
                     entry.getString("displayName"),
                     residents,
-                    residentModes));
+                    residentModes,
+                    entry.contains("residentCapacity", Tag.TAG_INT)
+                            ? entry.getInt("residentCapacity") : Config.houseResidentCapacity,
+                    entry.contains("patrolRadius", Tag.TAG_INT)
+                            ? entry.getInt("patrolRadius") : Config.housePatrolRadius,
+                    entry.contains("hardRadius", Tag.TAG_INT)
+                            ? entry.getInt("hardRadius") : Config.houseHardRadius));
         }
         ListTag destroyedHouses = tag.getList("destroyedHouses", Tag.TAG_COMPOUND);
         for (int index = 0; index < destroyedHouses.size(); index++) {
@@ -438,6 +465,9 @@ public final class FindMeWorldSavedData extends SavedData {
                 entry.putString("displayName", house.displayName());
             }
             entry.put("residents", saveResidents(house));
+            entry.putInt("residentCapacity", house.residentCapacity());
+            entry.putInt("patrolRadius", house.patrolRadius());
+            entry.putInt("hardRadius", house.hardRadius());
             houses.add(entry);
         }
         tag.put("houses", houses);
@@ -481,13 +511,24 @@ public final class FindMeWorldSavedData extends SavedData {
         private final String displayName;
         private final Set<UUID> residents;
         private final Map<UUID, HouseResidentMode> residentModes;
+        private int residentCapacity;
+        private int patrolRadius;
+        private int hardRadius;
 
         public HouseRecord(UUID houseId, UUID owner, SavedPosition position, String displayName, Set<UUID> residents) {
-            this(houseId, owner, position, displayName, residents, Map.of());
+            this(houseId, owner, position, displayName, residents, Map.of(), Config.houseResidentCapacity,
+                    Config.housePatrolRadius, Config.houseHardRadius);
         }
 
         public HouseRecord(UUID houseId, UUID owner, SavedPosition position, String displayName, Set<UUID> residents,
                            Map<UUID, HouseResidentMode> residentModes) {
+            this(houseId, owner, position, displayName, residents, residentModes, Config.houseResidentCapacity,
+                    Config.housePatrolRadius, Config.houseHardRadius);
+        }
+
+        public HouseRecord(UUID houseId, UUID owner, SavedPosition position, String displayName, Set<UUID> residents,
+                           Map<UUID, HouseResidentMode> residentModes, int residentCapacity,
+                           int patrolRadius, int hardRadius) {
             this.houseId = houseId;
             this.owner = owner;
             this.position = position;
@@ -499,6 +540,9 @@ public final class FindMeWorldSavedData extends SavedData {
                         ? HouseResidentMode.WANDER
                         : residentModes.getOrDefault(resident, HouseResidentMode.WANDER));
             }
+            this.residentCapacity = clampCapacity(residentCapacity);
+            this.patrolRadius = clampPatrolRadius(patrolRadius);
+            this.hardRadius = clampHardRadius(hardRadius, this.patrolRadius);
         }
 
         public UUID houseId() { return houseId; }
@@ -507,9 +551,19 @@ public final class FindMeWorldSavedData extends SavedData {
         public String displayName() { return displayName; }
         public Set<UUID> residents() { return residents; }
         public Map<UUID, HouseResidentMode> residentModes() { return residentModes; }
+        public int residentCapacity() { return residentCapacity; }
+        public int patrolRadius() { return patrolRadius; }
+        public int hardRadius() { return hardRadius; }
         public HouseResidentMode residentMode(UUID resident) {
             return residentModes.getOrDefault(resident, HouseResidentMode.WANDER);
         }
-        public HouseRecord copy() { return new HouseRecord(houseId, owner, position, displayName, residents, residentModes); }
+        public HouseRecord copy() { return new HouseRecord(houseId, owner, position, displayName, residents,
+                residentModes, residentCapacity, patrolRadius, hardRadius); }
+
+        static int clampCapacity(int value) { return Math.max(1, Math.min(64, value)); }
+        static int clampPatrolRadius(int value) { return Math.max(4, Math.min(256, value)); }
+        static int clampHardRadius(int value, int patrolRadius) {
+            return Math.max(patrolRadius, Math.max(8, Math.min(512, value)));
+        }
     }
 }

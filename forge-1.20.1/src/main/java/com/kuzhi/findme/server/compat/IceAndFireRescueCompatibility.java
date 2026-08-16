@@ -56,6 +56,13 @@ public final class IceAndFireRescueCompatibility {
         invoke(entity, access(entity).map(DragonAccess::setHovering), false);
     }
 
+    /** Keeps the native dragon controller in moving flight while FindMe owns escort motion. */
+    public static void forceEscortFlight(LivingEntity entity) {
+        if (!isDragon(entity)) return;
+        invoke(entity, access(entity).map(DragonAccess::setFlying), true);
+        invoke(entity, access(entity).map(DragonAccess::setHovering), false);
+    }
+
     /** Allows forced boarding only for the registered, owned Ice and Fire mount. */
     public static boolean canForceRescueMount(ServerPlayer player, LivingEntity entity) {
         boolean allowed = isDragon(entity) && player != null

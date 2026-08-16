@@ -1,6 +1,5 @@
 package com.kuzhi.findme.client;
 
-import com.kuzhi.findme.Config;
 import com.kuzhi.findme.common.FindMeWheelStyle;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -394,7 +393,7 @@ final class FindMeWheelRenderer {
 
     static int guiColor(int color, float fade) {
         int alpha = color >>> 24 & 0xFF;
-        int scaledAlpha = Math.max(0, Math.min(255, (int)Math.round(alpha * Config.guiOpacity * fade)));
+        int scaledAlpha = Math.max(0, Math.min(255, (int)Math.round(alpha * ClientWheelPresentationState.guiOpacity() * fade)));
         return color & 0xFFFFFF | scaledAlpha << 24;
     }
 

@@ -11,6 +11,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.Vec3;
 
 public final class CompanionMountSwitchService {
     private static final int MOUNT_SWITCH_FAIL_TICKS = 160;
@@ -73,7 +74,9 @@ public final class CompanionMountSwitchService {
             }
         }
         if (groundRescue && !cinematic.waitLocked() && CompanionCinematicLandingService.distanceToGround(player) >= 14.0 && (mode.isAirToGroundSwitch() || (double)player.distanceTo(mount) > 4.0)) {
-            CompanionCinematicMovementService.moveTowardMountContact(cinematic, mount, player, currentVehicle);
+            Vec3 target = CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player, mount);
+            CompanionCinematicMovementService.moveTowardCinematicTarget(cinematic, mount, player,
+                    target, mount.position().distanceTo(target));
             cinematic.incrementSwitchAge();
             return;
         }
@@ -153,7 +156,9 @@ public final class CompanionMountSwitchService {
             if (airRescue) {
                 CompanionCinematicPositionService.lockMountAtFlyingWait(cinematic, mount, player);
             } else {
-                CompanionCinematicMovementService.moveTowardMountContact(cinematic, mount, player, currentVehicle);
+                Vec3 target = CompanionCinematicLandingService.cinematicTarget(cinematic, mount.level(), player, mount);
+                CompanionCinematicMovementService.moveTowardCinematicTarget(cinematic, mount, player,
+                        target, mount.position().distanceTo(target));
             }
             cinematic.incrementSwitchAge();
             return;

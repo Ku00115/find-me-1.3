@@ -95,6 +95,22 @@ public final class CompanionArrivalSequenceService {
         return isPending(living) && BookOfDragonsRescueCompatibility.isBookOfDragonsDragon(living);
     }
 
+    public static boolean revealForCinematicMovement(LivingEntity living) {
+        if (living == null) {
+            return false;
+        }
+        PendingArrival pending = PENDING.remove(living.getUUID());
+        if (pending == null) {
+            return false;
+        }
+        pending.restore(living);
+        CompanionSummonLineService.showScheduled(living);
+        FindMeDebugLogger.info("arrival-visibility",
+                "reveal before cinematic movement entity={} purpose={} originalInvisible={} currentInvisible={}",
+                FindMeDebugLogger.entity(living), pending.purpose(), pending.invisible(), living.isInvisible());
+        return true;
+    }
+
     public static Optional<Boolean> originalNoAi(LivingEntity living) {
         if (living == null) {
             return Optional.empty();
@@ -178,7 +194,8 @@ public final class CompanionArrivalSequenceService {
         }
 
         PendingArrival tick(LivingEntity living) {
-            if (BookOfDragonsRescueCompatibility.isBookOfDragonsDragon(living)) {
+            boolean heldAtAnchor = BookOfDragonsRescueCompatibility.isBookOfDragonsDragon(living);
+            if (heldAtAnchor) {
                 holdAtAnchor(living);
             }
             if (remainingTicks <= 1) {
@@ -188,6 +205,14 @@ public final class CompanionArrivalSequenceService {
             living.fallDistance = 0.0f;
             int nextHideTicks = Math.max(0, hideTicks - 1);
             if (hideTicks > 0) {
+                if (!heldAtAnchor && anchor != null && living.position().distanceToSqr(anchor) > 0.04) {
+                    restore(living);
+                    CompanionSummonLineService.showScheduled(living);
+                    FindMeDebugLogger.info("arrival-visibility",
+                            "early reveal after movement entity={} purpose={} current={} anchor={}",
+                            FindMeDebugLogger.entity(living), purpose, living.position(), anchor);
+                    return null;
+                }
                 living.setInvisible(hideTicks == 1 ? invisible : true);
             }
             return new PendingArrival(remainingTicks - 1, nextHideTicks, noAi, invisible, playerUuid, focus, purpose, anchor, yRot, xRot);

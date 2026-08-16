@@ -32,6 +32,17 @@ class CompanionHomeServiceTest {
     }
 
     @Test
+    void capacityUsesTheIndividualHouseSetting() {
+        UUID resident = UUID.randomUUID();
+        FindMeWorldSavedData.HouseRecord house = new FindMeWorldSavedData.HouseRecord(
+                UUID.randomUUID(), UUID.randomUUID(), position(0, 64, 0), "Home",
+                new HashSet<>(java.util.Set.of(resident)), java.util.Map.of(), 1, 24, 32);
+
+        assertTrue(CompanionHomeService.hasResidentCapacity(house, resident));
+        assertFalse(CompanionHomeService.hasResidentCapacity(house, UUID.randomUUID()));
+    }
+
+    @Test
     void houseInteractionRequiresTheSameDimensionAndAnEightBlockRadius() {
         SavedPosition house = position(0, 64, 0);
 

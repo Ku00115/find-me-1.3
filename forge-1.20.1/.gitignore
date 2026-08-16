@@ -21,5 +21,11 @@ build
 eclipse
 run
 
+# local integration-test inputs and generated diagnostics
+assets/
+libs/
+logs/
+mods-backup/
+
 # Files from Forge MDK
 forge*changelog.txt

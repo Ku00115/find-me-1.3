@@ -49,14 +49,12 @@ public final class CompanionCinematicSpeedService {
             }
             return groundRescueSpeed(cinematic, player, distance, groundDistance, fallSpeed);
         }
-        if (cinematic.mode().isMountSwitch() && cinematic.stage() == MountCinematicStage.SWITCH) {
-            double playerSpeed = playerHorizontalSpeed(player);
-            if (playerSpeed > MOVING_PLAYER_SPEED_THRESHOLD) {
-                double bonus = Math.min(AIR_SWITCH_PLAYER_SPEED_CAP_BONUS, playerSpeed * AIR_SWITCH_PLAYER_SPEED_GAIN);
-                double switchSpeed = (baseSpeed(cinematic.moveType()) + bonus) * MOUNT_SWITCH_SPEED_MULTIPLIER
-                        * DEFAULT_SUMMON_SWITCH_SPEED_SCALE;
-                return Math.min(distance, applyStuckSpeedBoost(cinematic, switchSpeed));
-            }
+        if (cinematic.mode().isMountSwitch() && cinematic.moveType() != CompanionMoveType.FLY) {
+            double playerSpeed = switchReferenceSpeed(cinematic, player);
+            double base = baseSpeed(cinematic.moveType()) * MOUNT_SWITCH_SPEED_MULTIPLIER
+                    * DEFAULT_SUMMON_SWITCH_SPEED_SCALE;
+            double switchSpeed = movingSwitchSpeed(cinematic.moveType(), base, playerSpeed);
+            return Math.min(distance, applyStuckSpeedBoost(cinematic, switchSpeed));
         }
         double speed = baseSpeed(cinematic.moveType());
         if (cinematic.mode().isMountSwitch()) {
@@ -129,6 +127,15 @@ public final class CompanionCinematicSpeedService {
         return 0.42;
     }
 
+    static double movingSwitchSpeed(CompanionMoveType moveType, double base, double playerSpeed) {
+        if (moveType == CompanionMoveType.FLY || playerSpeed <= MOVING_PLAYER_SPEED_THRESHOLD) {
+            return base;
+        }
+        double chaseMargin = moveType == CompanionMoveType.SWIM ? 0.28 : 0.34;
+        double cap = moveType == CompanionMoveType.SWIM ? 2.2 : 2.6;
+        return Math.min(cap, Math.max(base, playerSpeed * 1.12 + chaseMargin));
+    }
+
     private static double groundRescueSpeed(PendingMountCinematic cinematic, ServerPlayer player, double distance, double groundDistance, double fallSpeed) {
         CompanionRescuePlanner.Plan rescuePlan = CompanionRescuePlanner.plan(player);
         double ticksUntilTenBlocks = Math.max(2.0, rescuePlan.ticksToImpact() == Integer.MAX_VALUE
@@ -147,11 +154,12 @@ public final class CompanionCinematicSpeedService {
             cap *= 0.78;
         }
         if (cinematic.mode().isAirToGroundSwitch()) {
-            double playerSpeed = playerHorizontalSpeed(player);
+            double playerSpeed = switchReferenceSpeed(cinematic, player);
             if (playerSpeed > MOVING_PLAYER_SPEED_THRESHOLD) {
                 double bonus = Math.min(AIR_SWITCH_PLAYER_SPEED_CAP_BONUS, playerSpeed * AIR_SWITCH_PLAYER_SPEED_GAIN);
                 base += bonus * 0.55;
                 cap += bonus;
+                base = Math.max(base, movingSwitchSpeed(cinematic.moveType(), base, playerSpeed));
             }
         }
         return applyStuckSpeedBoost(cinematic, Math.min(cap, Math.max(base, needed)));
@@ -175,6 +183,13 @@ public final class CompanionCinematicSpeedService {
             speed = Math.max(speed, vehicleMovement.horizontalDistance());
         }
         return speed;
+    }
+
+    private static double switchReferenceSpeed(PendingMountCinematic cinematic, ServerPlayer player) {
+        double speed = playerHorizontalSpeed(player);
+        Vec3 handoffVelocity = cinematic.rideHandoff().velocity();
+        return handoffVelocity == null ? speed
+                : Math.max(speed, handoffVelocity.horizontalDistance());
     }
 
     private static double baseSpeed(CompanionMoveType moveType) {

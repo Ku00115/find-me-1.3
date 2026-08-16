@@ -176,6 +176,30 @@ class FindMeWorldSavedDataTest {
     }
 
     @Test
+    void houseSettingsAreCopiedAndClampInvalidRanges() {
+        FindMeWorldSavedData data = new FindMeWorldSavedData();
+        UUID houseId = UUID.randomUUID();
+        data.registerHouse(houseId, UUID.randomUUID(), position(0, 64, 0), "Home");
+
+        assertTrue(data.setHouseSettings(houseId, 12, 40, 24));
+        FindMeWorldSavedData.HouseRecord updated = data.house(houseId).orElseThrow();
+        assertEquals(12, updated.residentCapacity());
+        assertEquals(40, updated.patrolRadius());
+        assertEquals(40, updated.hardRadius());
+
+        assertTrue(data.setHouseSettings(houseId, 1000, -5, 1000));
+        FindMeWorldSavedData.HouseRecord clamped = data.house(houseId).orElseThrow();
+        assertEquals(64, clamped.residentCapacity());
+        assertEquals(4, clamped.patrolRadius());
+        assertEquals(512, clamped.hardRadius());
+
+        assertTrue(data.setHouseSettings(houseId, 8, 1000, 1000));
+        FindMeWorldSavedData.HouseRecord expanded = data.house(houseId).orElseThrow();
+        assertEquals(256, expanded.patrolRadius());
+        assertEquals(512, expanded.hardRadius());
+    }
+
+    @Test
     void removingAResidentFromAllHousesAlsoRemovesItsMode() {
         FindMeWorldSavedData data = new FindMeWorldSavedData();
         UUID firstHouse = UUID.randomUUID();
@@ -198,6 +222,7 @@ class FindMeWorldSavedDataTest {
     private static SavedPosition position(double x, double y, double z) {
         return new SavedPosition(null, x, y, z, 0.0f, 0.0f);
     }
+
 
     private static CompoundTag rootWithMount(UUID uuid) {
         CompoundTag root = new CompoundTag();

@@ -49,8 +49,7 @@ public static void encode(FindMeSettingsPacket packet, FriendlyByteBuf buffer) {
         FindMeNetworkContext.Context context = contextSupplier.get();
         context.enqueueWork(() -> {
             com.kuzhi.findme.client.ClientWheelPresentationState.update(packet.settings());
-            com.kuzhi.findme.client.ClientCompanionTeamState.applyDefaultTeam(
-                    com.kuzhi.findme.client.ClientWheelPresentationState.defaultTeamIndex());
+            com.kuzhi.findme.client.ClientCompanionTeamState.applyDefaultTeam(0);
             com.kuzhi.findme.client.FindMeAuiManageScreen.updateSettings(packet.settings(), packet.success(), packet.message());
         });
         context.setPacketHandled(true);

@@ -270,6 +270,7 @@ public final class CompanionThreatResolver {
                 && !(candidate instanceof Player) && candidate.isAlive() && !candidate.isRemoved()
                 && candidate.level() == owner.level()
                 && candidate.position().distanceToSqr(center) <= range * range
+                && !CompanionFriendlyFireService.isBoundCompanion(candidate)
                 && !rosterContains.test(candidate.getUUID())
                 && !CompanionEntityClassifier.isOwnedBy(owner, candidate)
                 && !owner.isAlliedTo(candidate)

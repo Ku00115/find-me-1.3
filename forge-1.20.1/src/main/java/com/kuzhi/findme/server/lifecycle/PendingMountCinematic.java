@@ -11,6 +11,7 @@ public final class PendingMountCinematic {
     private final UUID playerUuid;
     private final UUID mountUuid;
     private final CompanionMoveType moveType;
+    private CompanionMoveType presentationMoveType;
     private final MountCinematicMode mode;
     private final double catchY;
     private final boolean physicalCatchOnly;
@@ -49,6 +50,7 @@ public final class PendingMountCinematic {
         this.playerUuid = playerUuid;
         this.mountUuid = mountUuid;
         this.moveType = moveType;
+        this.presentationMoveType = moveType;
         this.mode = mode;
         this.catchY = catchY;
         this.flyingRescueStaged = flyingRescueStaged;
@@ -70,6 +72,16 @@ public final class PendingMountCinematic {
 
     public CompanionMoveType moveType() {
         return this.moveType;
+    }
+
+    public CompanionMoveType presentationMoveType() {
+        return this.presentationMoveType;
+    }
+
+    public void useGroundedSwimFallback() {
+        if (this.moveType == CompanionMoveType.SWIM) {
+            this.presentationMoveType = CompanionMoveType.WALK;
+        }
     }
 
     public MountCinematicMode mode() {

@@ -58,7 +58,7 @@ public final class ClientFindMeHudLayout {
     }
 
     static Layout defaults() {
-        return new Layout(DEFAULT_RIGHT, DEFAULT_TOP, DEFAULT_SCALE, true);
+        return new Layout(DEFAULT_RIGHT, DEFAULT_TOP, DEFAULT_SCALE, false);
     }
 
     static int displayWidth() {
@@ -155,7 +155,7 @@ public final class ClientFindMeHudLayout {
             if (object == null) return defaults();
             return new Layout(number(object, "right", DEFAULT_RIGHT), number(object, "top", DEFAULT_TOP),
                     number(object, "scale", DEFAULT_SCALE),
-                    !object.has("visible") || object.get("visible").getAsBoolean()).normalized();
+                    object.has("visible") && object.get("visible").getAsBoolean()).normalized();
         } catch (IOException | JsonParseException | IllegalStateException ignored) {
             return defaults();
         }

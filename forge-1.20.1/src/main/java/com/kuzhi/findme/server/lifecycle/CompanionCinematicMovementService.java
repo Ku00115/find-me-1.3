@@ -89,8 +89,11 @@ public final class CompanionCinematicMovementService {
     }
 
     private static void moveTowardTarget(PendingMountCinematic cinematic, LivingEntity mount, ServerPlayer player, Vec3 target, double stepDistance, double speed, boolean forceFlyingPose) {
+        if (stepDistance > 1.0E-4) {
+            CompanionArrivalSequenceService.revealForCinematicMovement(mount);
+        }
         double groundOffset = CompanionCinematicLandingService.rescueGroundYOffset(cinematic);
-        moveArrivalStep(mount, cinematic.moveType(), target, stepDistance, speed,
+        moveArrivalStep(mount, cinematic.presentationMoveType(), target, stepDistance, speed,
                 forceFlyingPose || cinematic.mode().isFlyingRescue(), groundOffset, cinematic);
         CompanionCinematicPositionService.keepFlyingRescueAboveLanding(cinematic, mount, player);
         cinematic.rememberPosition(mount.position());
@@ -110,6 +113,7 @@ public final class CompanionCinematicMovementService {
             living.setXRot(pitch);
             if (forceFlyingPose) CompanionAnimationHelper.forceFlyingAnimationPose(living);
         } else if (moveType == CompanionMoveType.WALK) {
+            CompanionAnimationHelper.forceGroundMovingPose(living);
             Vec3 horizontal = new Vec3(direction.x, 0.0, direction.z);
             if (horizontal.lengthSqr() < 0.001) horizontal = new Vec3(0.0, 0.0, 1.0);
             if (cinematic != null) {
@@ -172,7 +176,7 @@ public final class CompanionCinematicMovementService {
     }
 
     public static void snapWalkMountToGround(PendingMountCinematic cinematic, LivingEntity mount) {
-        if (cinematic.moveType() != CompanionMoveType.WALK) {
+        if (cinematic.presentationMoveType() != CompanionMoveType.WALK) {
             return;
         }
         double groundY = CompanionCinematicLandingService.walkGroundY(mount.level(), mount.getX(), mount.getY(), mount.getZ(), mount.getY());
@@ -189,7 +193,7 @@ public final class CompanionCinematicMovementService {
         Level level;
         if (currentVehicle != null && currentVehicle != player && !cinematic.mode().isAirToGroundSwitch()) {
             Vec3 center = currentVehicle.getBoundingBox().getCenter();
-            if (cinematic.moveType() == CompanionMoveType.WALK) {
+            if (cinematic.presentationMoveType() == CompanionMoveType.WALK) {
                 return new Vec3(center.x, currentVehicle.getY(), center.z);
             }
             return center;
@@ -198,7 +202,7 @@ public final class CompanionCinematicMovementService {
         if (cinematic.mode().isFlyingRescue()) {
             return center.add(0.0, -0.35, 0.0);
         }
-        if (cinematic.moveType() == CompanionMoveType.WALK && (level = player.level()) instanceof ServerLevel level2) {
+        if (cinematic.presentationMoveType() == CompanionMoveType.WALK && (level = player.level()) instanceof ServerLevel level2) {
             BlockPos landing = CompanionCinematicLandingService.predictedLanding(level2, player);
             return Vec3.atBottomCenterOf((Vec3i)landing).add(0.0, CompanionCinematicLandingService.rescueGroundYOffset(cinematic), 0.0);
         }

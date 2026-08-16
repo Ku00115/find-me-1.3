@@ -1,5 +1,6 @@
 package com.kuzhi.findme.server.home;
 
+import com.kuzhi.findme.Config;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.HouseResidentMode;
 import com.kuzhi.findme.server.compat.CompanionFixedPostService;
@@ -22,6 +23,8 @@ final class CompanionHomeBehaviorService {
     private static final String HOME_MOVE_TYPE_TAG = "FindMeHomeMoveType";
     private static final String HOME_AIRBORNE_TAG = "FindMeHomeAirborne";
     private static final String HOME_MODE_TAG = "FindMeHomeMode";
+    private static final String HOME_PATROL_RADIUS_TAG = "FindMeHomePatrolRadius";
+    private static final String HOME_HARD_RADIUS_TAG = "FindMeHomeHardRadius";
     private static final Map<UUID, Boolean> PREVIOUS_ORDERED_SIT = new HashMap<>();
 
     private CompanionHomeBehaviorService() {
@@ -42,7 +45,8 @@ final class CompanionHomeBehaviorService {
             CompanionFixedPostService.acquire(living, CompanionFixedPostService.Reason.HOME);
             IceAndFireRescueCompatibility.applyHomeCommand(living, residentMode);
             CompanionGuardPostService.acquireHome(mob, homeCenter(living), homeMoveType(living),
-                    living.getPersistentData().getBoolean(HOME_AIRBORNE_TAG), residentMode);
+                    living.getPersistentData().getBoolean(HOME_AIRBORNE_TAG), residentMode,
+                    homePatrolRadius(living), homeHardRadius(living));
         }
     }
 
@@ -56,6 +60,39 @@ final class CompanionHomeBehaviorService {
                                       boolean airborne, HouseResidentMode mode) {
         configureResident(living, center, moveType, airborne, mode);
         applyResidentBehavior(living, mode);
+    }
+
+    static void applyResidentBehavior(LivingEntity living, BlockPos center, CompanionMoveType moveType,
+                                      boolean airborne, HouseResidentMode mode,
+                                      int patrolRadius, int hardRadius) {
+        configureResident(living, center, moveType, airborne, mode);
+        living.getPersistentData().putInt(HOME_PATROL_RADIUS_TAG, patrolRadius);
+        living.getPersistentData().putInt(HOME_HARD_RADIUS_TAG, hardRadius);
+        applyResidentBehavior(living, mode);
+    }
+
+    static void ensureResidentBehavior(LivingEntity living, BlockPos center, CompanionMoveType moveType,
+                                       boolean airborne, HouseResidentMode mode,
+                                       int patrolRadius, int hardRadius) {
+        if (living == null || center == null || moveType == null) {
+            return;
+        }
+        HouseResidentMode residentMode = mode == null ? HouseResidentMode.WANDER : mode;
+        boolean configured = living.getPersistentData().getBoolean(HOME_RESIDENT_TAG)
+                && living.getPersistentData().getInt(HOME_CENTER_X_TAG) == center.getX()
+                && living.getPersistentData().getInt(HOME_CENTER_Y_TAG) == center.getY()
+                && living.getPersistentData().getInt(HOME_CENTER_Z_TAG) == center.getZ()
+                && moveType.name().equals(living.getPersistentData().getString(HOME_MOVE_TYPE_TAG))
+                && living.getPersistentData().getBoolean(HOME_AIRBORNE_TAG) == airborne
+                && residentMode.name().equals(living.getPersistentData().getString(HOME_MODE_TAG))
+                && living.getPersistentData().getInt(HOME_PATROL_RADIUS_TAG) == patrolRadius
+                && living.getPersistentData().getInt(HOME_HARD_RADIUS_TAG) == hardRadius;
+        boolean leaseReady = !(living instanceof Mob mob)
+                || CompanionGuardPostService.hasMatchingHomeLease(mob, center, moveType, airborne,
+                residentMode, patrolRadius, hardRadius);
+        if (!configured || !leaseReady) {
+            applyResidentBehavior(living, center, moveType, airborne, residentMode, patrolRadius, hardRadius);
+        }
     }
 
     static void configureResident(LivingEntity living, BlockPos center, CompanionMoveType moveType,
@@ -81,9 +118,21 @@ final class CompanionHomeBehaviorService {
         return living != null && living.getPersistentData().getBoolean(HOME_AIRBORNE_TAG);
     }
 
+    private static int homePatrolRadius(LivingEntity living) {
+        return living.getPersistentData().contains(HOME_PATROL_RADIUS_TAG)
+                ? living.getPersistentData().getInt(HOME_PATROL_RADIUS_TAG) : Config.housePatrolRadius;
+    }
+
+    private static int homeHardRadius(LivingEntity living) {
+        return living.getPersistentData().contains(HOME_HARD_RADIUS_TAG)
+                ? living.getPersistentData().getInt(HOME_HARD_RADIUS_TAG) : Config.houseHardRadius;
+    }
+
     static void clearResidentBehavior(LivingEntity living) {
         living.getPersistentData().remove(HOME_RESIDENT_TAG);
         living.getPersistentData().remove(HOME_MODE_TAG);
+        living.getPersistentData().remove(HOME_PATROL_RADIUS_TAG);
+        living.getPersistentData().remove(HOME_HARD_RADIUS_TAG);
         CompanionGuardPostService.releaseHome(living.getUUID(), "home_released");
         CompanionFixedPostService.release(living, CompanionFixedPostService.Reason.HOME);
         CompanionSaintsDragonsCompat.clearHomeCommand(living);

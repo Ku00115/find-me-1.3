@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
@@ -29,6 +30,7 @@ import net.minecraft.world.phys.Vec3;
 public final class CompanionWaystoneJourneyService {
     private static final int CAMERA_LEAD_TICKS = 2;
     private static final int ACQUIRE_TIMEOUT_TICKS = 20 * 12;
+    private static final int AIRBORNE_CATCH_FALLBACK_TICKS = 40;
     private static final int DEPARTURE_TICKS = 42;
     private static final int BLACKOUT_TICKS = 8;
     private static final int TELEPORT_DELAY_TICKS = 10;
@@ -117,6 +119,12 @@ public final class CompanionWaystoneJourneyService {
 
     private static void tickAcquiring(ServerPlayer player, Journey journey) {
         if (journey.stageAge < CAMERA_LEAD_TICKS) return;
+        boolean descendingAirborne = isDescendingAirborne(player);
+        if (descendingAirborne) {
+            player.fallDistance = 0.0f;
+            player.invulnerableTime = Math.max(player.invulnerableTime,
+                    com.kuzhi.findme.Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
+        }
         PlayerCompanionData data = CompanionDataService.data(player);
         LivingEntity mount = CompanionDeployRequestService.readyEntity(player, data, journey.mountUuid,
                 CompanionDeployRequestService.Mode.RIDDEN);
@@ -140,6 +148,20 @@ public final class CompanionWaystoneJourneyService {
             journey.cameraTracking = true;
             ModNetwork.sendToPlayer(player, RideHomeJourneySupport.camera(player, mount,
                     RideHomeCameraPacket.Mode.TRACK, TOTAL_TIMEOUT_TICKS, mount.getYRot()));
+        }
+        if (mount != null && player.getVehicle() != mount && !journey.airbornePickupAttempted) {
+            boolean visibleCatch = shouldCompleteAirborneCatchAtContact(journey.moveType,
+                    descendingAirborne, CompanionArrivalSequenceService.isPending(mount),
+                    CompanionMountCinematicFlowService.isPlayerInFlyingCatchZone(player, mount));
+            boolean missedCatch = shouldUseAirborneCatchFallback(journey.moveType, journey.stageAge,
+                    player.onGround(), player.isInWater(), player.getDeltaMovement().y);
+            if (visibleCatch || missedCatch) {
+                journey.airbornePickupAttempted = true;
+                if (!forceAirbornePickup(player, journey, mount, missedCatch)) {
+                    cancel(player, journey, "airborne_pickup_failed", null);
+                    return;
+                }
+            }
         }
         if (mount == null || player.getVehicle() != mount) {
             if (journey.summonRequested && mount == null && busyReason == null
@@ -169,6 +191,46 @@ public final class CompanionWaystoneJourneyService {
         journey.physics = RideHomeJourneySupport.capturePhysics(mount);
         journey.headingYaw = RideHomeJourneySupport.headingYaw(journey.travelDirection, mount.getYRot());
         enter(journey, Stage.DEPARTING, player, mount);
+    }
+
+    static boolean shouldUseAirborneCatchFallback(CompanionMoveType moveType, int stageAge,
+                                                   boolean onGround, boolean inWater,
+                                                   double verticalVelocity) {
+        return moveType == CompanionMoveType.FLY && stageAge >= AIRBORNE_CATCH_FALLBACK_TICKS
+                && !onGround && !inWater && verticalVelocity < -0.01;
+    }
+
+    static boolean shouldCompleteAirborneCatchAtContact(CompanionMoveType moveType,
+                                                         boolean descendingAirborne,
+                                                         boolean arrivalPending,
+                                                         boolean inCatchZone) {
+        return moveType == CompanionMoveType.FLY && descendingAirborne
+                && !arrivalPending && inCatchZone;
+    }
+
+    private static boolean isDescendingAirborne(ServerPlayer player) {
+        return player != null && !player.onGround() && !player.isInWater()
+                && !player.isFallFlying() && !player.onClimbable()
+                && !player.getAbilities().flying && player.getDeltaMovement().y < -0.01;
+    }
+
+    private static boolean forceAirbornePickup(ServerPlayer player, Journey journey, LivingEntity mount,
+                                               boolean repositionForMissedCatch) {
+        CompanionMountCinematicFlowService.cancelForCompanion(player, journey.mountUuid,
+                "waystones_airborne_catch");
+        CompanionArrivalSequenceService.cancel(mount);
+        if (repositionForMissedCatch) {
+            CompanionCinematicPositionService.stabilizeAirRescueMount(mount, player);
+        }
+        boolean mounted = CompanionMountCinematicFlowService.startRidingAfterContact(player, mount,
+                MountCinematicMode.RIDE_HOME);
+        if (mounted) {
+            player.connection.send(new ClientboundSetPassengersPacket(mount));
+        }
+        FindMeMod.LOGGER.info("[FindMe waystones] airborne catch player={} mount={} age={} repositioned={} mounted={} playerPos={} mountPos={}",
+                player.getUUID(), journey.mountUuid, journey.stageAge, repositionForMissedCatch, mounted,
+                player.position(), mount.position());
+        return mounted;
     }
 
     private static void tickDeparting(ServerPlayer player, Journey journey) {
@@ -339,6 +401,7 @@ public final class CompanionWaystoneJourneyService {
         boolean teleportInFlight;
         boolean teleportCompleted;
         boolean arrivalRevealSent;
+        boolean airbornePickupAttempted;
         boolean lockHeld;
         int totalAge;
         int stageAge;

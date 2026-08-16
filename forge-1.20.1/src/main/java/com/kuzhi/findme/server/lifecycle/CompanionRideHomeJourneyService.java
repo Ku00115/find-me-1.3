@@ -44,6 +44,7 @@ import net.minecraft.world.phys.Vec3;
 public final class CompanionRideHomeJourneyService {
     private static final int CAMERA_LEAD_TICKS = 2;
     private static final int ACQUIRE_TIMEOUT_TICKS = 20 * 12;
+    private static final int AIRBORNE_CATCH_FALLBACK_TICKS = 40;
     private static final int RIDE_STABLE_TICKS = 3;
     private static final int DEPARTURE_TICKS = 42;
     private static final int BLACKOUT_FADE_TICKS = 8;
@@ -193,6 +194,14 @@ public final class CompanionRideHomeJourneyService {
         if (journey.stageAge < CAMERA_LEAD_TICKS) {
             return;
         }
+        boolean descendingAirborne = isDescendingAirborne(player);
+        if (descendingAirborne) {
+            // Ride-home owns this rescue attempt. Do not let fall damage win while
+            // its ordinary approach animation is still trying to make contact.
+            player.fallDistance = 0.0f;
+            player.invulnerableTime = Math.max(player.invulnerableTime,
+                    com.kuzhi.findme.Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
+        }
         PlayerCompanionData data = CompanionDataService.data(player);
         LivingEntity mount = CompanionDeployRequestService.readyEntity(player, data, journey.mountUuid,
                 CompanionDeployRequestService.Mode.RIDDEN);
@@ -225,6 +234,27 @@ public final class CompanionRideHomeJourneyService {
         CompanionHomeResidentService.clearResident(mount);
         if (player.getVehicle() != mount) {
             journey.ridingStableTicks = 0;
+            boolean arrivalPending = CompanionArrivalSequenceService.isPending(mount);
+            boolean inCatchZone = CompanionMountCinematicFlowService.isPlayerInFlyingCatchZone(player, mount);
+            if (!journey.airborneFallbackAttempted
+                    && shouldCompleteAirborneCatchAtContact(journey.moveType, descendingAirborne,
+                    arrivalPending, inCatchZone)) {
+                journey.airborneFallbackAttempted = true;
+                if (!forceAirbornePickup(player, journey, mount, false)) {
+                    cancel(player, journey, "journey_airborne_contact_pickup_failed");
+                    return;
+                }
+            } else if (!journey.airborneFallbackAttempted
+                    && shouldUseAirborneCatchFallback(journey.moveType, journey.stageAge,
+                    player.onGround(), player.isInWater(), player.getDeltaMovement().y)) {
+                journey.airborneFallbackAttempted = true;
+                if (!forceAirbornePickup(player, journey, mount, true)) {
+                    cancel(player, journey, "journey_airborne_pickup_failed");
+                    return;
+                }
+            }
+        }
+        if (player.getVehicle() != mount) {
             if (journey.stageAge >= ACQUIRE_TIMEOUT_TICKS) {
                 cancel(player, journey, "journey_mount_contact_timeout");
             }
@@ -282,6 +312,46 @@ public final class CompanionRideHomeJourneyService {
         journey.departureTarget = RideHomeJourneySupport.departureTarget(mount, journey.travelDirection,
                 journey.moveType);
         enter(journey, Stage.DEPARTING, player, mount);
+    }
+
+    static boolean shouldUseAirborneCatchFallback(CompanionMoveType moveType, int stageAge,
+                                                   boolean onGround, boolean inWater,
+                                                   double verticalVelocity) {
+        return moveType == CompanionMoveType.FLY && stageAge >= AIRBORNE_CATCH_FALLBACK_TICKS
+                && !onGround && !inWater && verticalVelocity < -0.01;
+    }
+
+    static boolean shouldCompleteAirborneCatchAtContact(CompanionMoveType moveType,
+                                                         boolean descendingAirborne,
+                                                         boolean arrivalPending,
+                                                         boolean inCatchZone) {
+        return moveType == CompanionMoveType.FLY && descendingAirborne
+                && !arrivalPending && inCatchZone;
+    }
+
+    private static boolean isDescendingAirborne(ServerPlayer player) {
+        return player != null && !player.onGround() && !player.isInWater()
+                && !player.isFallFlying() && !player.onClimbable()
+                && !player.getAbilities().flying && player.getDeltaMovement().y < -0.01;
+    }
+
+    private static boolean forceAirbornePickup(ServerPlayer player, Journey journey, LivingEntity mount,
+                                               boolean repositionForMissedCatch) {
+        CompanionMountCinematicFlowService.cancelForCompanion(player, journey.mountUuid,
+                "ride_home_airborne_catch_fallback");
+        CompanionArrivalSequenceService.cancel(mount);
+        if (repositionForMissedCatch) {
+            CompanionCinematicPositionService.stabilizeAirRescueMount(mount, player);
+        }
+        boolean mounted = CompanionMountCinematicFlowService.startRidingAfterContact(player, mount,
+                MountCinematicMode.RIDE_HOME);
+        if (mounted) {
+            player.connection.send(new ClientboundSetPassengersPacket(mount));
+        }
+        FindMeMod.LOGGER.info("[FindMe ride-home] airborne catch player={} mount={} age={} repositioned={} mounted={} playerPos={} mountPos={}",
+                player.getUUID(), journey.mountUuid, journey.stageAge, repositionForMissedCatch, mounted,
+                player.position(), mount.position());
+        return mounted;
     }
 
     private static void tickDeparting(ServerPlayer player, Journey journey) {
@@ -662,6 +732,7 @@ public final class CompanionRideHomeJourneyService {
         private boolean storedForTransfer;
         private boolean destinationRestored;
         private boolean destinationReady;
+        private boolean airborneFallbackAttempted;
         private boolean internalTeleport;
         private boolean playerHidden;
         private final boolean originalPlayerInvisible;

@@ -5,11 +5,13 @@ import com.kuzhi.findme.server.lifecycle.CompanionCinematicPositionService;
 import com.kuzhi.findme.server.lifecycle.CompanionCinematicLandingService;
 
 import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.CompanionAnimationPurpose;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.SavedPosition;
 import com.kuzhi.findme.network.RescueMagicPacket;
 import com.kuzhi.findme.server.ui.CompanionSummonLineService;
+import com.kuzhi.findme.server.ui.CompanionMessageService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
@@ -17,6 +19,7 @@ import com.kuzhi.findme.server.home.CompanionHomeResidentService;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
 import java.util.Optional;
 import java.util.UUID;
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
@@ -44,6 +47,11 @@ public final class CompanionSummonService {
 
     private static boolean summonActive(ServerPlayer player, PlayerCompanionData data, CompanionKind kind,
                                         boolean tacticalDeploy, boolean bypassCooldown) {
+        Optional<UUID> selected = data.active(kind);
+        if (selected.isPresent() && isRecoveringAtHome(data, selected.get())) {
+            CompanionMessageService.tell(player, "message.find_me.home_recovering", ChatFormatting.YELLOW);
+            return false;
+        }
         boolean alreadyPlacedForArrival;
         MountCinematicMode mode;
         boolean transitionFromFlyingMount;
@@ -56,6 +64,7 @@ public final class CompanionSummonService {
         boolean freshHomeResidentRestore;
         boolean arrivalStarted = false;
         boolean preSpawnPresentationCompleted = false;
+        boolean rescueCinematicEnabled = true;
         Entity entity;
         boolean inCombat;
         long now;
@@ -106,10 +115,11 @@ public final class CompanionSummonService {
                             CompanionAnimationPurpose plannedAnimationPurpose = plannedAnimationPurpose(kind,
                                     rideSource, preparation.uuid(), fallingRescue, companionRescue,
                                     plannedMoveType, player, data);
+                            rescueCinematicEnabled = plannedAnimationPurpose != CompanionAnimationPurpose.RESCUE
+                                    || CompanionRescuePlanner.plan(player).playsCinematic();
                             boolean landingSummonRescue = fallingRescue
                                     && plannedMoveType == CompanionMoveType.FLY
-                                    && CompanionRescuePlanner.plan(player).flightMode()
-                                    == RescueFlightMode.LANDING_SUMMON;
+                                    && !rescueCinematicEnabled;
                             if (isVoidSummon(player)) {
                                 if (kind != CompanionKind.MOUNT || plannedMoveType != CompanionMoveType.FLY) {
                                     CompanionSummonLineService.showVoidUnsafe(player, data, kind);
@@ -160,7 +170,8 @@ public final class CompanionSummonService {
                                         arrivalStarted = false;
                                     } else {
                                         boolean presentationEnabled = CompanionSummonPresentationPolicy.enabled(
-                                                data, kind, plannedAnimationPurpose, tacticalDeploy);
+                                                data, kind, plannedAnimationPurpose, tacticalDeploy)
+                                                && rescueCinematicEnabled;
                                         if (presentationEnabled && storedTag.isPresent()
                                                 && plannedAnimationPurpose != CompanionAnimationPurpose.RESCUE) {
                                             if (CompanionPreSpawnPresentationService.schedule(player, data, kind,
@@ -238,12 +249,16 @@ public final class CompanionSummonService {
                     BlockPos restorePos = CompanionSummonPlacementService.findMountRescueRestoreSpawn(player, moveType,
                             EntityType.getKey(living.getType()).toString());
                     CompanionCinematicLandingService.preloadChunkArea(player.serverLevel(), restorePos, 1);
-                    restoredLiving = CompanionEntityTransferService.moveEntityForArrival(player, living,
+                    restoredLiving = rescueCinematicEnabled
+                            ? CompanionEntityTransferService.moveEntityForArrival(player, living,
                             player.serverLevel(), restorePos, player.getYRot(), player.getXRot(), player.position(),
                             arrivalDuration(kind, true, false), arrivalStyle(kind),
-                            RescueMagicPacket.Purpose.RESCUE, CompanionAnimationPurpose.RESCUE);
+                            RescueMagicPacket.Purpose.RESCUE, CompanionAnimationPurpose.RESCUE)
+                            : CompanionEntityTransferService.moveEntityTo(living, player.serverLevel(), restorePos,
+                            player.getYRot(), player.getXRot(), false);
                     restored = restoredLiving;
-                    arrivalStarted = true;
+                    arrivalStarted = rescueCinematicEnabled;
+                    preSpawnPresentationCompleted = !rescueCinematicEnabled;
                     if (!restoredLiving.isRemoved() && restoredLiving.isAlive()) {
                         break block37;
                     }
@@ -309,7 +324,7 @@ public final class CompanionSummonService {
             } else {
                 CompanionAnimationPurpose activeAnimationPurpose = animationPurpose(mode, companionRescue);
                 boolean presentationEnabled = CompanionSummonPresentationPolicy.enabled(data, kind,
-                        activeAnimationPurpose, tacticalDeploy);
+                        activeAnimationPurpose, tacticalDeploy) && rescueCinematicEnabled;
                 if (!presentationEnabled) {
                     living = CompanionEntityTransferService.moveEntityTo(living, player.serverLevel(), target,
                             player.getYRot(), player.getXRot(), false);
@@ -345,8 +360,14 @@ public final class CompanionSummonService {
         CompanionSummonCompletionService.complete(player, data, kind, living,
                 kind == CompanionKind.COMPANION ? summonMoveType : moveType, mode,
                 restoredFromStorage, inCombat, companionRescue, companionRescueTarget, arrivalStarted,
-                preSpawnPresentationCompleted, now, tacticalDeploy);
+                preSpawnPresentationCompleted, rescueCinematicEnabled, now, tacticalDeploy);
         return true;
+    }
+
+    static boolean isRecoveringAtHome(PlayerCompanionData data, UUID uuid) {
+        return data != null && uuid != null && data.isCritical(uuid)
+                && data.lifecycleState(uuid) == CompanionLifecycleState.HOME_STORED
+                && data.homeHouseId(uuid).isPresent();
     }
 
     private static CompanionMoveType plannedMoveType(ServerPlayer player, Entity entity,

@@ -94,9 +94,11 @@ public final class CompanionHomeService {
         FindMeWorldSavedData world = FindMeWorldSavedData.get(player.server);
         SmallHouseBlockEntity targetHouse = houseLevel.getBlockEntity(housePos) instanceof SmallHouseBlockEntity value
                 ? value : null;
-        if (targetHouse == null || !hasResidentCapacity(world.house(targetHouse.houseId()).orElse(null), uuid, data)) {
+        FindMeWorldSavedData.HouseRecord targetRecord = targetHouse == null ? null
+                : world.house(targetHouse.houseId()).orElse(null);
+        if (targetRecord == null || !hasResidentCapacity(targetRecord, uuid, data)) {
             CompanionMessageService.tell(player, "message.find_me.house_full", ChatFormatting.YELLOW,
-                    Config.houseResidentCapacity);
+                    targetRecord == null ? Config.houseResidentCapacity : targetRecord.residentCapacity());
             return 0;
         }
         SavedPosition home = SavedPosition.of(houseLevel, housePos.getX() + 0.5, housePos.getY() + 1.0, housePos.getZ() + 0.5, player.getYRot(), 0.0f);
@@ -282,7 +284,7 @@ public final class CompanionHomeService {
 
     static boolean hasResidentCapacity(FindMeWorldSavedData.HouseRecord house, UUID uuid) {
         return house != null && (house.residents().contains(uuid)
-                || house.residents().size() < Math.max(1, Config.houseResidentCapacity));
+                || house.residents().size() < house.residentCapacity());
     }
 
     static boolean hasResidentCapacity(FindMeWorldSavedData.HouseRecord house, UUID uuid,
@@ -304,7 +306,7 @@ public final class CompanionHomeService {
             }
         }
         return assigned.contains(uuid)
-                || assigned.size() < Math.max(1, Config.houseResidentCapacity);
+                || assigned.size() < house.residentCapacity();
     }
 
     private static void collectLegacyHouseResidents(ServerLevel level, UUID ownerUuid, ServerPlayer owner,

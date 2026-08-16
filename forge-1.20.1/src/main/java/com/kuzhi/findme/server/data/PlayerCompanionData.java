@@ -76,6 +76,8 @@ public class PlayerCompanionData {
     final Set<String> bindingCinematicSeenTypes = new HashSet<>();
     final Set<UUID> lifecycleChanges = new HashSet<>();
     FindMeUiSettings uiSettings = FindMeUiSettings.defaults();
+    int companionDeploymentLimit = 2;
+    boolean creatureArrivalVoice = true;
 
     // Mount and vehicle classification.
     final Set<UUID> mountEligible = new HashSet<UUID>();
@@ -696,40 +698,36 @@ public class PlayerCompanionData {
         List<List<UUID>> targetTeams = this.teams.get(target);
         boolean changed = false;
         Set<UUID> assigned = new HashSet<>();
+        List<UUID> ordered = new ArrayList<>();
 
-        // Keep the first valid occurrence of every member and preserve the player's order.
+        // Preserve the visible team order, then append unassigned roster members. Repacking
+        // this sequence fills earlier teams from later teams and finally from the warehouse.
         for (List<UUID> team : targetTeams) {
-            List<UUID> normalized = new ArrayList<>(TEAM_SIZE);
             for (UUID uuid : team) {
-                if (uuid != null && normalized.size() < TEAM_SIZE
-                        && this.allowedInTeam(target, uuid) && assigned.add(uuid)) {
-                    normalized.add(uuid);
+                if (uuid != null && this.allowedInTeam(target, uuid) && assigned.add(uuid)) {
+                    ordered.add(uuid);
                 }
-            }
-            if (!team.equals(normalized)) {
-                team.clear();
-                team.addAll(normalized);
-                changed = true;
             }
         }
-
         for (UUID uuid : this.teamRoster(target)) {
-            if (uuid == null || assigned.contains(uuid) || !this.allowedInTeam(target, uuid)) {
-                continue;
+            if (uuid != null && this.allowedInTeam(target, uuid) && assigned.add(uuid)) {
+                ordered.add(uuid);
             }
-            int destination = -1;
-            for (int index = 0; index < targetTeams.size(); index++) {
-                if (targetTeams.get(index).size() < TEAM_SIZE) {
-                    destination = index;
-                    break;
-                }
-            }
-            if (destination < 0) {
-                destination = this.createTeam(target);
-            }
-            targetTeams.get(destination).add(uuid);
-            assigned.add(uuid);
+        }
+        int requiredTeams = Math.max(1, (ordered.size() + TEAM_SIZE - 1) / TEAM_SIZE);
+        while (targetTeams.size() < requiredTeams) {
+            this.createTeam(target);
             changed = true;
+        }
+        for (int teamIndex = 0; teamIndex < targetTeams.size(); teamIndex++) {
+            int from = Math.min(ordered.size(), teamIndex * TEAM_SIZE);
+            int to = Math.min(ordered.size(), from + TEAM_SIZE);
+            List<UUID> packed = new ArrayList<>(ordered.subList(from, to));
+            if (!targetTeams.get(teamIndex).equals(packed)) {
+                targetTeams.get(teamIndex).clear();
+                targetTeams.get(teamIndex).addAll(packed);
+                changed = true;
+            }
         }
 
         // A custom name marks an intentionally retained empty team.
@@ -826,6 +824,22 @@ public class PlayerCompanionData {
 
     public void setUiSettings(FindMeUiSettings settings) {
         this.uiSettings = settings == null ? FindMeUiSettings.defaults() : settings.normalized();
+    }
+
+    public int companionDeploymentLimit() {
+        return Math.max(1, Math.min(6, this.companionDeploymentLimit));
+    }
+
+    public void setCompanionDeploymentLimit(int limit) {
+        this.companionDeploymentLimit = Math.max(1, Math.min(6, limit));
+    }
+
+    public boolean creatureArrivalVoice() {
+        return this.creatureArrivalVoice;
+    }
+
+    public void setCreatureArrivalVoice(boolean enabled) {
+        this.creatureArrivalVoice = enabled;
     }
 
     public boolean applyTeamToWheel(CompanionTeamTarget target, int index) {

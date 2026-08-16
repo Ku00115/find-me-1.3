@@ -22,6 +22,7 @@ import com.kuzhi.findme.server.data.CompanionRuntimeIndex;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.module.FindMeModuleService;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
+import com.kuzhi.findme.server.safety.CompanionFriendlyFireService;
 import com.kuzhi.findme.server.safety.CompanionThreatResolver;
 import com.kuzhi.findme.server.compat.CompanionFixedPostService;
 import com.kuzhi.findme.server.compat.CompanionSaintsDragonsCompat;
@@ -777,6 +778,7 @@ public final class CompanionTacticalOrderService {
         if (!living.isAlive()
                 || living.level() != player.level()
                 || player.distanceToSqr(living) > MAX_TARGET_DISTANCE_SQR
+                || CompanionFriendlyFireService.isBoundCompanion(living)
                 || data.contains(living.getUUID())
                 || CompanionEntityClassifier.isOwnedBy(player, living)
                 || player.isAlliedTo(living)
@@ -1052,6 +1054,7 @@ public final class CompanionTacticalOrderService {
         return target.isAlive() && target != owner && target != source && target.level() == owner.level()
                 && source.distanceToSqr(target) <= MAX_TARGET_DISTANCE_SQR
                 && (!requireOwnerAim || owner.distanceToSqr(target) <= MAX_TARGET_DISTANCE_SQR)
+                && !CompanionFriendlyFireService.isBoundCompanion(target)
                 && !rosterContains.test(target.getUUID())
                 && !CompanionEntityClassifier.isOwnedBy(owner, target)
                 && !owner.isAlliedTo(target)

@@ -21,7 +21,8 @@ public final class CompanionFixedPostService {
         PROTECT,
         ARRIVAL,
         EXTERNAL_ACTION,
-        TACTICAL
+        TACTICAL,
+        RETREAT
     }
 
     private static final Map<UUID, Suspension> SUSPENDED = new HashMap<>();

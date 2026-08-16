@@ -221,6 +221,10 @@ final class PlayerCompanionDataCodec {
         readTeams(root, data);
         readDeadRecords(root, data);
         data.setUiSettings(com.kuzhi.findme.common.FindMeUiSettings.load(root.getCompound("uiSettings")));
+        data.setCompanionDeploymentLimit(root.contains("companionDeploymentLimit", 99)
+                ? root.getInt("companionDeploymentLimit") : 2);
+        data.setCreatureArrivalVoice(!root.contains("creatureArrivalVoice")
+                || root.getBoolean("creatureArrivalVoice"));
         data.bindingCinematicSeenTypes.addAll(readStringValueList(
                 root.getList("bindingCinematicSeenTypes", 10), "entityType"));
         data.mountReadyAt = root.getLong("mountReadyAt");
@@ -371,6 +375,8 @@ final class PlayerCompanionDataCodec {
         root.put("deadRecords", (Tag)deadRecordList(data));
         root.put("recoveryRecords", (Tag)recoveryRecordList(data));
         root.put("uiSettings", data.uiSettings.save());
+        root.putInt("companionDeploymentLimit", data.companionDeploymentLimit());
+        root.putBoolean("creatureArrivalVoice", data.creatureArrivalVoice());
         root.put("bindingCinematicSeenTypes", stringValueList(data.bindingCinematicSeenTypes, "entityType"));
         if (data.companionMagicMana >= 0.0F) {
             root.putFloat("companionMagicMana", data.companionMagicMana);
@@ -460,6 +466,8 @@ final class PlayerCompanionDataCodec {
         }
         root.put("vault", (Tag)vaultList);
         root.put("uiSettings", data.uiSettings.save());
+        root.putInt("companionDeploymentLimit", data.companionDeploymentLimit());
+        root.putBoolean("creatureArrivalVoice", data.creatureArrivalVoice());
         root.put("bindingCinematicSeenTypes", stringValueList(data.bindingCinematicSeenTypes, "entityType"));
         if (data.companionMagicMana >= 0.0F) {
             root.putFloat("companionMagicMana", data.companionMagicMana);
@@ -583,6 +591,10 @@ final class PlayerCompanionDataCodec {
             }
         }
         data.setUiSettings(com.kuzhi.findme.common.FindMeUiSettings.load(root.getCompound("uiSettings")));
+        data.setCompanionDeploymentLimit(root.contains("companionDeploymentLimit", 99)
+                ? root.getInt("companionDeploymentLimit") : 2);
+        data.setCreatureArrivalVoice(!root.contains("creatureArrivalVoice")
+                || root.getBoolean("creatureArrivalVoice"));
         data.bindingCinematicSeenTypes.clear();
         data.bindingCinematicSeenTypes.addAll(readStringValueList(
                 root.getList("bindingCinematicSeenTypes", 10), "entityType"));

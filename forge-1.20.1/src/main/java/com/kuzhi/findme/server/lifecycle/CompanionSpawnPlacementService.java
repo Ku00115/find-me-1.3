@@ -12,7 +12,6 @@ import java.util.Map;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Position;
-import net.minecraft.core.Vec3i;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
@@ -203,7 +202,6 @@ public final class CompanionSpawnPlacementService {
     public static BlockPos findArrivalSpawn(ServerPlayer player, CompanionMoveType moveType, boolean rescue,
                                             String entityType, RescueFlightMode rescueFlightMode,
                                             CompanionEntityVisualBoundsService.VisualDimensions dimensions) {
-        Vec3 ahead;
         Vec3 look = player.getLookAngle().normalize();
         Vec3 horizontal = new Vec3(look.x, 0.0, look.z);
         if (horizontal.lengthSqr() < 0.001) {
@@ -235,14 +233,14 @@ public final class CompanionSpawnPlacementService {
                         player.serverLevel(), randomized);
                 if (randomWater.isPresent()) return randomWater.get();
             }
-            Optional<BlockPos> water = CompanionPlacementFinder.findWaterWithOpenSurface(player.serverLevel(), origin);
+            Optional<BlockPos> water = rescue
+                    ? findRescueWaterApproach(player, origin, horizontal)
+                    : CompanionPlacementFinder.findWaterWithOpenSurface(player.serverLevel(), origin);
             if (water.isPresent()) {
                 return water.get();
             }
-            if (rescue && !CompanionCinematicLandingService.hasReliableLandingBelow(player.serverLevel(), player)) {
-                return origin;
-            }
-            return findSummonSpot(player, CompanionKind.MOUNT, moveType);
+            return rescue ? findWalkRescueSpawn(player, origin, horizontal)
+                    : randomizedArrivalCandidate(player, horizontal, CompanionMoveType.WALK, dimensions);
         }
         if (rescue) {
             BlockPos landing = CompanionCinematicLandingService.rescueAnchor(player.serverLevel(), player);
@@ -250,13 +248,36 @@ public final class CompanionSpawnPlacementService {
                     == CompanionRescuePlanner.Urgency.LANDING_SUMMON) {
                 return walkSurfacePos(player.serverLevel(), landing, landing.getY());
             }
-            double runDistance = CompanionRescuePlanner.plan(player).approachDistance(false);
-            ahead = Vec3.atBottomCenterOf((Vec3i)landing).subtract(horizontal.scale(runDistance));
-        } else {
-            return randomizedArrivalCandidate(player, horizontal, moveType, dimensions);
+            return findWalkRescueSpawn(player, landing, horizontal);
         }
-        BlockPos base = BlockPos.containing((Position)ahead);
-        return CompanionPlacementFinder.findSafe(player.serverLevel(), base).orElseGet(() -> walkSurfacePos(player.serverLevel(), base, base.getY()));
+        return randomizedArrivalCandidate(player, horizontal, moveType, dimensions);
+    }
+
+    private static Optional<BlockPos> findRescueWaterApproach(ServerPlayer player, BlockPos landing,
+                                                               Vec3 horizontal) {
+        double runDistance = Math.max(10.0, CompanionRescuePlanner.plan(player).approachDistance(false));
+        double[] angles = {0.0, 28.0, -28.0, 55.0, -55.0, 90.0, -90.0, 180.0};
+        for (double angle : angles) {
+            Vec3 direction = rotateY(horizontal, Math.toRadians(angle));
+            BlockPos probe = BlockPos.containing(Vec3.atBottomCenterOf(landing)
+                    .subtract(direction.scale(runDistance)));
+            Optional<BlockPos> water = CompanionPlacementFinder.findWaterWithOpenSurface(
+                    player.serverLevel(), probe);
+            if (water.isPresent()) return water;
+        }
+        return CompanionPlacementFinder.findWaterWithOpenSurface(player.serverLevel(), landing);
+    }
+
+    private static BlockPos findWalkRescueSpawn(ServerPlayer player, BlockPos landing, Vec3 horizontal) {
+        if (CompanionRescuePlanner.plan(player).urgency()
+                == CompanionRescuePlanner.Urgency.LANDING_SUMMON) {
+            return walkSurfacePos(player.serverLevel(), landing, landing.getY());
+        }
+        double runDistance = CompanionRescuePlanner.plan(player).approachDistance(false);
+        Vec3 ahead = Vec3.atBottomCenterOf(landing).subtract(horizontal.scale(runDistance));
+        BlockPos base = BlockPos.containing(ahead);
+        return CompanionPlacementFinder.findSafe(player.serverLevel(), base)
+                .orElseGet(() -> walkSurfacePos(player.serverLevel(), base, landing.getY()));
     }
 
     private static BlockPos randomizedArrivalCandidate(ServerPlayer player, Vec3 forward,

@@ -5,6 +5,8 @@ public enum HouseCommandAction {
     ASSIGN,
     REMOVE,
     SET_RESIDENT_MODE,
+    SET_ALL_RESIDENT_MODES,
+    SET_SETTINGS,
     REFRESH,
     RENAME_RESIDENT
 }

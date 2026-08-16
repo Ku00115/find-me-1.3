@@ -17,8 +17,21 @@ public final class ClientMountApproachPresentationState {
         }
     }
 
+    public static void show(int entityId) {
+        if (entityId >= 0) {
+            HIDDEN_TICKS.remove(entityId);
+        }
+    }
+
     static boolean hidden(Entity entity) {
-        return entity != null && HIDDEN_TICKS.getOrDefault(entity.getId(), 0) > 0;
+        if (entity == null || HIDDEN_TICKS.getOrDefault(entity.getId(), 0) <= 0) {
+            return false;
+        }
+        if (entity.getDeltaMovement().lengthSqr() > 1.0E-4) {
+            HIDDEN_TICKS.remove(entity.getId());
+            return false;
+        }
+        return true;
     }
 
     static void tick() {

@@ -36,6 +36,7 @@ import com.kuzhi.findme.server.lifecycle.CompanionRetreatService;
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
 import com.kuzhi.findme.server.compat.BookOfDragonsRescueCompatibility;
 import com.kuzhi.findme.server.compat.IceAndFireRescueCompatibility;
+import com.kuzhi.findme.server.compat.CompanionFixedPostService;
 import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.server.integration.SalvationCompatibilityService;
@@ -94,6 +95,7 @@ public final class CompanionMountCinematicFlowService {
                 continue;
             }
             CompanionCinematicSpeedService.samplePlayerHorizontalSpeed(player);
+            CompanionAnimationHelper.forceStandingPose(living);
             if (living.level() != player.level()) {
                 restoreCinematicPhysics(cinematic, living);
                 removePending(cinematic);
@@ -112,7 +114,8 @@ public final class CompanionMountCinematicFlowService {
                 continue;
             }
             living.noPhysics = shouldUseCinematicNoPhysics(cinematic, living);
-            living.setNoGravity(cinematic.mode().isGroundOrWaterRescue() && cinematic.moveType() != CompanionMoveType.WALK);
+            living.setNoGravity(cinematic.mode().isGroundOrWaterRescue()
+                    && cinematic.presentationMoveType() != CompanionMoveType.WALK);
             if (cinematic.moveType() == CompanionMoveType.FLY) {
                 CompanionAnimationHelper.forceFlyingAnimationPose(living);
                 BookOfDragonsRescueCompatibility.forceAirborne(living);
@@ -145,8 +148,8 @@ public final class CompanionMountCinematicFlowService {
             }
             if (cinematic.mode().isFlyingRescue()
                     && cinematic.rescueFlightMode() == RescueFlightMode.HOVER) {
-                Vec3 hoverTarget = cinematic.rescueHoverPosition();
-                if (hoverTarget == null && living.level() instanceof ServerLevel serverLevel) {
+                Vec3 hoverTarget = null;
+                if (living.level() instanceof ServerLevel serverLevel) {
                     hoverTarget = CompanionCinematicLandingService.flyingHoverTarget(serverLevel, player);
                     cinematic.setRescueHoverPosition(hoverTarget);
                 }
@@ -209,16 +212,6 @@ public final class CompanionMountCinematicFlowService {
                     || flyingCatchWindow || flyingEmergencyCatch;
             if (((distance <= threshold && switchApproachReady && flyingApproachReady)
                     || rescueFallback || flyingCatchWindow || flyingEmergencyCatch)) {
-                if (cinematic.mode().isGroundOrWaterRescue()
-                        && !cinematic.mode().isAirToGroundSwitch()
-                        && CompanionCinematicLandingService.distanceToGround(player) > 10.0) {
-                    CompanionCinematicMovementService.moveTowardMountContact(cinematic, living, player, player.getVehicle());
-                    living.fallDistance = 0.0f;
-                    living.invulnerableTime = Math.max(living.invulnerableTime, Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
-                    cinematic.rememberPosition(living.position());
-                    cinematic.incrementAge();
-                    continue;
-                }
                 CompanionCinematicMovementService.snapWalkMountToGround(cinematic, living);
                 cinematic.beginSwitch();
                 continue;
@@ -251,6 +244,8 @@ public final class CompanionMountCinematicFlowService {
         boolean originalNoAi = originalNoAiForCinematic(mount);
         collectConflictingMountCinematics(player, mount);
         CompanionRetreatService.cancelRetreat(mount);
+        CompanionAnimationHelper.forceStandingPose(mount);
+        CompanionFixedPostService.acquire(mount, CompanionFixedPostService.Reason.ARRIVAL);
         if (!CompanionArrivalSequenceService.isPending(mount)) {
             CompanionAnimationHelper.restoreAnimationControl(mount);
         }
@@ -270,6 +265,12 @@ public final class CompanionMountCinematicFlowService {
         PendingMountCinematic pending = new PendingMountCinematic(player.getUUID(), mount.getUUID(), moveType,
                 mode, catchY, startStaged, false, warmupTicks, mount.position(), originalNoGravity,
                 originalNoAi, rideSource);
+        if (moveType == CompanionMoveType.SWIM
+                && !mount.level().getFluidState(mount.blockPosition()).is(net.minecraft.tags.FluidTags.WATER)) {
+            pending.useGroundedSwimFallback();
+        } else if (mode.isRescue() && moveType == CompanionMoveType.SWIM) {
+            pending.setRescueLandingPosition(mount.position());
+        }
         pending.setIntroAnchor(moveType == CompanionMoveType.FLY ? mount.position() : null);
         RescueFlightMode rescueFlightMode = mode.isFlyingRescue()
                 ? CompanionRescuePlanner.plan(player).flightMode() : RescueFlightMode.HOVER;
@@ -288,8 +289,15 @@ public final class CompanionMountCinematicFlowService {
             BookOfDragonsRescueCompatibility.suspendConflictingGoals(mount);
         }
         PENDING_MOUNT_CINEMATICS.add(pending);
-        if (!presentationEnabled && !mode.isRescue()) {
-            pending.latchContact();
+        if (mode.isAirToGroundSwitch() && player.getVehicle() != null
+                && player.getVehicle() != mount) {
+            player.stopRiding();
+            stabilizeFallingPlayer(player);
+        }
+        if (!presentationEnabled) {
+            if (!mode.isRescue()) {
+                pending.latchContact();
+            }
             pending.beginSwitch();
         }
         FindMeDebugLogger.info("mount-cinematic", "scheduled player={} mount={} moveType={} mode={} rescueFlightMode={} restoredFromStorage={} sendArrivalMagic={} warmup={} sourceType={} source={} originalNoGravity={} originalNoAi={} pos={}",
@@ -300,7 +308,7 @@ public final class CompanionMountCinematicFlowService {
             sendMountApproachMask(player, mount);
         } else if (presentationEnabled && mode == MountCinematicMode.NORMAL_SUMMON) {
             sendMountApproachMask(player, mount);
-        } else if (mode.isRescue() && restoredFromStorage
+        } else if (presentationEnabled && mode.isRescue() && restoredFromStorage
                 && rescueFlightMode != RescueFlightMode.LANDING_SUMMON) {
             // Stored entities can spend several ticks rebuilding optional-mod state.
             // Keep those loading frames hidden; the first visible frame must move.
@@ -385,8 +393,10 @@ public final class CompanionMountCinematicFlowService {
             }
             Entity entity = CompanionEntityLookup.findEntity(player.getServer(), pending.mountUuid()).orElse(null);
             if (entity instanceof LivingEntity living) {
+                CompanionArrivalSequenceService.cancel(living);
                 restoreCinematicPhysics(pending, living);
                 CompanionAnimationHelper.restoreAnimationControl(living);
+                clearMountApproachMask(player, living);
             }
             removed++;
         }
@@ -408,6 +418,20 @@ public final class CompanionMountCinematicFlowService {
         return false;
     }
 
+    public static boolean isBoardingTransition(ServerPlayer player, LivingEntity mount) {
+        if (player == null || mount == null) {
+            return false;
+        }
+        UUID playerUuid = player.getUUID();
+        UUID mountUuid = mount.getUUID();
+        for (PendingMountCinematic pending : PENDING_MOUNT_CINEMATICS) {
+            if (playerUuid.equals(pending.playerUuid()) && mountUuid.equals(pending.mountUuid())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static int cancelForPlayer(ServerPlayer player, String reason) {
         if (player == null || PENDING_MOUNT_CINEMATICS.isEmpty()) {
             return 0;
@@ -422,8 +446,10 @@ public final class CompanionMountCinematicFlowService {
             }
             Entity entity = CompanionEntityLookup.findEntity(player.getServer(), pending.mountUuid()).orElse(null);
             if (entity instanceof LivingEntity living) {
+                CompanionArrivalSequenceService.cancel(living);
                 restoreCinematicPhysics(pending, living);
                 CompanionAnimationHelper.restoreAnimationControl(living);
+                clearMountApproachMask(player, living);
             }
             removed++;
         }
@@ -447,7 +473,9 @@ public final class CompanionMountCinematicFlowService {
             }
             Entity entity = CompanionEntityLookup.findEntity(player.getServer(), pending.mountUuid()).orElse(null);
             if (entity instanceof LivingEntity living && living.isAlive()) {
+                CompanionArrivalSequenceService.cancel(living);
                 restoreCinematicPhysics(pending, living);
+                clearMountApproachMask(player, living);
                 if (samePlayer && !sameMount && data.contains(CompanionKind.MOUNT, pending.mountUuid())) {
                     CompanionDeploymentService.collectLiving(player, data, CompanionKind.MOUNT, living);
                     changed = true;
@@ -473,7 +501,7 @@ public final class CompanionMountCinematicFlowService {
             return false;
         }
         if (mount instanceof Mob mob) {
-            if (shouldFreezeWholeAiDuringCinematic(cinematic.moveType(), mount)) {
+            if (shouldFreezeWholeAiDuringCinematic(cinematic.presentationMoveType(), mount)) {
                 mob.setNoAi(true);
             }
             mob.getNavigation().stop();
@@ -545,6 +573,15 @@ public final class CompanionMountCinematicFlowService {
                 ContractCameraPacket.Mode.MOUNT_APPROACH, false));
     }
 
+    static void clearMountApproachMask(ServerPlayer player, LivingEntity mount) {
+        if (player == null || mount == null) return;
+        ModNetwork.sendToPlayer(player, new ContractCameraPacket(false, mount.getId(), 0,
+                mount.getYRot(), mount.getXRot(), player.getX(), player.getY(), player.getZ(),
+                mount.getX(), mount.getY(), mount.getZ(), 1.55f,
+                Math.max(mount.getBbWidth(), mount.getBbHeight()), "",
+                ContractCameraPacket.Mode.MOUNT_APPROACH, false));
+    }
+
     private static void retireSwitchedMount(ServerPlayer player, PlayerCompanionData data, LivingEntity oldMount) {
         UUID uuid = oldMount.getUUID();
         CompanionRetreatService.sendAwayForSwitch(oldMount, player, data);
@@ -577,7 +614,7 @@ public final class CompanionMountCinematicFlowService {
     }
 
     static boolean shouldUseCinematicNoPhysics(PendingMountCinematic cinematic, LivingEntity living) {
-        return shouldUseCinematicNoPhysics(cinematic.moveType(), living);
+        return shouldUseCinematicNoPhysics(cinematic.presentationMoveType(), living);
     }
 
     static boolean shouldUseCinematicNoPhysics(CompanionMoveType moveType, LivingEntity living) {
@@ -779,6 +816,8 @@ public final class CompanionMountCinematicFlowService {
         if (!removePending(cinematic)) {
             return;
         }
+        CompanionArrivalSequenceService.cancel(mount);
+        clearMountApproachMask(player, mount);
         CompanionMountCinematicFlowService.restoreCinematicPhysics(cinematic, mount);
         if (mounted && cinematic.mode().isRescue() && cinematic.moveType() == CompanionMoveType.FLY) {
             BookOfDragonsRescueCompatibility.forceAirborne(mount);
@@ -856,6 +895,7 @@ public final class CompanionMountCinematicFlowService {
             return false;
         }
         BookOfDragonsRescueCompatibility.restoreConflictingGoals(cinematic.mountUuid());
+        CompanionFixedPostService.release(cinematic.mountUuid(), CompanionFixedPostService.Reason.ARRIVAL);
         return true;
     }
 

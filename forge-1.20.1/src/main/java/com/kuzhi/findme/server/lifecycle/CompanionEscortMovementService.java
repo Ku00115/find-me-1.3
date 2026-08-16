@@ -3,6 +3,7 @@ package com.kuzhi.findme.server.lifecycle;
 import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
+import com.kuzhi.findme.server.compat.IceAndFireRescueCompatibility;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.SavedPosition;
@@ -57,7 +58,9 @@ final class CompanionEscortMovementService {
             look = horizontal(Vec3.directionFromRotation(0.0f, player.getYRot())).normalize();
         }
         Vec3 side = new Vec3(-look.z, 0.0, look.x);
-        double spacing = Mth.clamp(2.8 + Math.max(escort.getBbWidth(), anchor.getBbWidth()) * 1.15, 3.2, 11.0);
+        double spacing = moveType == CompanionMoveType.FLY
+                ? Mth.clamp(5.0 + Math.max(escort.getBbWidth(), anchor.getBbWidth()) * 1.5, 6.0, 18.0)
+                : Mth.clamp(2.8 + Math.max(escort.getBbWidth(), anchor.getBbWidth()) * 1.15, 3.2, 11.0);
         int count = Math.max(1, formationSize);
         int slot = Mth.clamp(formationIndex, 0, count - 1);
         double lateral = count == 1 ? sideSign * spacing
@@ -65,8 +68,7 @@ final class CompanionEscortMovementService {
         double rear = spacing * (0.75 + Math.abs(slot - (count - 1) * 0.5) * 0.18);
         Vec3 base = anchor.position().subtract(look.scale(rear)).add(side.scale(lateral));
         if (moveType == CompanionMoveType.FLY) {
-            double y = anchor.getY() + Mth.clamp(anchor.getBbHeight() * 0.35 + escort.getBbHeight() * 0.18, 0.8, 5.0);
-            return new Vec3(base.x, y, base.z);
+            return findFlyingFollowPosition(player, anchor, escort, base, 0.0);
         }
         Vec3 ground = findGroundFollowPosition(player, base, anchor.getY(), escort);
         if (moveType == CompanionMoveType.SWIM) {
@@ -86,9 +88,7 @@ final class CompanionEscortMovementService {
         Vec3 side = new Vec3(-look.z, 0.0, look.x);
         Vec3 base = anchor.position().subtract(look.scale(offset.rear())).add(side.scale(offset.lateral()));
         if (moveType == CompanionMoveType.FLY) {
-            double y = anchor.getY() + Mth.clamp(anchor.getBbHeight() * 0.35
-                    + escort.getBbHeight() * 0.18, 0.8, 5.0) + offset.vertical();
-            return new Vec3(base.x, y, base.z);
+            return findFlyingFollowPosition(player, anchor, escort, base, offset.vertical());
         }
         Vec3 ground = findGroundFollowPosition(player, base, anchor.getY(), escort);
         if (moveType == CompanionMoveType.SWIM) {
@@ -146,7 +146,14 @@ final class CompanionEscortMovementService {
         }
         double speed = Mth.clamp(0.16 + distance * 0.045, 0.34, 1.45);
         Vec3 motion = delta.normalize().scale(speed);
-        living.move(MoverType.SELF, motion);
+        if (IceAndFireRescueCompatibility.isDragon(living)) {
+            IceAndFireRescueCompatibility.forceEscortFlight(living);
+            Vec3 next = living.position().add(motion);
+            living.moveTo(next.x, next.y, next.z, yaw(motion), 0.0f);
+            living.setPos(next.x, next.y, next.z);
+        } else {
+            living.move(MoverType.SELF, motion);
+        }
         living.setDeltaMovement(motion);
         living.setYRot(yaw(motion));
         living.setXRot(0.0f);
@@ -167,6 +174,9 @@ final class CompanionEscortMovementService {
         moved.setDeltaMovement(Vec3.ZERO);
         moved.noPhysics = moveType == CompanionMoveType.FLY;
         moved.setNoGravity(moveType == CompanionMoveType.FLY);
+        if (moveType == CompanionMoveType.FLY) {
+            CompanionAnimationHelper.forceFlyingAnimationPose(moved);
+        }
         moved.fallDistance = 0.0f;
         data.setLastKnownPosition(moved.getUUID(), SavedPosition.of(moved.level(), moved.getX(), moved.getY(), moved.getZ(), moved.getYRot(), moved.getXRot()));
         CompanionDataService.save(player, data);
@@ -179,6 +189,27 @@ final class CompanionEscortMovementService {
             mob.setTarget(null);
             mob.setAggressive(false);
         }
+    }
+
+    private static Vec3 findFlyingFollowPosition(ServerPlayer player, Entity anchor, LivingEntity escort,
+                                                 Vec3 preferredBase, double formationHeight) {
+        Vec3 offset = preferredBase.subtract(anchor.position());
+        double preferredHeight = Mth.clamp(anchor.getBbHeight() * 0.5
+                + escort.getBbHeight() * 0.65 + 3.0 + formationHeight, 4.0, 16.0);
+        double[] distanceScales = {1.25, 1.1, 1.0, 0.85};
+        double[] heightAdjustments = {3.0, 1.5, 0.0, -1.5};
+        for (double distanceScale : distanceScales) {
+            for (double heightAdjustment : heightAdjustments) {
+                Vec3 candidate = anchor.position().add(offset.scale(distanceScale)).add(0.0,
+                        Math.max(3.0, preferredHeight + heightAdjustment), 0.0);
+                AABB movedBox = escort.getBoundingBox().move(candidate.subtract(escort.position()));
+                if (CompanionPlacementFinder.hasLoadedChunks(player.serverLevel(), movedBox)
+                        && player.serverLevel().noCollision(escort, movedBox)) {
+                    return candidate;
+                }
+            }
+        }
+        return new Vec3(preferredBase.x, anchor.getY() + preferredHeight, preferredBase.z);
     }
 
     private static Vec3 horizontal(Vec3 vector) {

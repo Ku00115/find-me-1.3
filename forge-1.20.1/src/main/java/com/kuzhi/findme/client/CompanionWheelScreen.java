@@ -909,13 +909,31 @@ extends FindMeScreen {
         if (this.selectionRestored || order.isEmpty()) {
             return;
         }
-        int restored = ClientWheelSelectionMemory.resolve(this.memoryWheel(), order);
+        int deployed = deployedIndex(order);
+        int restored = deployed >= 0 ? deployed
+                : ClientWheelSelectionMemory.resolve(this.memoryWheel(), order);
         if (restored >= 0) {
             this.hoveredIndex = restored;
             this.selectedHoverIndex = restored;
             this.page = restored / CompanionWheelLayout.PAGE_SIZE;
         }
         this.selectionRestored = true;
+    }
+
+    private int deployedIndex(List<UUID> order) {
+        if (this.kind == CompanionKind.MOUNT) {
+            List<WheelEntry> entries = this.mergedMountEntries();
+            for (int i = 0; i < entries.size(); i++) {
+                if (entries.get(i).deployed() && order.contains(entries.get(i).uuid())) return i;
+            }
+            return -1;
+        }
+        List<CompanionListPacket.Entry> entries = this.wheelEntries();
+        for (int i = 0; i < entries.size(); i++) {
+            CompanionListPacket.Entry entry = entries.get(i);
+            if ((entry.deployed() || entry.ridden()) && order.contains(entry.uuid())) return i;
+        }
+        return -1;
     }
 
     private void rememberSelection(UUID uuid, int index) {

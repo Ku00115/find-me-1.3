@@ -19,7 +19,6 @@ import com.kuzhi.findme.server.ui.CompanionSyncService;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
 import com.kuzhi.findme.server.profile.PackAnimationPresetService;
 import net.minecraft.ChatFormatting;
-import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -57,7 +56,8 @@ public final class FindMeModuleService {
             sync(player);
             return false;
         }
-        return setEnabled(player.getServer(), module, enabled, player.getGameProfile().getName());
+        sync(player);
+        return false;
     }
 
     public static boolean resetToDefaults(ServerPlayer player) {
@@ -70,30 +70,8 @@ public final class FindMeModuleService {
             sync(player);
             return false;
         }
-        Config.resetModulesToDefaults();
-        FindMeDebugLogger.info("module", "modules reset actor={}", player.getGameProfile().getName());
-        reconcile(player.getServer(), true);
-        return true;
-    }
-
-    public static boolean setEnabled(CommandSourceStack source, FindMeModule module, boolean enabled) {
-        if (source == null || module == null || !source.hasPermission(2)) {
-            return false;
-        }
-        boolean changed = setEnabled(source.getServer(), module, enabled, source.getTextName());
-        source.sendSuccess(() -> Component.translatable("message.find_me.module_changed",
-                Component.translatable("module.find_me." + module.id()), enabled), true);
-        return changed;
-    }
-
-    private static boolean setEnabled(MinecraftServer server, FindMeModule module, boolean enabled, String actor) {
-        boolean changed = Config.moduleConfigured(module) != enabled;
-        if (changed) {
-            Config.setModuleConfigured(module, enabled);
-            FindMeDebugLogger.info("module", "module changed actor={} module={} enabled={}", actor, module.id(), enabled);
-        }
-        reconcile(server, true);
-        return changed;
+        sync(player);
+        return false;
     }
 
     public static void tick(MinecraftServer server) {
@@ -118,20 +96,25 @@ public final class FindMeModuleService {
         if (player == null) {
             return;
         }
+        var data = com.kuzhi.findme.server.data.CompanionDataService.data(player);
         ModNetwork.sendToPlayer(player, new FindMeModuleStatePacket(
                 configuredMask(), effectiveMask(), availableMask(), player.hasPermissions(2),
-                player.hasPermissions(2) && player.isCreative(), Config.companionDeploymentLimit));
+                player.hasPermissions(2) && player.isCreative(),
+                data.companionDeploymentLimit(),
+                Config.companionDeploymentLimit,
+                data.creatureArrivalVoice()));
     }
 
-    public static void setCompanionDeploymentLimit(ServerPlayer player, int limit) {
-        if (player == null || !player.hasPermissions(2)) {
-            if (player != null) sync(player);
+    public static void setCompanionDeploymentLimit(ServerPlayer player, int limit,
+                                                    boolean creatureArrivalVoice) {
+        if (player == null) {
             return;
         }
-        Config.setCompanionDeploymentLimit(limit);
-        for (ServerPlayer online : player.getServer().getPlayerList().getPlayers()) {
-            sync(online);
-        }
+        var data = com.kuzhi.findme.server.data.CompanionDataService.data(player);
+        data.setCompanionDeploymentLimit(Math.min(limit, Config.companionDeploymentLimit));
+        data.setCreatureArrivalVoice(creatureArrivalVoice);
+        com.kuzhi.findme.server.data.CompanionDataService.save(player, data);
+        sync(player);
     }
 
     private static void reconcile(MinecraftServer server, boolean forceSync) {

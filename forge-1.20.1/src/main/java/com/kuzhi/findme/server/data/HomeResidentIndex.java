@@ -37,6 +37,7 @@ public final class HomeResidentIndex {
         Map<UUID, SavedPosition> homeNests = positions(root.getList("homeNestBlocks", Tag.TAG_COMPOUND));
         Map<UUID, UUID> houseIds = uuidMap(root.getList("homeHouseIds", Tag.TAG_COMPOUND));
         Map<UUID, CompanionLifecycleState> states = lifecycleStates(root);
+        Set<UUID> critical = uuidSet(root.getList("criticalCompanions", Tag.TAG_COMPOUND));
         Set<UUID> stored = new HashSet<>();
         Map<UUID, Dimensions> dimensions = new HashMap<>();
         ListTag storedEntities = root.getList("storedEntities", Tag.TAG_COMPOUND);
@@ -51,16 +52,17 @@ public final class HomeResidentIndex {
         }
 
         List<Entry> result = new ArrayList<>();
-        appendKind(root, CompanionKind.MOUNT, result, states, stored, dimensions,
+        appendKind(root, CompanionKind.MOUNT, result, states, stored, critical, dimensions,
                 homePositions, homeNests, houseIds);
-        appendKind(root, CompanionKind.COMPANION, result, states, stored, dimensions,
+        appendKind(root, CompanionKind.COMPANION, result, states, stored, critical, dimensions,
                 homePositions, homeNests, houseIds);
         return result.isEmpty() ? EMPTY : new HomeResidentIndex(result);
     }
 
     private static void appendKind(CompoundTag root, CompanionKind kind, List<Entry> result,
                                    Map<UUID, CompanionLifecycleState> states, Set<UUID> stored,
-                                   Map<UUID, Dimensions> dimensions, Map<UUID, SavedPosition> homePositions,
+                                   Set<UUID> critical, Map<UUID, Dimensions> dimensions,
+                                   Map<UUID, SavedPosition> homePositions,
                                    Map<UUID, SavedPosition> homeNests, Map<UUID, UUID> houseIds) {
         String prefix = kind.name().toLowerCase();
         Set<UUID> deployed = uuidSet(root.getList(prefix + "DeployedList", Tag.TAG_COMPOUND));
@@ -79,7 +81,7 @@ public final class HomeResidentIndex {
                         : CompanionLifecycleState.RECOVERY;
             }
             Dimensions size = dimensions.getOrDefault(uuid, new Dimensions(1.0f, 1.8f));
-            result.add(new Entry(uuid, kind, state, deployed.contains(uuid), isStored,
+            result.add(new Entry(uuid, kind, state, deployed.contains(uuid), isStored, critical.contains(uuid),
                     homePositions.get(uuid), homeNests.get(uuid), houseIds.get(uuid), size.width, size.height));
         }
     }
@@ -135,7 +137,7 @@ public final class HomeResidentIndex {
     }
 
     public record Entry(UUID uuid, CompanionKind kind, CompanionLifecycleState lifecycleState,
-                        boolean deployed, boolean stored, SavedPosition homePosition,
+                        boolean deployed, boolean stored, boolean critical, SavedPosition homePosition,
                         SavedPosition homeNestBlock, UUID houseId, float width, float height) {
         public boolean hasHomeAssignment() {
             return houseId != null || homeNestBlock != null;

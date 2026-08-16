@@ -76,7 +76,7 @@ public final class CompanionContractService {
             mob.setTarget(null);
         }
         applyOpeningPose(player, target, contract);
-        ModNetwork.sendToPlayer(player, new ContractCameraPacket(true, target.getId(), ContractCeremonyTimeline.DURATION_TICKS, pose.playerYaw, 8.0f, pose.playerPos.x, pose.playerPos.y, pose.playerPos.z, pose.targetPos.x, pose.targetPos.y, pose.targetPos.z, 1.55f, targetRadius, target.getDisplayName().getString(), ContractCameraPacket.Mode.START, Config.enableContractCinematicCamera));
+        ModNetwork.sendToPlayer(player, new ContractCameraPacket(true, target.getId(), ContractCeremonyTimeline.DURATION_TICKS, pose.playerYaw, 8.0f, pose.playerPos.x, pose.playerPos.y, pose.playerPos.z, pose.targetPos.x, pose.targetPos.y, pose.targetPos.z, 1.55f, targetRadius, target.getDisplayName().getString(), ContractCameraPacket.Mode.START, true));
         Vec3 center = player.position().add(target.position()).scale(0.5);
         playCeremonySound(player, center, SoundEvents.BOOK_PAGE_TURN, 0.72f, 0.92f);
         playCeremonySound(player, center, SoundEvents.AMETHYST_BLOCK_RESONATE, 0.32f, 1.18f);

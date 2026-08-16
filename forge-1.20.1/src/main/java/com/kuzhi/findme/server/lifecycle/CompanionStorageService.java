@@ -533,6 +533,11 @@ public final class CompanionStorageService {
     }
 
     public static CompoundTag healedStoredEntity(ServerPlayer player, PlayerCompanionData data, UUID uuid, CompoundTag storedTag) {
+        if (isRecoveringAtHome(data, uuid)) {
+            // Recovery is advanced by CompanionCriticalStateService. Preserve its progressive
+            // health instead of applying the ordinary critical-storage clamp again.
+            return sanitizedStoredTag(storedTag);
+        }
         boolean snapshotCritical = storedTag != null && storedTag.getBoolean(CRITICAL_STORED_TAG);
         boolean critical = snapshotCritical || data != null && data.isCritical(uuid);
         long now = player.serverLevel().getGameTime();
@@ -554,6 +559,12 @@ public final class CompanionStorageService {
             CompanionDataService.save(player, data);
         }
         return tag;
+    }
+
+    static boolean isRecoveringAtHome(PlayerCompanionData data, UUID uuid) {
+        return data != null && uuid != null && data.isCritical(uuid)
+                && data.lifecycleState(uuid) == CompanionLifecycleState.HOME_STORED
+                && data.homeHouseId(uuid).isPresent();
     }
 
     static CompoundTag storedEntityAfterElapsed(CompoundTag storedTag, long now, boolean critical) {

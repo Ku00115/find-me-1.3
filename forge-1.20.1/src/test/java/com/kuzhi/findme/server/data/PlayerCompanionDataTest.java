@@ -221,6 +221,29 @@ class PlayerCompanionDataTest {
     }
 
     @Test
+    void organizingTeamsFillsEarlierTeamsFromLaterTeamsAndWarehouse() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(false));
+        List<UUID> roster = java.util.stream.IntStream.range(0, 8)
+                .mapToObj(ignored -> UUID.randomUUID()).toList();
+        roster.forEach(uuid -> data.add(CompanionKind.COMPANION, uuid));
+        int secondTeam = data.createTeam(CompanionTeamTarget.COMPANION);
+        data.setTeam(CompanionTeamTarget.COMPANION, 0, roster.subList(0, 2));
+        data.setTeam(CompanionTeamTarget.COMPANION, secondTeam, roster.subList(2, 5));
+        List<UUID> expectedOrder = new java.util.ArrayList<>();
+        for (int teamIndex = 0; teamIndex < data.teamCount(CompanionTeamTarget.COMPANION); teamIndex++) {
+            expectedOrder.addAll(data.team(CompanionTeamTarget.COMPANION, teamIndex));
+        }
+        data.list(CompanionKind.COMPANION).stream()
+                .filter(uuid -> !expectedOrder.contains(uuid)).forEach(expectedOrder::add);
+        data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(true));
+
+        assertTrue(data.organizeTeams());
+        assertEquals(expectedOrder.subList(0, 6), data.team(CompanionTeamTarget.COMPANION, 0));
+        assertEquals(expectedOrder.subList(6, 8), data.team(CompanionTeamTarget.COMPANION, 1));
+    }
+
+    @Test
     void organizingTeamsDoesNothingWhileAutomaticOrganizationIsDisabled() {
         PlayerCompanionData data = new PlayerCompanionData();
         data.setUiSettings(data.uiSettings().withAutoOrganizeTeams(false));
@@ -529,5 +552,30 @@ class PlayerCompanionDataTest {
         List<CompoundTag> candidates = data.recoverySnapshotsFromArchives(companion);
         assertEquals("missing:entity", candidates.get(0).getString("id"));
         assertTrue(candidates.stream().anyMatch(tag -> "minecraft:wolf".equals(tag.getString("id"))));
+    }
+
+    @Test
+    void playerCompanionLimitAndArrivalVoiceRoundTrip() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        assertEquals(2, data.companionDeploymentLimit());
+        assertTrue(data.creatureArrivalVoice());
+        data.setCompanionDeploymentLimit(5);
+        data.setCreatureArrivalVoice(false);
+
+        CompoundTag root = new CompoundTag();
+        data.save(root);
+        PlayerCompanionData restored = PlayerCompanionData.load(root);
+
+        assertEquals(5, restored.companionDeploymentLimit());
+        assertFalse(restored.creatureArrivalVoice());
+    }
+
+    @Test
+    void playerCompanionLimitHasHardMaximumOfSix() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.setCompanionDeploymentLimit(99);
+        assertEquals(6, data.companionDeploymentLimit());
+        data.setCompanionDeploymentLimit(0);
+        assertEquals(1, data.companionDeploymentLimit());
     }
 }

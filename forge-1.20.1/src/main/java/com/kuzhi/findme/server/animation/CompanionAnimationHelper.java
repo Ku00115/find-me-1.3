@@ -60,6 +60,15 @@ public final class CompanionAnimationHelper {
         callBooleanMethod(living, "setIsSitting", false);
     }
 
+    public static void forceGroundMovingPose(LivingEntity living) {
+        forceStandingPose(living);
+        living.setSprinting(true);
+        callBooleanMethod(living, "setRunning", true);
+        callBooleanMethod(living, "setIsRunning", true);
+        callBooleanMethod(living, "setMoving", true);
+        callBooleanMethod(living, "setIsMoving", true);
+    }
+
     private static void restoreGenericFlightInput(LivingEntity living) {
         callBooleanMethod(living, "setGoingUp", false);
         callBooleanMethod(living, "setGoingDown", false);

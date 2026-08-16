@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test;
 class FindMeUiSettingsTest {
     @Test
     void dossierFontIsDefaultAndOriginalUiFontRoundTrips() {
-        assertEquals(FindMeFontFamily.DEFAULT, FindMeUiSettings.defaults().fontFamily());
-        assertEquals(FindMeFontFamily.DEFAULT, FindMeUiSettings.load(new CompoundTag()).fontFamily());
+        assertEquals(FindMeFontFamily.SANS, FindMeUiSettings.defaults().fontFamily());
+        assertEquals(FindMeFontFamily.SANS, FindMeUiSettings.load(new CompoundTag()).fontFamily());
         assertEquals("fm-font-family-legacy", FindMeFontFamily.LEGACY.cssClass());
 
         FindMeUiSettings originalUiFont = FindMeUiSettings.defaults().withFontFamily(FindMeFontFamily.LEGACY);
@@ -52,18 +52,16 @@ class FindMeUiSettingsTest {
     }
 
     @Test
-    void restoredPresentationAndDefaultTeamSettingsRoundTrip() {
+    void presentationSettingsRoundTrip() {
         FindMeUiSettings settings = FindMeUiSettings.defaults()
                 .changed(0, 0)
                 .changed(0, 2)
-                .changed(2, 2)
-                .withDefaultTeamIndex(3);
+                .changed(2, 2);
 
         FindMeUiSettings loaded = FindMeUiSettings.load(settings.save());
         assertTrue(loaded.rotateModels());
         assertFalse(loaded.operationSounds());
         assertFalse(loaded.showHealth());
-        assertEquals(3, loaded.defaultTeamIndex());
     }
 
     @Test
@@ -129,6 +127,39 @@ class FindMeUiSettingsTest {
     }
 
     @Test
+    void boundCreatureBlockProtectionDefaultsOnAndRoundTrips() {
+        FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
+        assertTrue(defaults.boundCreatureBlockProtection());
+
+        FindMeUiSettings disabled = defaults.changed(1, 6);
+        assertFalse(disabled.boundCreatureBlockProtection());
+        assertFalse(FindMeUiSettings.load(disabled.save()).boundCreatureBlockProtection());
+        assertTrue(disabled.resetSection(1).boundCreatureBlockProtection());
+    }
+
+    @Test
+    void fallingAnimationDefaultsOffAndRoundTripsThroughServerSettings() {
+        FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
+        assertFalse(defaults.fallingAnimation());
+
+        FindMeUiSettings enabled = defaults.changed(0, 8);
+        assertTrue(enabled.fallingAnimation());
+        assertTrue(FindMeUiSettings.load(enabled.save()).fallingAnimation());
+        assertFalse(enabled.resetSection(0).fallingAnimation());
+    }
+
+    @Test
+    void guiOpacityDefaultsToFullAndRoundTripsThroughServerSettings() {
+        FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
+        assertEquals(100, defaults.guiOpacityPercent());
+
+        FindMeUiSettings translucent = defaults.withGuiOpacityPercent(60);
+        assertEquals(60, FindMeUiSettings.load(translucent.save()).guiOpacityPercent());
+        assertEquals(100, translucent.resetSection(0).guiOpacityPercent());
+        assertEquals(20, defaults.withGuiOpacityPercent(0).guiOpacityPercent());
+    }
+
+    @Test
     void summonedOutlineDefaultsOffAndColorRoundTrips() {
         assertEquals(SummonedOutlineMode.OFF,
                 FindMeUiSettings.load(new CompoundTag()).summonedOutlineMode());
@@ -141,21 +172,25 @@ class FindMeUiSettingsTest {
     }
 
     @Test
-    void companionSummonAnimationSettingIsRetiredAndLegacyValuesAreIgnored() {
+    void retiredSettingsAreNotSavedAndLegacyValuesAreIgnored() {
         FindMeUiSettings defaults = FindMeUiSettings.load(new CompoundTag());
         assertTrue(defaults.mountSummonAnimations());
-        assertFalse(defaults.companionSummonAnimations());
 
         FindMeUiSettings changed = defaults.changed(0, 6);
         assertFalse(changed.mountSummonAnimations());
-        assertFalse(changed.companionSummonAnimations());
 
         CompoundTag legacy = changed.save();
         legacy.putBoolean("companionSummonAnimations", true);
+        legacy.putBoolean("allowNameColors", true);
+        legacy.putInt("nameMaxLength", 64);
+        legacy.putInt("defaultTeamIndex", 3);
         FindMeUiSettings loaded = FindMeUiSettings.load(legacy).changed(0, 7);
         assertFalse(loaded.mountSummonAnimations());
-        assertFalse(loaded.companionSummonAnimations());
         assertTrue(loaded.resetSection(0).mountSummonAnimations());
-        assertFalse(loaded.resetSection(0).companionSummonAnimations());
+        CompoundTag saved = loaded.save();
+        assertFalse(saved.contains("companionSummonAnimations"));
+        assertFalse(saved.contains("allowNameColors"));
+        assertFalse(saved.contains("nameMaxLength"));
+        assertFalse(saved.contains("defaultTeamIndex"));
     }
 }

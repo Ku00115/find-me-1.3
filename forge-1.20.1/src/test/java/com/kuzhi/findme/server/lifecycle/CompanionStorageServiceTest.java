@@ -4,6 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.kuzhi.findme.common.CompanionKind;
+import com.kuzhi.findme.common.CompanionLifecycleState;
+import com.kuzhi.findme.server.data.PlayerCompanionData;
+import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import org.junit.jupiter.api.Test;
 
@@ -57,6 +61,25 @@ class CompanionStorageServiceTest {
 
         assertEquals(1.0F, healed.getFloat("CompanionRescueHealth"));
         assertEquals(1.0F, healed.getFloat("Health"));
+    }
+
+    @Test
+    void homeRecoveryIsRecognizedWithoutOrdinaryCriticalHealthClamping() {
+        PlayerCompanionData data = new PlayerCompanionData();
+        UUID companion = UUID.randomUUID();
+        data.add(CompanionKind.COMPANION, companion);
+        data.setHomeHouseId(companion, UUID.randomUUID());
+        data.setLifecycleState(companion, CompanionLifecycleState.HOME_STORED);
+        data.setCritical(companion, true);
+
+        assertTrue(CompanionStorageService.isRecoveringAtHome(data, companion));
+        CompoundTag progress = storedHealth(7.0F, 20.0F, 100L);
+        progress.putBoolean("CompanionRescueCritical", true);
+        CompoundTag visible = CompanionStorageService.healedStoredEntity(null, data, companion, progress);
+        assertEquals(7.0F, visible.getFloat("CompanionRescueHealth"));
+
+        data.setCritical(companion, false);
+        assertFalse(CompanionStorageService.isRecoveringAtHome(data, companion));
     }
 
     private static CompoundTag storedHealth(float health, float maxHealth, long storedAt) {

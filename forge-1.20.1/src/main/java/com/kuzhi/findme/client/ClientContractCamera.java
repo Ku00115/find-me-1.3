@@ -159,7 +159,8 @@ public final class ClientContractCamera {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.level == null || cameraEntity == null
+        if (minecraft.player == null || !minecraft.player.isAlive() || minecraft.player.isRemoved()
+                || minecraft.level == null || cameraEntity == null
                 || cameraEntity.level() != minecraft.level) {
             stop();
             return;

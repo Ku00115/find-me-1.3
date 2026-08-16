@@ -10,18 +10,34 @@ public final class ClientFindMeModuleState {
     private static boolean canManage;
     private static boolean canManageDefaults;
     private static int companionDeploymentLimit = 2;
+    private static int companionDeploymentMaximum = 6;
+    private static boolean creatureArrivalVoice = true;
 
     private ClientFindMeModuleState() {
     }
 
     public static void update(long configured, long effective, long available, boolean manager,
                               boolean defaultsManager, int deploymentLimit) {
+        update(configured, effective, available, manager, defaultsManager, deploymentLimit, 6);
+    }
+
+    public static void update(long configured, long effective, long available, boolean manager,
+                              boolean defaultsManager, int deploymentLimit, int deploymentMaximum) {
+        update(configured, effective, available, manager, defaultsManager, deploymentLimit,
+                deploymentMaximum, true);
+    }
+
+    public static void update(long configured, long effective, long available, boolean manager,
+                              boolean defaultsManager, int deploymentLimit, int deploymentMaximum,
+                              boolean arrivalVoice) {
         configuredMask = configured;
         effectiveMask = effective;
         availableMask = available;
         canManage = manager;
         canManageDefaults = defaultsManager;
-        companionDeploymentLimit = Math.max(1, Math.min(32, deploymentLimit));
+        companionDeploymentMaximum = Math.max(1, Math.min(6, deploymentMaximum));
+        companionDeploymentLimit = Math.max(1, Math.min(companionDeploymentMaximum, deploymentLimit));
+        creatureArrivalVoice = arrivalVoice;
         if (Minecraft.getInstance().screen instanceof FindMeAuiHouseScreen
                 && !enabled(FindMeModule.HOUSES)) {
             Minecraft.getInstance().setScreen(null);
@@ -55,6 +71,14 @@ public final class ClientFindMeModuleState {
         return companionDeploymentLimit;
     }
 
+    public static int companionDeploymentMaximum() {
+        return companionDeploymentMaximum;
+    }
+
+    public static boolean creatureArrivalVoice() {
+        return creatureArrivalVoice;
+    }
+
     public static void reset() {
         configuredMask = defaultMask();
         effectiveMask = defaultMask();
@@ -62,6 +86,8 @@ public final class ClientFindMeModuleState {
         canManage = false;
         canManageDefaults = false;
         companionDeploymentLimit = 2;
+        companionDeploymentMaximum = 6;
+        creatureArrivalVoice = true;
     }
 
     private static long defaultMask() {

@@ -26,8 +26,9 @@
   .category-button:hover { color: #172027; transform: translateY(-1px); }
   .category-button.active { color: #172027; font-weight: bold; }
   .category-indicator { position: absolute; left: 5px; bottom: 0; width: 20px; height: 2px; display: block; background-color: #16b5df; }
-  .pack-toolbar { height: var(--fm-top); display: flex; flex: 0 0 auto; align-items: center; margin-left: 4px; }
-  .toolbar-button { width: 38px; height: 18px; display: flex; flex: 0 0 38px; align-items: center; justify-content: center; margin-left: 3px; color: #5e696e; border: 1px solid #aab1b4; background-color: rgba(255,255,255,0.36); font-size: 9px; }
+  .pack-toolbar { height: var(--fm-top); display: flex; flex: 0 0 auto; align-items: center; margin-left: 4px; padding-right: 2px; }
+  .toolbar-button { width: 38px; height: 18px; display: flex; flex: 0 0 38px; align-items: center; justify-content: center; margin-left: 0; color: #5e696e; border: 1px solid #aab1b4; background-color: rgba(255,255,255,0.36); font-size: 9px; }
+  .toolbar-button + .toolbar-button { margin-left: 5px; }
   .toolbar-button:hover { color: #172027; border-color: #16b5df; transform: translateY(-1px); }
   .toolbar-button.primary { color: #f5fbfc; border-color: #27343a; background-color: #27343a; }
   .toolbar-button.dirty.primary { color: #102027; border-color: #16bde7; background-color: #16bde7; font-weight: bold; }
@@ -95,7 +96,7 @@
   .preview-copy p { margin: 0; color: #e0e4e5; font-size: 7px; line-height: 8px; }
 
   .fields-viewport { position: relative; width: var(--fm-editor-fields); height: var(--fm-editor-height); display: block; flex: 0 0 var(--fm-editor-fields); overflow: hidden; border-left: 1px solid rgba(111,124,130,0.18); background-color: rgba(239,241,240,0.20); }
-  .fields-panel { position: absolute; left: 0; top: 0; width: var(--fm-editor-fields-scroller); height: var(--fm-editor-height); display: block; padding: 0 16px 10px 8px; overflow-y: auto; overflow-x: hidden; }
+  .fields-panel { position: absolute; left: 0; top: 0; width: var(--fm-editor-fields-scroller); height: var(--fm-editor-height); display: block; padding: 0 20px 10px 8px; overflow-y: auto; overflow-x: hidden; }
   .fields-scroll-rail { position: absolute; z-index: 12; right: 1px; top: 0; width: 5px; height: var(--fm-editor-height); background-color: rgba(0,0,0,0); cursor: pointer; pointer-events: auto; }
   .fields-scroll-track { position: absolute; left: 2px; top: 0; width: 1px; height: 100%; background-color: rgba(101,113,119,0.18); pointer-events: none; }
   .fields-scroll-thumb { position: absolute; z-index: 2; left: 0; width: 5px; background-color: rgba(0,0,0,0); cursor: pointer; }
@@ -141,7 +142,7 @@
   .integration-link { width: 100%; height: 22px; display: flex; align-items: center; padding-left: 8px; border-left: 3px solid #16b5df; color: #eef5f6; background-color: #28363c; font-size: 9px; }
   .sound-picker { position: relative; width: 100%; height: 132px; margin-top: 4px; padding-right: 6px; border-left: 2px solid #16b5df; background-color: rgba(39,52,58,0.96); }
   .sound-picker-search-row { width: 100%; height: 24px; display: flex; gap: 2px; padding: 3px 3px 2px 5px; }
-  .sound-picker-search { min-width: 0; height: 18px; display: block; flex: 1; padding: 2px 4px; border: 0; border-bottom: 1px solid #77868c; background-color: #202a2f; color: #edf4f6; font-family: lxgw,sans-serif; font-size: 8px; }
+  .sound-picker-search { min-width: 0; height: 18px; display: block; flex: 1; padding: 2px 4px; border: 0; border-bottom: 1px solid #77868c; background-color: #202a2f; color: #edf4f6; font-family: lxgw,sans-serif; font-size: 9px; }
   .sound-picker-search:focus { color: #ffffff; border-bottom-color: #16b5df; background-color: #202a2f; }
   .sound-picker-search-button { width: 28px; height: 18px; display: flex; flex: 0 0 28px; align-items: center; justify-content: center; color: #dce4e6; border: 1px solid #68767c; font-size: 8px; }
   .sound-picker-list { width: 100%; height: 108px; overflow: hidden; }
@@ -166,8 +167,8 @@
   .fm-font-size-medium { --fm-type-title:23px; --fm-type-subtitle:8px; --fm-type-heading:16px; --fm-type-body:11px; --fm-type-button:10px; --fm-type-meta:8px; --fm-type-caption:7px; }
   .fm-font-size-large { --fm-type-title:28px; --fm-type-subtitle:10px; --fm-type-heading:19px; --fm-type-body:13px; --fm-type-button:12px; --fm-type-meta:10px; --fm-type-caption:8px; }
   .fm-font-size-extra-large { --fm-type-title:30px; --fm-type-subtitle:10px; --fm-type-heading:20px; --fm-type-body:14px; --fm-type-button:13px; --fm-type-meta:11px; --fm-type-caption:9px; }
-  .fm-font-family-default { font-family: SimSun,serif; }
-  .fm-font-family-default input,.fm-font-family-default textarea { font-family: SimSun,serif; }
+  .fm-font-family-default { font-family: Arial,"Microsoft YaHei",sans-serif; }
+  .fm-font-family-default input,.fm-font-family-default textarea { font-family: Arial,"Microsoft YaHei",sans-serif; }
   .fm-font-family-sans { font-family: Arial,"Microsoft YaHei",sans-serif; }
   .fm-font-family-ui { font-family: "Microsoft YaHei UI","Segoe UI","Microsoft YaHei",ui-sans-serif; }
   .fm-font-family-humanist { font-family: "Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui; }
@@ -192,7 +193,8 @@
   .fm-font-family-monospace textarea { font-family: Consolas,"Microsoft YaHei",monospace; }
   .fm-font-family-legacy input,.fm-font-family-legacy textarea { font-family: lxgw,sans-serif; }
   .editor-page .category-button { font-size: 8px; }
-  .editor-page .toolbar-button { width: 42px; min-width: 42px; height: 18px; font-size: 8px; }
+  .editor-page .toolbar-button { width: 42px; min-width: 42px; height: 18px; }
+  .editor-page .toolbar-button { font-size: 8px; }
   .editor-page .side-heading strong { font-size: 12px; }
   .editor-page .side-heading small { font-size: 5px; }
   .editor-page .page-row strong { font-size: 9px; }

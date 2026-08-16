@@ -115,6 +115,8 @@ public final class HousePageService {
             case REMOVE -> remove(player, data, world, house, packet.companionId());
             case SET_RESIDENT_MODE -> setResidentMode(player, data, world, house,
                     packet.companionId(), packet.value());
+            case SET_ALL_RESIDENT_MODES -> setAllResidentModes(player, data, world, house, packet.value());
+            case SET_SETTINGS -> setSettings(player, data, world, house, packet.value());
             case REFRESH -> false;
             case RENAME_RESIDENT -> WarehouseEntityService.renameEntity(player, data, packet.companionId(), packet.value());
         };
@@ -135,6 +137,29 @@ public final class HousePageService {
         if (name.equals(blockEntity.displayName())) return false;
         blockEntity.setDisplayName(name);
         return true;
+    }
+
+    private static boolean setSettings(ServerPlayer player, PlayerCompanionData data,
+                                       FindMeWorldSavedData world,
+                                       FindMeWorldSavedData.HouseRecord house, String value) {
+        String[] parts = value == null ? new String[0] : value.split(",", -1);
+        if (parts.length != 3) return false;
+        try {
+            int capacity = Integer.parseInt(parts[0].trim());
+            int patrolRadius = Integer.parseInt(parts[1].trim());
+            int hardRadius = Integer.parseInt(parts[2].trim());
+            boolean changed = world.setHouseSettings(house.houseId(), capacity, patrolRadius, hardRadius);
+            if (changed) {
+                FindMeWorldSavedData.HouseRecord updated = world.house(house.houseId()).orElse(house);
+                for (UUID resident : updated.residents()) {
+                    CompanionHomeResidentService.refreshResidentMode(player, data, resident,
+                            updated.residentMode(resident));
+                }
+            }
+            return changed;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
     }
 
     static boolean withinInteractionDistance(boolean sameDimension, double playerX, double playerY,
@@ -171,6 +196,25 @@ public final class HousePageService {
         return true;
     }
 
+    private static boolean setAllResidentModes(ServerPlayer player, PlayerCompanionData data,
+                                               FindMeWorldSavedData world,
+                                               FindMeWorldSavedData.HouseRecord house, String value) {
+        HouseResidentMode mode;
+        try {
+            mode = HouseResidentMode.valueOf(value == null ? "" : value.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+        boolean changed = false;
+        for (UUID resident : house.residents()) {
+            if (world.setResidentMode(house.houseId(), resident, mode)) {
+                CompanionHomeResidentService.refreshResidentMode(player, data, resident, mode);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
     private static boolean assign(ServerPlayer player, PlayerCompanionData data, FindMeWorldSavedData world,
                                   FindMeWorldSavedData.HouseRecord house, UUID uuid, ServerLevel houseLevel) {
         CompanionKind kind = uuid == null ? null : data.kindOf(uuid).orElse(null);
@@ -179,7 +223,7 @@ public final class HousePageService {
         if (!CompanionHomeService.hasResidentCapacity(house, uuid, data)) {
             com.kuzhi.findme.server.ui.CompanionMessageService.tell(player,
                     "message.find_me.house_full", ChatFormatting.YELLOW,
-                    com.kuzhi.findme.Config.houseResidentCapacity);
+                    house.residentCapacity());
             return false;
         }
         UUID oldHouse = data.homeHouseId(uuid).orElse(null);
@@ -321,7 +365,7 @@ public final class HousePageService {
         if (owner != null) ownerName = owner.getGameProfile().getName();
         ModNetwork.sendToPlayer(player, new HousePagePacket(house.houseId(), house.owner(), ownerName,
                 house.displayName().isBlank() ? "Small House" : house.displayName(),
-                !player.getUUID().equals(house.owner()), Math.max(1, com.kuzhi.findme.Config.houseResidentCapacity),
+                !player.getUUID().equals(house.owner()), house.residentCapacity(), house.patrolRadius(), house.hardRadius(),
                 residents, available));
     }
 
@@ -416,7 +460,7 @@ public final class HousePageService {
         // owner's normal companion sync already supplies exact preview data; read-only viewers use a
         // lightweight type-based preview for the visible cards.
         return new HousePagePacket.Resident(uuid, name, type, kind, active, data.deadList().contains(uuid),
-                otherHouse, mode, null);
+                data.isCritical(uuid), otherHouse, mode, null);
     }
 
     private static ServerLevel houseLevel(ServerPlayer player, FindMeWorldSavedData.HouseRecord house) {

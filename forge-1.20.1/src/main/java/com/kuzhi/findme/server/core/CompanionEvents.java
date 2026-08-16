@@ -12,6 +12,7 @@ import com.kuzhi.findme.server.safety.CompanionRecoveryService;
 import com.kuzhi.findme.server.safety.CompanionThreatMemoryService;
 import com.kuzhi.findme.server.safety.CompanionFriendlyFireService;
 import com.kuzhi.findme.server.safety.CompanionCriticalStateService;
+import com.kuzhi.findme.server.safety.CompanionBlockProtectionService;
 import com.kuzhi.findme.server.api.ExternalActionLeaseService;
 import com.kuzhi.findme.server.api.CompanionActionRequestService;
 import com.kuzhi.findme.server.ui.CompanionSyncService;
@@ -24,6 +25,7 @@ import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
+import net.minecraftforge.event.entity.EntityMobGriefingEvent;
 import net.minecraftforge.event.entity.EntityTravelToDimensionEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
@@ -31,15 +33,37 @@ import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
+import net.minecraftforge.event.entity.living.LivingDestroyBlockEvent;
 import net.minecraftforge.event.entity.living.LivingChangeTargetEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerWakeUpEvent;
 import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.event.level.ExplosionEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 public class CompanionEvents {
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onMobGriefing(EntityMobGriefingEvent event) {
+        CompanionBlockProtectionService.handleMobGriefing(event);
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onLivingDestroyBlock(LivingDestroyBlockEvent event) {
+        CompanionBlockProtectionService.handleLivingDestroyBlock(event);
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onFarmlandTrample(BlockEvent.FarmlandTrampleEvent event) {
+        CompanionBlockProtectionService.handleFarmlandTrample(event);
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onExplosionDetonate(ExplosionEvent.Detonate event) {
+        CompanionBlockProtectionService.handleExplosion(event);
+    }
+
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         CompanionCommands.register((CommandDispatcher<CommandSourceStack>)event.getDispatcher());
@@ -170,7 +194,7 @@ public class CompanionEvents {
         CompanionFriendlyFireService.handleAttack(event);
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onLivingChangeTargetFriendlyFire(LivingChangeTargetEvent event) {
         CompanionFriendlyFireService.handleTargetChange(event);
     }

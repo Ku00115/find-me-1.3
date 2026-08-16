@@ -21,7 +21,9 @@ public final class CompanionArrivalSoundService {
     }
 
     public static void playCommandVoice(ServerPlayer player, LivingEntity living) {
-        if (!Config.enableCreatureArrivalVoice || living == null || living.isSilent()) {
+        if ((player != null
+                && !com.kuzhi.findme.server.data.CompanionDataService.data(player).creatureArrivalVoice())
+                || living == null || living.isSilent()) {
             return;
         }
         String entityType = BuiltInRegistries.ENTITY_TYPE.getKey(living.getType()).toString();

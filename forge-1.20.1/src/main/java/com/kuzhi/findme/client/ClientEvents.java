@@ -162,7 +162,7 @@ public final class ClientEvents {
             }
             return;
         }
-        if (isDown && wasDown && !ClientEvents.wheelOpened(kind) && !mountEmergencyTriggered
+        if (isDown && wasDown && !ClientEvents.wheelOpened(kind)
                 && now - ClientEvents.downAt(kind) >= 250L && minecraft.screen == null) {
             ClientEvents.setWheelOpened(kind, true);
             minecraft.setScreen((Screen)new CompanionWheelScreen(kind));
@@ -274,7 +274,7 @@ public final class ClientEvents {
         if (minecraft.player.getDeltaMovement().y >= -0.01) {
             return false;
         }
-        if (minecraft.player.fallDistance >= Math.max(3.0f, Config.rescueMinFallDistance)) {
+        if (minecraft.player.fallDistance >= Math.max(3.0f, Config.DEFAULT_RESCUE_DANGER_DISTANCE)) {
             return true;
         }
         // Short drops used to be missed because fallDistance has not reached

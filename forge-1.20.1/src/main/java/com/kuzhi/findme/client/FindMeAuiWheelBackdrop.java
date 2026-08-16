@@ -1,6 +1,5 @@
 package com.kuzhi.findme.client;
 
-import com.kuzhi.findme.Config;
 import com.kuzhi.findme.common.FindMeWheelStyle;
 import com.sighs.apricityui.element.Canvas;
 import com.sighs.apricityui.init.Document;
@@ -107,7 +106,7 @@ final class FindMeAuiWheelBackdrop {
     private static void updateHeading(Document doc, Component title, int page, int pageCount, float fade) {
         boolean visible = title != null && !title.getString().isBlank();
         String opacity = "opacity:" + (visible
-                ? Math.max(0.0f, Math.min(1.0f, fade * (float) Config.guiOpacity)) : 0.0f);
+                ? Math.max(0.0f, Math.min(1.0f, fade * ClientWheelPresentationState.guiOpacity())) : 0.0f);
         Element titleElement = doc.getElementById("findme-wheel-title");
         if (titleElement != null) {
             titleElement.setTextContent(title == null ? "" : title.getString());
@@ -286,7 +285,7 @@ final class FindMeAuiWheelBackdrop {
         g.setComposite(AlphaComposite.Clear);
         g.fillRect(0, 0, CSS_WIDTH * BITMAP_SCALE, CSS_HEIGHT * BITMAP_SCALE);
         g.setComposite(AlphaComposite.SrcOver.derive(Math.max(0.0f,
-                Math.min(1.0f, (float)(fade * Config.guiOpacity)))));
+                Math.min(1.0f, fade * ClientWheelPresentationState.guiOpacity()))));
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
         g.scale(BITMAP_SCALE, BITMAP_SCALE);
