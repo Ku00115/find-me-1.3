@@ -189,6 +189,10 @@ public final class ClientContractCamera {
         return cameraEntity != null && (ticksRemaining > 0 || finishing);
     }
 
+    public static boolean keepsLocalPlayerControlled() {
+        return rideHomeCamera && active();
+    }
+
     public static boolean renderLocalRider() {
         return renderLocalRider;
     }

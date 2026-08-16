@@ -20,6 +20,7 @@
     "client.EntityRenderDispatcherContractSkyStageMixin",
     "client.BlockEntityRenderDispatcherContractSkyStageMixin",
     "client.ParticleEngineContractSkyStageMixin",
+    "client.LocalPlayerRideHomeCameraMixin",
     "client.falling.PlayerRendererMixin"
   ],
   "injectors": {
