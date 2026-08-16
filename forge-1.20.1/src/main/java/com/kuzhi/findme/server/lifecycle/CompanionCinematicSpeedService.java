@@ -32,10 +32,10 @@ public final class CompanionCinematicSpeedService {
         if (cinematic.mode() == MountCinematicMode.NORMAL_SUMMON) {
             return normalSummonSpeed(cinematic.moveType(), distance) * DEFAULT_SUMMON_SWITCH_SPEED_SCALE;
         }
-        if (cinematic.mode().isAirToAirSwitch()) {
+        if (cinematic.mode().isMountSwitch() && cinematic.moveType() == CompanionMoveType.FLY) {
             double base = baseSpeed(CompanionMoveType.FLY) * MOUNT_SWITCH_SPEED_MULTIPLIER
                     * DEFAULT_SUMMON_SWITCH_SPEED_SCALE;
-            double playerSpeed = playerHorizontalSpeed(player);
+            double playerSpeed = switchReferenceSpeed(cinematic, player);
             double chaseSpeed = Math.max(base, playerSpeed + 0.55);
             double cap = base + AIR_SWITCH_PLAYER_SPEED_CAP_BONUS;
             return Math.min(distance, applyStuckSpeedBoost(cinematic, Math.min(cap, chaseSpeed)));

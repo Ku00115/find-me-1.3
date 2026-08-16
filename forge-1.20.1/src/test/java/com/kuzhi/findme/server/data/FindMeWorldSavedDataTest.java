@@ -176,6 +176,18 @@ class FindMeWorldSavedDataTest {
     }
 
     @Test
+    void newlyAddedResidentsDefaultToRest() {
+        FindMeWorldSavedData data = new FindMeWorldSavedData();
+        UUID houseId = UUID.randomUUID();
+        UUID resident = UUID.randomUUID();
+        data.registerHouse(houseId, UUID.randomUUID(), position(0, 64, 0), "Home");
+
+        data.addResident(houseId, resident);
+
+        assertEquals(HouseResidentMode.REST, data.residentMode(houseId, resident));
+    }
+
+    @Test
     void houseSettingsAreCopiedAndClampInvalidRanges() {
         FindMeWorldSavedData data = new FindMeWorldSavedData();
         UUID houseId = UUID.randomUUID();

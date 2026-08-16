@@ -376,13 +376,21 @@ public final class VehicleManager {
             return false;
         }
         Entity target = liveTarget;
-        BlockPos switchPos = BlockPos.containing(currentRide.getX(), currentRide.getY(), currentRide.getZ());
+        Vec3 sourcePosition = currentRide.position();
+        BlockPos switchPos = BlockPos.containing(sourcePosition);
         boolean restored = false;
         if (target == null || target.isRemoved()) {
-            target = restoreVehicle(player, data, targetUuid, findVehicleSpotForStored(player, data, targetUuid, switchPos)).orElse(null);
+            BlockPos resolved = findVehicleSwitchSpotForStored(player, data, targetUuid, switchPos);
+            target = restoreVehicle(player, data, targetUuid, resolved).orElse(null);
             restored = target != null;
+            if (target != null) {
+                target = moveVehicleTo(target, player.serverLevel(), preciseSwitchPosition(sourcePosition, switchPos, resolved),
+                        currentRide.getYRot(), currentRide.getXRot());
+            }
         } else if (target.level() != player.level() || target.distanceToSqr(currentRide) > 1.0) {
-            target = moveVehicleTo(target, player.serverLevel(), findVehicleSpotForEntityNear(player, target, switchPos), currentRide.getYRot(), currentRide.getXRot());
+            BlockPos resolved = findVehicleSwitchSpotForEntity(player, target, switchPos);
+            target = moveVehicleTo(target, player.serverLevel(), preciseSwitchPosition(sourcePosition, switchPos, resolved),
+                    currentRide.getYRot(), currentRide.getXRot());
         }
         if (target == null || target.isRemoved()) {
             clearSwitchDamageProtection(player.getUUID(), currentRide.getUUID(), targetUuid);
@@ -390,10 +398,9 @@ public final class VehicleManager {
             return false;
         }
         RideHandoffService.MotionSnapshot transactionMotion = RideHandoffService.transactionMotion(
-                player.getUUID(), targetUuid).orElse(null);
-        if (transactionMotion == null
-                || !RideHandoffService.applyCompatibleMotion(transactionMotion, target,
-                CompanionEntityClassifier.moveType(target, com.kuzhi.findme.common.CompanionKind.MOUNT))) {
+                player.getUUID(), targetUuid)
+                .orElseGet(() -> RideHandoffService.captureMotion(rideSource, currentRide));
+        if (!RideHandoffService.applyDirectVehicleMotion(transactionMotion, target)) {
             target.setYRot(currentRide.getYRot());
             target.setXRot(currentRide.getXRot());
             target.setDeltaMovement(currentRide.getDeltaMovement());
@@ -1025,10 +1032,14 @@ public final class VehicleManager {
     }
 
     private static Entity moveVehicleTo(Entity entity, ServerLevel level, BlockPos pos, float yRot, float xRot) {
+        return moveVehicleTo(entity, level, Vec3.atBottomCenterOf(pos), yRot, xRot);
+    }
+
+    private static Entity moveVehicleTo(Entity entity, ServerLevel level, Vec3 pos, float yRot, float xRot) {
         Entity moved = entity;
-        double x = (double)pos.getX() + 0.5;
-        double y = pos.getY();
-        double z = (double)pos.getZ() + 0.5;
+        double x = pos.x;
+        double y = pos.y;
+        double z = pos.z;
         if (moved.level() != level) {
             Entity changed = ExactEntityTeleporter.transfer(moved, level, x, y, z, yRot, xRot);
             if (changed != null) {
@@ -1319,6 +1330,25 @@ public final class VehicleManager {
         }
         CompoundTag tag = maybeTag.get();
         return VehiclePlacementService.findVehicleSpotNear(player, origin, storedType(tag), storedPreviewWidth(tag), storedPreviewHeight(tag), storedPreviewDepth(tag));
+    }
+
+    private static BlockPos findVehicleSwitchSpotForEntity(ServerPlayer player, Entity entity, BlockPos origin) {
+        AABB box = entity.getBoundingBox();
+        return VehiclePlacementService.findSwitchSpotNear(player, origin, Math.max(1.0, box.getXsize()),
+                Math.max(1.0, box.getYsize()), Math.max(1.0, box.getZsize()));
+    }
+
+    private static BlockPos findVehicleSwitchSpotForStored(ServerPlayer player, PlayerCompanionData data,
+                                                            UUID uuid, BlockPos origin) {
+        CompoundTag tag = rawStoredTag(data, uuid).orElse(null);
+        return tag == null
+                ? VehiclePlacementService.findSwitchSpotNear(player, origin, 1.0, 2.0, 1.0)
+                : VehiclePlacementService.findSwitchSpotNear(player, origin, storedPreviewWidth(tag),
+                storedPreviewHeight(tag), storedPreviewDepth(tag));
+    }
+
+    static Vec3 preciseSwitchPosition(Vec3 sourcePosition, BlockPos sourceBlock, BlockPos resolvedBlock) {
+        return sourceBlock.equals(resolvedBlock) ? sourcePosition : Vec3.atBottomCenterOf(resolvedBlock);
     }
 
     private static BlockPos vehiclePlacementOrigin(ServerPlayer player) {

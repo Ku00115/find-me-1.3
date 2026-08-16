@@ -397,6 +397,7 @@ public class VehicleWheelScreen extends FindMeScreen {
         if ((entry.ridden() || entry.deployed()) && index == active) {
             this.send(VehicleCommandAction.RECALL, entry.uuid(), -1);
         } else {
+            ClientMountWheelModeState.rememberVehicle();
             this.send(VehicleCommandAction.SELECT_SUMMON, entry.uuid(), -1);
         }
         Minecraft.getInstance().setScreen(null);

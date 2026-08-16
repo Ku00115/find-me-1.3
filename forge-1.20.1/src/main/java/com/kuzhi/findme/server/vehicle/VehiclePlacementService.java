@@ -48,6 +48,12 @@ public final class VehiclePlacementService {
                 .orElse(origin);
     }
 
+    /** Vehicle handoffs preserve altitude and only need enough block space for the replacement. */
+    public static BlockPos findSwitchSpotNear(ServerPlayer player, BlockPos origin,
+                                              double width, double height, double depth) {
+        return findCollisionFree(player.serverLevel(), origin, width, height, depth).orElse(origin);
+    }
+
     private static boolean requiresGround(String entityType) {
         return entityType != null && entityType.startsWith("automobility:");
     }

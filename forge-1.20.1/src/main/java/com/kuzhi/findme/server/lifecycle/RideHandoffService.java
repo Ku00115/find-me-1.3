@@ -36,8 +36,7 @@ public final class RideHandoffService {
                     CompanionEntityClassifier.moveType(ride, CompanionKind.MOUNT), ride, player);
         }
         if (VehicleManager.isVehicleEntry(data, ride.getUUID())) {
-            return source(SourceType.ENTITY_VEHICLE, ride.getUUID(),
-                    CompanionEntityClassifier.moveType(ride, CompanionKind.MOUNT), ride, player);
+            return vehicleSource(ride, player);
         }
         return source(SourceType.OTHER, ride.getUUID(),
                 CompanionEntityClassifier.moveType(ride, CompanionKind.MOUNT), ride, player);
@@ -173,6 +172,20 @@ public final class RideHandoffService {
         return true;
     }
 
+    public static boolean applyDirectVehicleMotion(MotionSnapshot snapshot, Entity target) {
+        if (snapshot == null || target == null || !snapshot.captured()) {
+            return false;
+        }
+        applyRotation(snapshot, target);
+        target.setDeltaMovement(snapshot.velocity() == null ? Vec3.ZERO : snapshot.velocity());
+        target.hurtMarked = true;
+        FindMeDebugLogger.info("ride-handoff",
+                "phase=DIRECT_VEHICLE_MOTION_APPLIED sourceType={} source={} target={} velocity={} yaw={} pitch={}",
+                snapshot.sourceType(), snapshot.sourceUuid(), target.getUUID(), target.getDeltaMovement(),
+                snapshot.yRot(), snapshot.xRot());
+        return true;
+    }
+
     private static boolean retireFindMeMount(ServerPlayer player, PlayerCompanionData data, Entity entity) {
         if (entity == null || entity.isRemoved()) {
             return false;
@@ -194,9 +207,33 @@ public final class RideHandoffService {
     private static Source source(SourceType type, UUID uuid, CompanionMoveType moveType, Entity entity,
                                  ServerPlayer player) {
         CompanionMoveType resolvedMoveType = moveType == null ? CompanionMoveType.WALK : moveType;
-        boolean airborne = resolvedMoveType == CompanionMoveType.FLY
-                && CompanionCinematicLandingService.distanceToGround(player) > 6.0;
+        boolean airborne = airborneFor(type, resolvedMoveType,
+                CompanionCinematicLandingService.distanceToGround(player));
         return new Source(type, uuid, resolvedMoveType, entity, airborne);
+    }
+
+    private static Source vehicleSource(Entity ride, ServerPlayer player) {
+        double groundDistance = CompanionCinematicLandingService.distanceToGround(player);
+        boolean airborne = airborneFor(SourceType.ENTITY_VEHICLE, CompanionMoveType.WALK, groundDistance);
+        CompanionMoveType moveType = airborne ? CompanionMoveType.FLY
+                : CompanionEntityClassifier.moveType(ride, CompanionKind.MOUNT);
+        return new Source(SourceType.ENTITY_VEHICLE, ride.getUUID(), moveType, ride, airborne);
+    }
+
+    static boolean airborneFor(SourceType type, CompanionMoveType moveType, double groundDistance) {
+        if (groundDistance <= 6.0) {
+            return false;
+        }
+        return type == SourceType.ENTITY_VEHICLE || moveType == CompanionMoveType.FLY;
+    }
+
+    private static void applyRotation(MotionSnapshot snapshot, Entity target) {
+        target.setYRot(snapshot.yRot());
+        target.setXRot(snapshot.xRot());
+        if (target instanceof LivingEntity living) {
+            living.yBodyRot = snapshot.yRot();
+            living.yHeadRot = snapshot.yRot();
+        }
     }
 
     public enum SourceType {
@@ -224,8 +261,8 @@ public final class RideHandoffService {
         }
 
         public boolean compatibleWith(CompanionMoveType targetMoveType) {
-            return this.captured && targetMoveType != null && this.sourceMoveType == targetMoveType
-                    && targetMoveType != CompanionMoveType.COMPANION;
+            return this.captured && targetMoveType != null && targetMoveType != CompanionMoveType.COMPANION
+                    && (this.sourceType == SourceType.ENTITY_VEHICLE || this.sourceMoveType == targetMoveType);
         }
 
         public Vec3 velocityFor(CompanionMoveType targetMoveType) {

@@ -165,7 +165,8 @@ public final class ClientEvents {
         if (isDown && wasDown && !ClientEvents.wheelOpened(kind)
                 && now - ClientEvents.downAt(kind) >= 250L && minecraft.screen == null) {
             ClientEvents.setWheelOpened(kind, true);
-            minecraft.setScreen((Screen)new CompanionWheelScreen(kind));
+            minecraft.setScreen(kind == CompanionKind.MOUNT
+                    ? ClientMountWheelModeState.createScreen() : new CompanionWheelScreen(kind));
             return;
         }
         if (!isDown && wasDown) {
@@ -181,6 +182,8 @@ public final class ClientEvents {
                 Screen screen2 = minecraft.screen;
                 if (screen2 instanceof CompanionWheelScreen && (screen = (CompanionWheelScreen)screen2).kind() == kind) {
                     screen.confirmSelection();
+                } else if (kind == CompanionKind.MOUNT && screen2 instanceof VehicleWheelScreen vehicleWheel) {
+                    vehicleWheel.confirmSelection();
                 }
                 ClientEvents.setWheelOpened(kind, false);
             } else {

@@ -173,7 +173,7 @@ public final class FindMeWorldSavedData extends SavedData {
         HouseRecord house = houses.get(houseId);
         if (house != null && companionUuid != null) {
             boolean changed = house.residents.add(companionUuid);
-            changed |= house.residentModes.putIfAbsent(companionUuid, HouseResidentMode.WANDER) == null;
+            changed |= house.residentModes.putIfAbsent(companionUuid, HouseResidentMode.REST) == null;
             if (changed) {
                 setDirty();
             }

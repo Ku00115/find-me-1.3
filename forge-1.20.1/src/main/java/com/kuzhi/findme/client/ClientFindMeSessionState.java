@@ -11,6 +11,7 @@ public final class ClientFindMeSessionState {
         ClientVehicleState.reset();
         ClientMountRosterState.reset();
         ClientMountRosterTransactionState.reset();
+        ClientMountWheelModeState.reset();
         ClientCompanionTeamState.reset();
         ClientWheelSelectionMemory.reset();
         ClientFindMeModuleState.reset();

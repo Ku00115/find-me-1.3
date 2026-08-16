@@ -647,6 +647,9 @@ extends FindMeScreen {
                 ClientCompanionCommandTarget.remember(this.kind, wheelEntry.findMe().uuid());
             }
             CompanionWheelVisualState state = this.visualState(wheelEntry, null);
+            if (state != CompanionWheelVisualState.SWITCHING && !wheelEntry.deployed()) {
+                ClientMountWheelModeState.rememberMount();
+            }
             ClientMountRosterTransactionState.send(state == CompanionWheelVisualState.SWITCHING
                             || wheelEntry.deployed() ? MountRosterAction.RECALL : MountRosterAction.ACTIVATE,
                     wheelEntry.source(), wheelEntry.uuid(), wheelEntry.sourceSlot(), wheelEntry.teamIndex());

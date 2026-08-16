@@ -258,6 +258,7 @@ public final class HousePageService {
         }
         world.removeResidentFromAllHouses(uuid);
         world.addResident(house.houseId(), uuid);
+        CompanionHomeResidentService.refreshResidentMode(player, data, uuid, HouseResidentMode.REST);
         return true;
     }
 
