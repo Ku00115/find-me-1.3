@@ -13,7 +13,6 @@ import com.kuzhi.findme.server.lifecycle.CompanionEscortService;
 import com.kuzhi.findme.server.lifecycle.CompanionLifecycleFacade;
 import com.kuzhi.findme.server.lifecycle.CompanionGuardPostService;
 import com.kuzhi.findme.server.lifecycle.CompanionPlacementFinder;
-import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
 
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionMoveType;
@@ -290,7 +289,7 @@ public final class CompanionHomeResidentService {
                 () -> CompanionEntityClassifier.moveType(resolvedLiving,
                         data.kindOf(uuid).orElse(CompanionKind.COMPANION)));
         BlockPos behaviorCenter = mode == HouseResidentMode.REST
-                ? prepareGroundRestPosition(data, uuid, living, target)
+                ? moveToSelectedRestSlot(data, uuid, living, target, moveType)
                 : target.housePos;
         markResidentEntity(living, behaviorCenter,
                 moveType,
@@ -418,18 +417,12 @@ public final class CompanionHomeResidentService {
         CompanionMoveType moveType = CompanionEntityClassifier.moveType(living, kind);
         HomeTarget homeTarget = resolveHomeTarget(player, data, living.getUUID());
         HouseResidentMode residentMode = homeTarget == null ? HouseResidentMode.REST : homeTarget.mode;
-        Optional<BlockPos> groundTarget = preferredResidentFootPos(data, living.getUUID(), level, housePos,
-                living.getBbWidth(), living.getBbHeight())
-                .or(() -> findResidentFootPos(level, housePos, living.getBbWidth(), living.getBbHeight(),
-                        living.getUUID(), 0));
-        Optional<BlockPos> maybeTarget = shouldUseAirborneHomeSlot(moveType, residentMode,
-                groundTarget.isPresent())
-                ? findResidentAirPos(level, housePos, living.getBbWidth(), living.getBbHeight(),
-                living.getUUID(), 0) : groundTarget;
+        Optional<HomeSlot> maybeTarget = findHomeSlot(data, living.getUUID(), level, housePos,
+                living.getBbWidth(), living.getBbHeight(), 0, moveType, residentMode);
         if (maybeTarget.isEmpty()) {
             return false;
         }
-        BlockPos target = maybeTarget.get();
+        BlockPos target = maybeTarget.get().position();
         data.setHouseResidentPosition(living.getUUID(), SavedPosition.of(level, target.getX() + 0.5,
                 target.getY(), target.getZ() + 0.5, living.getYRot(), living.getXRot()));
         return CompanionStorageService.sendHomeAfterStorage(player, data, kind, living, level, target, living.getYRot(), living.getXRot());
@@ -710,12 +703,8 @@ public final class CompanionHomeResidentService {
         String entityType = com.kuzhi.findme.server.data.CompanionEntitySnapshots.storedEntityType(stored);
         CompanionMoveType moveType = CompanionEntityClassifier.moveType(entityType, kind);
         int placementPhase = restorePlacementPhase(uuid);
-        Optional<BlockPos> groundTarget = preferredResidentFootPos(data, uuid, level, housePos, width, height)
-                .or(() -> findResidentFootPos(level, housePos, width, height, uuid, placementPhase));
-        Optional<BlockPos> maybeTarget = shouldUseAirborneHomeSlot(moveType, homeTarget.mode,
-                groundTarget.isPresent())
-                ? findResidentAirPos(level, housePos, width, height, uuid, placementPhase) : groundTarget;
-        boolean airborne = groundTarget.isEmpty() && maybeTarget.isPresent();
+        Optional<HomeSlot> maybeTarget = findHomeSlot(data, uuid, level, housePos, width, height,
+                placementPhase, moveType, homeTarget.mode);
         if (maybeTarget.isEmpty()) {
             if (com.kuzhi.findme.server.core.FindMeDebugLogger.enabled()) {
                 com.kuzhi.findme.server.core.FindMeDebugLogger.info("home-resident",
@@ -724,7 +713,8 @@ public final class CompanionHomeResidentService {
             }
             return false;
         }
-        BlockPos target = maybeTarget.get();
+        HomeSlot slot = maybeTarget.get();
+        BlockPos target = slot.position();
         data.setHouseResidentPosition(uuid, SavedPosition.of(level, target.getX() + 0.5, target.getY(),
                 target.getZ() + 0.5, player.getYRot(), 0.0f));
         Entity restored = CompanionLifecycleFacade.restoreStoredForHome(level, player, data, kind, uuid, target,
@@ -736,7 +726,7 @@ public final class CompanionHomeResidentService {
             return false;
         }
         markResidentEntity(living, homeTarget.mode == HouseResidentMode.REST ? target : housePos,
-                moveType, airborne, homeTarget.mode, homeTarget.patrolRadius, homeTarget.hardRadius);
+                moveType, slot.airborne(), homeTarget.mode, homeTarget.patrolRadius, homeTarget.hardRadius);
         if (com.kuzhi.findme.server.core.FindMeDebugLogger.enabled()) {
             com.kuzhi.findme.server.core.FindMeDebugLogger.info("home-resident",
                     "restore complete owner={} companion={} kind={} type={} house={} position={} residents={}",
@@ -975,33 +965,51 @@ public final class CompanionHomeResidentService {
         return Optional.of(candidate);
     }
 
-    private static BlockPos prepareGroundRestPosition(PlayerCompanionData data, UUID uuid,
-                                                       LivingEntity living, HomeTarget target) {
+    private static BlockPos moveToSelectedRestSlot(PlayerCompanionData data, UUID uuid,
+                                                    LivingEntity living, HomeTarget target,
+                                                    CompanionMoveType moveType) {
         if (living.level() != target.level) {
             return target.housePos;
         }
-        Optional<BlockPos> ground = findResidentFootPos(target.level, target.housePos,
-                living.getBbWidth(), living.getBbHeight(), uuid, restorePlacementPhase(uuid));
+        Optional<HomeSlot> selected = findHomeSlot(data, uuid, target.level, target.housePos,
+                living.getBbWidth(), living.getBbHeight(), restorePlacementPhase(uuid),
+                moveType, HouseResidentMode.REST);
+        if (selected.isEmpty()) {
+            return target.housePos;
+        }
+        BlockPos position = selected.get().position();
+        double x = position.getX() + 0.5;
+        double z = position.getZ() + 0.5;
+        if (living instanceof Mob mob) {
+            mob.getNavigation().stop();
+        }
+        // Clear the previous air-slot physics once when changing modes.
         living.noPhysics = false;
         living.setNoGravity(false);
         living.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
         living.fallDistance = 0.0F;
-        if (living instanceof Mob mob) {
-            mob.getNavigation().stop();
-        }
-        if (ground.isEmpty()) {
-            return target.housePos;
-        }
-        BlockPos position = ground.get();
-        double x = position.getX() + 0.5;
-        double z = position.getZ() + 0.5;
         living.teleportTo(x, position.getY(), z);
         living.moveTo(x, position.getY(), z, living.getYRot(), 0.0F);
         living.setOnGround(true);
-        CompanionAnimationHelper.forceStandingPose(living);
         data.setHouseResidentPosition(uuid, SavedPosition.of(target.level, x, position.getY(), z,
                 living.getYRot(), 0.0F));
         return position;
+    }
+
+    private static Optional<HomeSlot> findHomeSlot(PlayerCompanionData data, UUID uuid,
+                                                    ServerLevel level, BlockPos housePos,
+                                                    double width, double height, int phase,
+                                                    CompanionMoveType moveType, HouseResidentMode mode) {
+        Optional<BlockPos> ground = preferredResidentFootPos(data, uuid, level, housePos, width, height)
+                .or(() -> findResidentFootPos(level, housePos, width, height, uuid, phase));
+        if (ground.isPresent()) {
+            return ground.map(position -> new HomeSlot(position, false));
+        }
+        if (!shouldUseAirborneHomeSlot(moveType, mode, false)) {
+            return Optional.empty();
+        }
+        return findResidentAirPos(level, housePos, width, height, uuid, phase)
+                .map(position -> new HomeSlot(position, true));
     }
 
     private static int restorePlacementPhase(UUID uuid) {
@@ -1012,6 +1020,9 @@ public final class CompanionHomeResidentService {
     static boolean shouldUseAirborneHomeSlot(CompanionMoveType moveType, HouseResidentMode mode,
                                              boolean groundAvailable) {
         return !groundAvailable && moveType == CompanionMoveType.FLY && mode != HouseResidentMode.REST;
+    }
+
+    private record HomeSlot(BlockPos position, boolean airborne) {
     }
 
     private static BlockPos squareRingPosition(BlockPos center, int radius, int index, int yOffset) {

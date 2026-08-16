@@ -551,11 +551,6 @@ public final class CompanionGuardPostService {
     }
 
     private static void maintainRestPose(Mob mob) {
-        mob.noPhysics = false;
-        mob.setNoGravity(false);
-        Vec3 motion = mob.getDeltaMovement();
-        mob.setDeltaMovement(motion.x * 0.25, Math.min(0.0, motion.y), motion.z * 0.25);
-        mob.fallDistance = 0.0F;
         if (mob instanceof TamableAnimal tamable) {
             tamable.setOrderedToSit(true);
             tamable.setInSittingPose(true);
