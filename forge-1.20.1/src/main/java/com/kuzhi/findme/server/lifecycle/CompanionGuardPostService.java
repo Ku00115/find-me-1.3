@@ -17,8 +17,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -35,6 +37,7 @@ public final class CompanionGuardPostService {
     private static final int NAVIGATION_SUCCESS_RETRY_TICKS = 40;
     private static final int NAVIGATION_FAILURE_MAX_RETRY_TICKS = 200;
     private static final int HOME_DEFENSE_SCAN_TICKS = 20;
+    private static final int HOME_DEFENSE_ASSIST_TICKS = 200;
     private static final int MAX_HOME_DEFENSE_CACHE = 128;
     private static final int PATROL_POINT_ATTEMPTS = 6;
     private static final Map<UUID, GuardLease> ACTIVE = new HashMap<>();
@@ -305,12 +308,27 @@ public final class CompanionGuardPostService {
                 return true;
             }
             double distance = horizontalDistanceSqr(mob.position(), lease.center);
+            net.minecraft.world.entity.LivingEntity currentTarget = mob.getTarget();
+            if (lease.mode == HouseResidentMode.GUARD && currentTarget != null
+                    && !validDefenseTarget(currentTarget, mob.level(), lease.center,
+                    lease.patrolRadius)) {
+                if (FindMeDebugLogger.shouldLogSample("guard-boundary-target",
+                        mob.getUUID().toString(), mob.level().getGameTime(), 20)) {
+                    FindMeDebugLogger.info("guard-ai",
+                            "patrol target cleared companion={} target={} targetDistance={}",
+                            mob.getUUID(), currentTarget.getUUID(),
+                            String.format(java.util.Locale.ROOT, "%.2f",
+                                    Math.sqrt(horizontalDistanceSqr(currentTarget.position(), lease.center))));
+                }
+                clearGuardCombatIntent(mob, currentTarget);
+                currentTarget = null;
+            }
             if (distance > lease.hardRadius * lease.hardRadius) {
-                if (mob.getTarget() != null) {
+                if (currentTarget != null) {
                     FindMeDebugLogger.info("guard-ai",
                             "boundary target cleared companion={} target={} distance={}", mob.getUUID(),
-                            mob.getTarget().getUUID(), String.format(java.util.Locale.ROOT, "%.2f", Math.sqrt(distance)));
-                    mob.setTarget(null);
+                            currentTarget.getUUID(), String.format(java.util.Locale.ROOT, "%.2f", Math.sqrt(distance)));
+                    clearGuardCombatIntent(mob, currentTarget);
                 }
                 return true;
             }
@@ -551,16 +569,21 @@ public final class CompanionGuardPostService {
         BlockPos center = BlockPos.containing(lease.center);
         HomeDefenseKey key = new HomeDefenseKey(level, center);
         long now = level.getGameTime();
+        double radius = lease.patrolRadius;
+        net.minecraft.world.entity.LivingEntity shared = sharedResidentDefenseTarget(lease, level, radius);
+        if (shared != null) {
+            HOME_DEFENSE_TARGETS.put(key, new HomeDefenseScan(shared, now + HOME_DEFENSE_SCAN_TICKS));
+            return shared;
+        }
         HomeDefenseScan cached = HOME_DEFENSE_TARGETS.get(key);
         if (cached != null && now < cached.nextScanAt) {
             if (cached.target == null) {
                 return null;
             }
-            if (validDefenseTarget(cached.target, level, lease.center, lease.hardRadius)) {
+            if (validDefenseTarget(cached.target, level, lease.center, radius)) {
                 return cached.target;
             }
         }
-        double radius = Math.min(lease.hardRadius, Math.max(12.0, lease.patrolRadius));
         AABB area = new AABB(center).inflate(radius, Math.min(12.0, radius), radius);
         net.minecraft.world.entity.LivingEntity nearest = null;
         double nearestDistance = Double.MAX_VALUE;
@@ -568,7 +591,8 @@ public final class CompanionGuardPostService {
                 candidate -> candidate instanceof Enemy && candidate.isAlive()
                         && !CompanionFriendlyFireService.isBoundCompanion(candidate))) {
             double distance = candidate.position().distanceToSqr(lease.center);
-            if (distance < nearestDistance) {
+            if (withinDefenseRadius(candidate.position(), lease.center, radius)
+                    && distance < nearestDistance) {
                 nearest = candidate;
                 nearestDistance = distance;
             }
@@ -581,10 +605,67 @@ public final class CompanionGuardPostService {
     }
 
     private static boolean validDefenseTarget(net.minecraft.world.entity.LivingEntity target,
-                                              ServerLevel level, Vec3 center, double hardRadius) {
+                                               net.minecraft.world.level.Level level, Vec3 center,
+                                               double defenseRadius) {
         return target != null && target.isAlive() && target.level() == level
                 && !CompanionFriendlyFireService.isBoundCompanion(target)
-                && horizontalDistanceSqr(target.position(), center) <= hardRadius * hardRadius;
+                && withinDefenseRadius(target.position(), center, defenseRadius);
+    }
+
+    static boolean withinDefenseRadius(Vec3 position, Vec3 center, double defenseRadius) {
+        return position != null && center != null && defenseRadius >= 0.0
+                && horizontalDistanceSqr(position, center) <= defenseRadius * defenseRadius;
+    }
+
+    private static net.minecraft.world.entity.LivingEntity sharedResidentDefenseTarget(
+            GuardLease lease, ServerLevel level, double defenseRadius) {
+        net.minecraft.world.entity.LivingEntity nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (GuardLease member : ACTIVE.values()) {
+            if (member == lease || member.type != LeaseType.HOME
+                    || member.mode != HouseResidentMode.GUARD || member.mob.level() != level
+                    || !member.center.equals(lease.center)) {
+                continue;
+            }
+            net.minecraft.world.entity.LivingEntity candidate = member.mob.getLastHurtByMob();
+            boolean recentAttack = candidate != null
+                    && member.mob.tickCount - member.mob.getLastHurtByMobTimestamp()
+                    <= HOME_DEFENSE_ASSIST_TICKS;
+            if (!recentAttack || !validDefenseTarget(candidate, level, lease.center, defenseRadius)) {
+                candidate = member.mob.getTarget();
+                if (!(candidate instanceof Enemy)
+                        || !validDefenseTarget(candidate, level, lease.center, defenseRadius)) {
+                    continue;
+                }
+            }
+            double distance = horizontalDistanceSqr(candidate.position(), lease.center);
+            if (distance < nearestDistance) {
+                nearest = candidate;
+                nearestDistance = distance;
+            }
+        }
+        return nearest;
+    }
+
+    private static void clearGuardCombatIntent(Mob mob,
+                                               net.minecraft.world.entity.LivingEntity target) {
+        UUID targetUuid = target == null ? null : target.getUUID();
+        if (mob.getTarget() == target) {
+            mob.setTarget(null);
+        }
+        if (mob.getLastHurtByMob() == target) {
+            mob.setLastHurtByMob(null);
+        }
+        if (mob.getLastHurtMob() == target) {
+            mob.setLastHurtMob(null);
+        }
+        mob.getBrain().eraseMemory(MemoryModuleType.ATTACK_TARGET);
+        mob.getBrain().eraseMemory(MemoryModuleType.ANGRY_AT);
+        if (mob instanceof NeutralMob neutralMob) {
+            neutralMob.stopBeingAngry();
+        }
+        CompanionNativeCombatIntentService.clear(mob, targetUuid);
+        mob.getNavigation().stop();
     }
 
     private enum LeaseType {

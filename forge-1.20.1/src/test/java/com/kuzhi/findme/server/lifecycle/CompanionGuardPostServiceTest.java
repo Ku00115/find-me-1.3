@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.kuzhi.findme.common.HouseResidentMode;
 import com.kuzhi.findme.common.CompanionMoveType;
 import org.junit.jupiter.api.Test;
+import net.minecraft.world.phys.Vec3;
 
 class CompanionGuardPostServiceTest {
     @Test
@@ -57,5 +58,14 @@ class CompanionGuardPostServiceTest {
                 CompanionMoveType.FLY, HouseResidentMode.REST, true));
         assertFalse(CompanionGuardPostService.homeAirbornePolicy(
                 CompanionMoveType.WALK, HouseResidentMode.WANDER, false));
+    }
+
+    @Test
+    void defenseRadiusUsesACircleInsteadOfTheScanBoxCorners() {
+        Vec3 center = new Vec3(0.0, 64.0, 0.0);
+        assertTrue(CompanionGuardPostService.withinDefenseRadius(
+                new Vec3(24.0, 64.0, 0.0), center, 24.0));
+        assertFalse(CompanionGuardPostService.withinDefenseRadius(
+                new Vec3(17.0, 64.0, 17.0), center, 24.0));
     }
 }
