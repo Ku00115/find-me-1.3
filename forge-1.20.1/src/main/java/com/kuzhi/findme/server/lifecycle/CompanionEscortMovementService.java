@@ -22,8 +22,8 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 final class CompanionEscortMovementService {
-    private static final int NAVIGATION_REFRESH_TICKS = 10;
-    private static final double NAVIGATION_TARGET_EPSILON_SQR = 2.25;
+    private static final int NAVIGATION_REFRESH_TICKS = 5;
+    private static final double NAVIGATION_TARGET_EPSILON_SQR = 0.75 * 0.75;
     private static final Map<Mob, NavigationRequest> NAVIGATION_REQUESTS = new WeakHashMap<>();
 
     private CompanionEscortMovementService() {
@@ -122,7 +122,7 @@ final class CompanionEscortMovementService {
             boolean targetChanged = previous == null || previous.target().distanceToSqr(target) > NAVIGATION_TARGET_EPSILON_SQR;
             boolean refreshDue = previous == null || living.tickCount - previous.tick() >= NAVIGATION_REFRESH_TICKS;
             if (targetChanged || refreshDue || mob.getNavigation().isDone()) {
-                mob.getNavigation().moveTo(target.x, target.y, target.z, 1.15);
+                mob.getNavigation().moveTo(target.x, target.y, target.z, groundNavigationSpeed(distance));
                 NAVIGATION_REQUESTS.put(mob, new NavigationRequest(target, living.tickCount));
             }
             living.fallDistance = 0.0f;
@@ -250,7 +250,13 @@ final class CompanionEscortMovementService {
         BlockPos surface = new BlockPos(Mth.floor(base.x), surfaceY, Mth.floor(base.z));
         return CompanionPlacementFinder.findOpenEntitySpace(player.serverLevel(), escort, surface)
                 .map(pos -> Vec3.atBottomCenterOf(pos).add(0.0, 0.05, 0.0))
-                .orElseGet(escort::position);
+                // Navigation can approach a temporarily obstructed formation slot and
+                // choose its own path; returning the escort position makes it stand still.
+                .orElseGet(() -> new Vec3(base.x, nearbyY + 0.05, base.z));
+    }
+
+    static double groundNavigationSpeed(double distance) {
+        return Mth.clamp(1.05 + Math.max(0.0, distance - 2.0) * 0.055, 1.05, 2.15);
     }
 
     private static Vec3 findWaterFollowPosition(ServerPlayer player, Vec3 ground,

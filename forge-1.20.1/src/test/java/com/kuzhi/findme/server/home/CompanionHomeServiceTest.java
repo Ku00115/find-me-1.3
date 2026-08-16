@@ -14,6 +14,19 @@ import org.junit.jupiter.api.Test;
 
 class CompanionHomeServiceTest {
     @Test
+    void restingFlyingResidentsNeverFallBackToAnAirSlot() {
+        assertFalse(CompanionHomeResidentService.shouldUseAirborneHomeSlot(
+                com.kuzhi.findme.common.CompanionMoveType.FLY,
+                com.kuzhi.findme.common.HouseResidentMode.REST, false));
+        assertTrue(CompanionHomeResidentService.shouldUseAirborneHomeSlot(
+                com.kuzhi.findme.common.CompanionMoveType.FLY,
+                com.kuzhi.findme.common.HouseResidentMode.WANDER, false));
+        assertFalse(CompanionHomeResidentService.shouldUseAirborneHomeSlot(
+                com.kuzhi.findme.common.CompanionMoveType.FLY,
+                com.kuzhi.findme.common.HouseResidentMode.WANDER, true));
+    }
+
+    @Test
     void capacityAllowsExistingResidentsButRejectsNewResidentsAtTheLimit() {
         int previousCapacity = Config.houseResidentCapacity;
         try {
