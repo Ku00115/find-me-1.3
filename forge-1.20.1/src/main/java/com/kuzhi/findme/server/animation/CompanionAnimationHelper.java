@@ -16,6 +16,7 @@ import net.minecraft.world.phys.Vec3;
 
 public final class CompanionAnimationHelper {
     private static final Map<MethodKey, Optional<Method>> BOOLEAN_METHODS = new HashMap<>();
+    private static final Map<MethodKey, Optional<Method>> BOOLEAN_GETTERS = new HashMap<>();
     private static final Map<MethodKey, Optional<Method>> INT_METHODS = new HashMap<>();
     private static final Map<MethodKey, Optional<Method>> INT_INT_METHODS = new HashMap<>();
     private static final Map<MethodKey, Optional<Method>> ACCESSOR_METHODS = new HashMap<>();
@@ -63,6 +64,37 @@ public final class CompanionAnimationHelper {
         callBooleanMethod(living, "setSitting", false);
         callBooleanMethod(living, "setSittingPose", false);
         callBooleanMethod(living, "setIsSitting", false);
+    }
+
+    public static Optional<Boolean> genericSittingState(LivingEntity living) {
+        if (living == null) {
+            return Optional.empty();
+        }
+        for (String name : new String[]{"isOrderedToSit", "isInSittingPose", "isSitting",
+                "getSitting", "isSittingPose", "getIsSitting"}) {
+            Optional<Boolean> value = callBooleanGetter(living, name);
+            if (value.isPresent()) {
+                return value;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Applies common modded sitting APIs without requiring their classes at compile time. */
+    public static boolean setGenericSittingPose(LivingEntity living, boolean sitting) {
+        if (living == null) {
+            return false;
+        }
+        boolean changed = false;
+        for (String name : new String[]{"setOrderedToSit", "setInSittingPose", "setSitting",
+                "setSittingPose", "setIsSitting"}) {
+            Optional<Method> method = cachedBooleanMethod(living.getClass(), name);
+            if (method.isPresent()) {
+                invoke(method.get(), living, sitting);
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     public static void forceGroundMovingPose(LivingEntity living) {
@@ -157,6 +189,28 @@ public final class CompanionAnimationHelper {
                 }
             }
         });
+    }
+
+    private static Optional<Boolean> callBooleanGetter(Object target, String name) {
+        MethodKey key = new MethodKey(target.getClass(), name);
+        Method method = BOOLEAN_GETTERS.computeIfAbsent(key, ignored -> {
+            try {
+                Method candidate = target.getClass().getMethod(name);
+                Class<?> result = candidate.getReturnType();
+                return result == Boolean.TYPE || result == Boolean.class
+                        ? Optional.of(candidate) : Optional.empty();
+            } catch (NoSuchMethodException exception) {
+                return Optional.empty();
+            }
+        }).orElse(null);
+        if (method == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable((Boolean)method.invoke(target));
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            return Optional.empty();
+        }
     }
 
     private static void callIntMethod(Object target, String name, int value) {

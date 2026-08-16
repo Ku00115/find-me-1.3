@@ -78,7 +78,7 @@ final class RideHomeJourneyTransaction {
                 ? CompanionLifecycleState.STORED : origin.lifecycle());
         if (origin.lifecycle() == CompanionLifecycleState.HOME_ACTIVE
                 && entity instanceof LivingEntity living && living.isAlive()) {
-            CompanionHomeResidentService.markResidentEntity(living);
+            CompanionHomeResidentService.markReturnedResident(player, data, living);
         }
         CompanionDataService.save(player, data);
         CompanionSyncService.syncToClient(player, CompanionKind.MOUNT);

@@ -134,6 +134,12 @@ public final class CompanionHomeResidentService {
                         && homeTarget != null
                         && validLoadedHouse(homeTarget.level, homeTarget.housePos)
                         && isHouseChunkTrackedByAnyPlayer(homeTarget.level, homeTarget.housePos)) {
+                    if (homeTarget.mode == HouseResidentMode.REST
+                            && (!CompanionHomeBehaviorService.hasResidentMode(living, HouseResidentMode.REST)
+                            || living.isNoGravity())) {
+                        refreshResidentMode(player, mutableData.get(), uuid, HouseResidentMode.REST);
+                        continue;
+                    }
                     CompanionMoveType residentMoveType = CompanionHomeBehaviorService.residentMoveType(living,
                             () -> CompanionEntityClassifier.moveType(living, kind));
                     CompanionHomeBehaviorService.ensureResidentBehavior(living, behaviorCenter(homeTarget, living),
@@ -241,6 +247,26 @@ public final class CompanionHomeResidentService {
         }
     }
 
+    /** Restores the house's configured mode immediately after a summoned resident returns home. */
+    public static void markReturnedResident(ServerPlayer player, PlayerCompanionData data, LivingEntity living) {
+        if (player == null || data == null || living == null) {
+            markResidentEntity(living);
+            return;
+        }
+        HomeTarget target = resolveHomeTarget(player, data, living.getUUID());
+        if (target == null) {
+            markResidentEntity(living);
+            return;
+        }
+        CompanionKind kind = data.kindOf(living.getUUID()).orElse(CompanionKind.COMPANION);
+        CompanionMoveType moveType = CompanionHomeBehaviorService.residentMoveType(living,
+                () -> CompanionEntityClassifier.moveType(living, kind));
+        markResidentEntity(living, behaviorCenter(target, living), moveType,
+                target.mode != HouseResidentMode.REST
+                        && CompanionHomeBehaviorService.isAirborneResident(living),
+                target.mode, target.patrolRadius, target.hardRadius);
+    }
+
     public static void markResidentEntity(LivingEntity living, BlockPos center,
                                           CompanionMoveType moveType, boolean airborne) {
         markResidentEntity(living, center, moveType, airborne, HouseResidentMode.WANDER);
@@ -288,9 +314,19 @@ public final class CompanionHomeResidentService {
         CompanionMoveType moveType = CompanionHomeBehaviorService.residentMoveType(living,
                 () -> CompanionEntityClassifier.moveType(resolvedLiving,
                         data.kindOf(uuid).orElse(CompanionKind.COMPANION)));
-        BlockPos behaviorCenter = mode == HouseResidentMode.REST
-                ? moveToSelectedRestSlot(data, uuid, living, target, moveType)
-                : target.housePos;
+        BlockPos behaviorCenter = target.housePos;
+        if (mode == HouseResidentMode.REST) {
+            Optional<BlockPos> restSlot = moveToSelectedRestSlot(data, uuid, living, target, moveType);
+            if (restSlot.isEmpty()) {
+                boolean stored = CompanionStorageService.storeHomeResidentSilently(player, data, living,
+                        "home:rest_no_ground_slot");
+                FindMeDebugLogger.info("home-resident",
+                        "rest deferred reason=no_ground_slot owner={} companion={} house={} stored={}",
+                        player.getUUID(), uuid, target.housePos, stored);
+                return;
+            }
+            behaviorCenter = restSlot.get();
+        }
         markResidentEntity(living, behaviorCenter,
                 moveType,
                 mode != HouseResidentMode.REST && CompanionHomeBehaviorService.isAirborneResident(living), mode,
@@ -965,17 +1001,17 @@ public final class CompanionHomeResidentService {
         return Optional.of(candidate);
     }
 
-    private static BlockPos moveToSelectedRestSlot(PlayerCompanionData data, UUID uuid,
-                                                    LivingEntity living, HomeTarget target,
-                                                    CompanionMoveType moveType) {
+    private static Optional<BlockPos> moveToSelectedRestSlot(PlayerCompanionData data, UUID uuid,
+                                                             LivingEntity living, HomeTarget target,
+                                                             CompanionMoveType moveType) {
         if (living.level() != target.level) {
-            return target.housePos;
+            return Optional.empty();
         }
         Optional<HomeSlot> selected = findHomeSlot(data, uuid, target.level, target.housePos,
                 living.getBbWidth(), living.getBbHeight(), restorePlacementPhase(uuid),
                 moveType, HouseResidentMode.REST);
         if (selected.isEmpty()) {
-            return target.housePos;
+            return Optional.empty();
         }
         BlockPos position = selected.get().position();
         double x = position.getX() + 0.5;
@@ -993,7 +1029,7 @@ public final class CompanionHomeResidentService {
         living.setOnGround(true);
         data.setHouseResidentPosition(uuid, SavedPosition.of(target.level, x, position.getY(), z,
                 living.getYRot(), 0.0F));
-        return position;
+        return Optional.of(position);
     }
 
     private static Optional<HomeSlot> findHomeSlot(PlayerCompanionData data, UUID uuid,

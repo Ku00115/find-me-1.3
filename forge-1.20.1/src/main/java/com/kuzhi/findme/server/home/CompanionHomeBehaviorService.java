@@ -7,6 +7,7 @@ import com.kuzhi.findme.server.compat.CompanionFixedPostService;
 import com.kuzhi.findme.server.compat.CompanionSaintsDragonsCompat;
 import com.kuzhi.findme.server.compat.IceAndFireRescueCompatibility;
 import com.kuzhi.findme.server.lifecycle.CompanionGuardPostService;
+import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -27,6 +28,7 @@ final class CompanionHomeBehaviorService {
     private static final String HOME_PATROL_RADIUS_TAG = "FindMeHomePatrolRadius";
     private static final String HOME_HARD_RADIUS_TAG = "FindMeHomeHardRadius";
     private static final Map<UUID, Boolean> PREVIOUS_ORDERED_SIT = new HashMap<>();
+    private static final Map<UUID, Boolean> PREVIOUS_GENERIC_SIT = new HashMap<>();
 
     private CompanionHomeBehaviorService() {
     }
@@ -119,6 +121,11 @@ final class CompanionHomeBehaviorService {
         return living != null && living.getPersistentData().getBoolean(HOME_AIRBORNE_TAG);
     }
 
+    static boolean hasResidentMode(LivingEntity living, HouseResidentMode mode) {
+        return living != null && mode != null
+                && mode.name().equals(living.getPersistentData().getString(HOME_MODE_TAG));
+    }
+
     static CompanionMoveType residentMoveType(LivingEntity living, CompanionMoveType fallback) {
         if (living == null || !living.getPersistentData().contains(HOME_MOVE_TYPE_TAG)) {
             return fallback;
@@ -157,6 +164,7 @@ final class CompanionHomeBehaviorService {
 
     static void resetServerState() {
         PREVIOUS_ORDERED_SIT.clear();
+        PREVIOUS_GENERIC_SIT.clear();
         CompanionSaintsDragonsCompat.resetServerState();
         IceAndFireRescueCompatibility.resetServerState();
     }
@@ -187,24 +195,33 @@ final class CompanionHomeBehaviorService {
     }
 
     private static void setTemporarySit(LivingEntity living, boolean sitting) {
-        if (!(living instanceof TamableAnimal tamable)) {
+        if (living instanceof TamableAnimal tamable) {
+            UUID uuid = tamable.getUUID();
+            PREVIOUS_ORDERED_SIT.putIfAbsent(uuid, tamable.isOrderedToSit());
+            tamable.setOrderedToSit(sitting);
+            tamable.setInSittingPose(sitting);
             return;
         }
-        UUID uuid = tamable.getUUID();
-        PREVIOUS_ORDERED_SIT.putIfAbsent(uuid, tamable.isOrderedToSit());
-        tamable.setOrderedToSit(sitting);
-        tamable.setInSittingPose(sitting);
+        UUID uuid = living.getUUID();
+        PREVIOUS_GENERIC_SIT.putIfAbsent(uuid,
+                CompanionAnimationHelper.genericSittingState(living).orElse(false));
+        CompanionAnimationHelper.setGenericSittingPose(living, sitting);
     }
 
     private static void restoreTemporarySit(LivingEntity living) {
-        if (!(living instanceof TamableAnimal tamable)) {
+        if (living instanceof TamableAnimal tamable) {
+            Boolean previous = PREVIOUS_ORDERED_SIT.remove(tamable.getUUID());
+            if (previous == null) {
+                return;
+            }
+            tamable.setOrderedToSit(previous);
+            tamable.setInSittingPose(previous);
             return;
         }
-        Boolean previous = PREVIOUS_ORDERED_SIT.remove(tamable.getUUID());
+        Boolean previous = PREVIOUS_GENERIC_SIT.remove(living.getUUID());
         if (previous == null) {
             return;
         }
-        tamable.setOrderedToSit(previous);
-        tamable.setInSittingPose(previous);
+        CompanionAnimationHelper.setGenericSittingPose(living, previous);
     }
 }

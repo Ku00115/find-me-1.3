@@ -811,10 +811,10 @@ public final class CompanionStorageService {
         Entity restored = CompanionEntityTransferService.restoreStoredEntityFreshForHome(destination, player, data,
                 uuid, target, pending.homeTarget.yRot(), pending.homeTarget.xRot()).orElse(null);
         if (restored instanceof LivingEntity moved && moved.isAlive()) {
-            CompanionHomeResidentService.markResidentEntity(moved);
             data.clearDeployed(pending.kind, moved.getUUID());
             data.setLifecycleState(moved.getUUID(), CompanionLifecycleState.HOME_ACTIVE);
             data.setLastKnownPosition(moved.getUUID(), SavedPosition.of(moved.level(), moved.getX(), moved.getY(), moved.getZ(), moved.getYRot(), moved.getXRot()));
+            CompanionHomeResidentService.markReturnedResident(player, data, moved);
         } else {
             data.clearDeployed(pending.kind, uuid);
             data.setLifecycleState(uuid, CompanionLifecycleState.HOME_STORED);
