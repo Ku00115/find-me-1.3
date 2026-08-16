@@ -118,6 +118,13 @@ final class CompanionHomeBehaviorService {
         return living != null && living.getPersistentData().getBoolean(HOME_AIRBORNE_TAG);
     }
 
+    static CompanionMoveType residentMoveType(LivingEntity living, CompanionMoveType fallback) {
+        if (living == null || !living.getPersistentData().contains(HOME_MOVE_TYPE_TAG)) {
+            return fallback;
+        }
+        return homeMoveType(living);
+    }
+
     private static int homePatrolRadius(LivingEntity living) {
         return living.getPersistentData().contains(HOME_PATROL_RADIUS_TAG)
                 ? living.getPersistentData().getInt(HOME_PATROL_RADIUS_TAG) : Config.housePatrolRadius;

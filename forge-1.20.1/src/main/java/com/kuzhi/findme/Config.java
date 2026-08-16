@@ -31,9 +31,8 @@ public class Config {
 
     private static final ForgeConfigSpec.IntValue SUMMON_COOLDOWN_SECONDS = SERVER_BUILDER.comment("[Summon] Shared cooldown in seconds for summon, combat summon, companion summon, and return actions.").translation("config.find_me.summonCooldownSeconds").defineInRange("summonCooldownSeconds", 3, 0, 60);
     private static final ForgeConfigSpec.IntValue COMPANION_DEPLOYMENT_LIMIT_MAXIMUM = SERVER_BUILDER.comment("[Companion] Maximum value players may select for their simultaneous companion limit. Hard maximum: 6.").translation("config.find_me.companionDeploymentLimitMaximum").defineInRange("companionDeploymentLimitMaximum", 6, 1, 6);
-    private static final ForgeConfigSpec.IntValue RESCUE_CINEMATIC_MIN_HEIGHT = SERVER_BUILDER.comment("[Rescue] Minimum distance above the predicted landing point required to play the rescue approach animation. Lower rescues still happen, but skip the approach and hover presentation.").translation("config.find_me.rescueCinematicMinHeight").defineInRange("rescueCinematicMinHeight", 16, 4, 128);
-    private static final ForgeConfigSpec.DoubleValue RESCUE_HOVER_MIN_HEIGHT = SERVER_BUILDER.comment("[Rescue] Minimum height above the predicted landing point where a flying rescue mount may wait during the rescue animation.").translation("config.find_me.rescueHoverMinHeight").defineInRange("rescueHoverMinHeight", 8.0, 2.0, 64.0);
-    private static final ForgeConfigSpec.DoubleValue RESCUE_HOVER_MAX_HEIGHT = SERVER_BUILDER.comment("[Rescue] Maximum height above the predicted landing point where a flying rescue mount may wait during the rescue animation.").translation("config.find_me.rescueHoverMaxHeight").defineInRange("rescueHoverMaxHeight", 48.0, 4.0, 256.0);
+    private static final ForgeConfigSpec.DoubleValue RESCUE_HOVER_MIN_HEIGHT = SERVER_BUILDER.comment("[Rescue] Minimum height above the predicted landing point where a rescue mount spawns and waits. The approach animation is used only when the player is safely above this height.").translation("config.find_me.rescueHoverMinHeight").defineInRange("rescueHoverMinHeight", 8.0, 2.0, 64.0);
+    private static final ForgeConfigSpec.DoubleValue RESCUE_HOVER_MAX_HEIGHT = SERVER_BUILDER.comment("[Rescue] Maximum height above the predicted landing point where a rescue mount spawns and waits during a high rescue.").translation("config.find_me.rescueHoverMaxHeight").defineInRange("rescueHoverMaxHeight", 48.0, 4.0, 256.0);
     private static final ForgeConfigSpec.DoubleValue CREATURE_ARRIVAL_VOICE_VOLUME = SERVER_BUILDER.comment("[Audio] Volume for summoned creature voice. 1.0 is full volume; default is 40%.").translation("config.find_me.creatureArrivalVoiceVolume").defineInRange("creatureArrivalVoiceVolume", 0.4, 0.0, 2.0);
     private static final ForgeConfigSpec.IntValue HOUSE_PATROL_RADIUS = SERVER_BUILDER.comment("[House] Resident patrol radius in blocks. Default: 24; per-house maximum: 256.").translation("config.find_me.housePatrolRadius").defineInRange("housePatrolRadius", 24, 4, 256);
     private static final ForgeConfigSpec.IntValue HOUSE_HARD_RADIUS = SERVER_BUILDER.comment("[House] Hard resident boundary in blocks. Default: 32; per-house maximum: 512; values below the patrol radius are raised at runtime.").translation("config.find_me.houseHardRadius").defineInRange("houseHardRadius", 32, 8, 512);
@@ -164,7 +163,6 @@ public class Config {
 
     public static int summonCooldownTicks = 60;
     public static final int DEFAULT_RESCUE_DANGER_DISTANCE = 5;
-    public static int rescueCinematicMinHeight = 16;
     public static double rescueHoverMinHeight = 8.0;
     public static double rescueHoverMaxHeight = 48.0;
     public static int companionDeploymentLimit = 6;
@@ -303,7 +301,6 @@ public class Config {
     private static void syncServerFromSpec() {
         summonCooldownTicks = (Integer)SUMMON_COOLDOWN_SECONDS.get() * 20;
         companionDeploymentLimit = (Integer)COMPANION_DEPLOYMENT_LIMIT_MAXIMUM.get();
-        rescueCinematicMinHeight = (Integer)RESCUE_CINEMATIC_MIN_HEIGHT.get();
         rescueHoverMinHeight = (Double)RESCUE_HOVER_MIN_HEIGHT.get();
         rescueHoverMaxHeight = (Double)RESCUE_HOVER_MAX_HEIGHT.get();
         creatureArrivalVoiceVolume = (Double)CREATURE_ARRIVAL_VOICE_VOLUME.get();

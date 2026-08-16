@@ -13,6 +13,7 @@ public final class CompanionRescuePlanner {
     private static final int MAX_SIMULATION_TICKS = 240;
     private static final int RAPID_TICKS = 30;
     private static final int SAFETY_MARGIN_TICKS = 6;
+    static final double RESCUE_MOUNT_CLEARANCE = 3.0;
 
     private CompanionRescuePlanner() {
     }
@@ -48,7 +49,7 @@ public final class CompanionRescuePlanner {
                 && shouldRescueWaterLanding(predictedFallDistance, Config.DEFAULT_RESCUE_DANGER_DISTANCE);
         boolean landingSummon = reliableLanding && !waterLanding && !slowFalling
                 && groundDistance > 0.5 && !canPlayCinematic(groundDistance,
-                Config.rescueCinematicMinHeight, Config.rescueHoverMinHeight);
+                Config.rescueHoverMinHeight);
         boolean shouldRescue = !reliableLanding || waterRescue || landingSummon
                 || expectedDamage >= configuredDanger;
         Urgency urgency = !shouldRescue ? Urgency.NONE
@@ -106,13 +107,11 @@ public final class CompanionRescuePlanner {
                 && predictedFallDistance >= Math.max(1.0, configuredThreshold);
     }
 
-    static boolean canPlayCinematic(double groundDistance, double configuredMinimumHeight,
-                                    double hoverMinimumHeight) {
+    static boolean canPlayCinematic(double groundDistance, double minimumSpawnHeight) {
         if (!Double.isFinite(groundDistance)) {
             return true;
         }
-        double requiredHeight = Math.max(Math.max(4.0, configuredMinimumHeight),
-                Math.max(2.0, hoverMinimumHeight) + 3.0);
+        double requiredHeight = Math.max(2.0, minimumSpawnHeight) + RESCUE_MOUNT_CLEARANCE;
         return groundDistance >= requiredHeight;
     }
 
@@ -154,7 +153,7 @@ public final class CompanionRescuePlanner {
 
         public boolean playsCinematic() {
             return !this.shouldRescue || canPlayCinematic(this.groundDistance,
-                    Config.rescueCinematicMinHeight, Config.rescueHoverMinHeight);
+                    Config.rescueHoverMinHeight);
         }
 
         public double approachDistance(boolean flying) {

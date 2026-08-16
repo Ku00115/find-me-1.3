@@ -3,6 +3,7 @@ package com.kuzhi.findme.server.lifecycle;
 import com.kuzhi.findme.Config;
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.common.HouseResidentMode;
+import com.kuzhi.findme.server.compat.CompanionNativeCombatIntentService;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.server.compat.CompanionSaintsDragonsCompat;
 import com.kuzhi.findme.server.compat.IceAndFireRescueCompatibility;
@@ -16,6 +17,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.phys.AABB;
@@ -68,9 +70,8 @@ public final class CompanionGuardPostService {
             return;
         }
         HouseResidentMode residentMode = mode == null ? HouseResidentMode.WANDER : mode;
-        CompanionMoveType effectiveMoveType = effectiveMoveType(mob, moveType);
-        boolean airborne = forceAirborne || CompanionSaintsDragonsCompat.isAirborne(mob)
-                || effectiveMoveType == CompanionMoveType.FLY && (!mob.onGround() || mob.isNoGravity());
+        CompanionMoveType effectiveMoveType = moveType;
+        boolean airborne = forceAirborne;
         double patrolRadius = patrolRadius(mob, homePatrolRadius(residentMode, configuredPatrolRadius));
         double hardRadius = hardRadius(mob, homeHardRadius(patrolRadius, configuredHardRadius));
         HomeRequest request = new HomeRequest(mob, center.immutable(), effectiveMoveType, airborne,
@@ -105,9 +106,8 @@ public final class CompanionGuardPostService {
             return false;
         }
         HouseResidentMode residentMode = mode == null ? HouseResidentMode.WANDER : mode;
-        CompanionMoveType effectiveMoveType = effectiveMoveType(mob, moveType);
-        boolean airborne = forceAirborne || CompanionSaintsDragonsCompat.isAirborne(mob)
-                || effectiveMoveType == CompanionMoveType.FLY && (!mob.onGround() || mob.isNoGravity());
+        CompanionMoveType effectiveMoveType = moveType;
+        boolean airborne = forceAirborne;
         double patrolRadius = patrolRadius(mob, homePatrolRadius(residentMode, configuredPatrolRadius));
         double hardRadius = hardRadius(mob, homeHardRadius(patrolRadius, configuredHardRadius));
         GuardLease active = ACTIVE.get(mob.getUUID());
@@ -148,8 +148,11 @@ public final class CompanionGuardPostService {
 
     static boolean controlCustomMovement(Mob mob) {
         GuardLease lease = mob == null ? null : ACTIVE.get(mob.getUUID());
-        if (lease == null || !CompanionSaintsDragonsCompat.isSaintsDragon(mob)
-                || lease.goal.destination == null) {
+        if (lease == null || !CompanionSaintsDragonsCompat.isSaintsDragon(mob)) {
+            return false;
+        }
+        if (lease.goal.destination == null) {
+            CompanionEscortMovementService.releaseSaintsDragonControl(mob);
             return false;
         }
         CompanionEscortMovementService.control(mob, lease.goal.destination, lease.moveType);
@@ -206,7 +209,7 @@ public final class CompanionGuardPostService {
     }
 
     static boolean allowsCombat(HouseResidentMode mode) {
-        return mode == HouseResidentMode.WANDER || mode == HouseResidentMode.GUARD;
+        return mode == HouseResidentMode.GUARD;
     }
 
     static boolean holdsPosition(HouseResidentMode mode) {
@@ -266,6 +269,7 @@ public final class CompanionGuardPostService {
         private boolean returning;
         private int patrols;
         private int returns;
+        private int nextSaintsCombatRefreshTick;
 
         private GuardPostGoal(GuardLease lease) {
             this.lease = lease;
@@ -289,7 +293,7 @@ public final class CompanionGuardPostService {
             if (ACTIVE.get(mob.getUUID()) != lease || !mob.isAlive() || mob.isVehicle()) {
                 return false;
             }
-            if (!allowsCombat(lease.mode)) {
+            if (holdsPosition(lease.mode)) {
                 if (mob.getTarget() != null) {
                     mob.setTarget(null);
                 }
@@ -305,7 +309,15 @@ public final class CompanionGuardPostService {
                 }
                 return true;
             }
-            return mob.getTarget() == null || !mob.getTarget().isAlive();
+            if (mob.getTarget() != null && mob.getTarget().isAlive()) {
+                if (lease.mode == HouseResidentMode.GUARD && CompanionSaintsDragonsCompat.isSaintsDragon(mob)
+                        && mob.tickCount >= nextSaintsCombatRefreshTick) {
+                    CompanionNativeCombatIntentService.assign(mob, mob.getTarget());
+                    nextSaintsCombatRefreshTick = mob.tickCount + HOME_DEFENSE_SCAN_TICKS;
+                }
+                return false;
+            }
+            return true;
         }
 
         @Override
@@ -321,15 +333,18 @@ public final class CompanionGuardPostService {
         public void stop() {
             destination = null;
             returning = false;
+            CompanionEscortMovementService.releaseSaintsDragonControl(lease.mob);
         }
 
         @Override
         public void tick() {
             Mob mob = lease.mob;
             if (holdsPosition(lease.mode)) {
+                maintainRestPose(mob);
                 if (!mob.getNavigation().isDone()) {
                     mob.getNavigation().stop();
                 }
+                CompanionEscortMovementService.releaseSaintsDragonControl(mob);
                 return;
             }
             double centerDistance = Math.sqrt(horizontalDistanceSqr(mob.position(), lease.center));
@@ -349,8 +364,15 @@ public final class CompanionGuardPostService {
             if (centerDistance <= lease.hardRadius && mob.getTarget() == null) {
                 net.minecraft.world.entity.LivingEntity defenseTarget = homeDefenseTarget(lease);
                 if (defenseTarget != null) {
+                    CompanionEscortMovementService.releaseSaintsDragonControl(mob);
+                    boolean saintsDragon = CompanionSaintsDragonsCompat.isSaintsDragon(mob);
+                    if (saintsDragon) {
+                        CompanionNativeCombatIntentService.assign(mob, defenseTarget);
+                    }
                     mob.setTarget(defenseTarget);
-                    mob.getNavigation().stop();
+                    if (!saintsDragon) {
+                        mob.getNavigation().stop();
+                    }
                     return;
                 }
             }
@@ -377,6 +399,7 @@ public final class CompanionGuardPostService {
             }
 
             if (destination == null) {
+                CompanionEscortMovementService.releaseSaintsDragonControl(mob);
                 return;
             }
             if (CompanionSaintsDragonsCompat.isSaintsDragon(mob)) {
@@ -502,6 +525,13 @@ public final class CompanionGuardPostService {
         int shift = Math.max(0, Math.min(3, failedAttempts - 1));
         return Math.min(NAVIGATION_FAILURE_MAX_RETRY_TICKS,
                 NAVIGATION_SUCCESS_RETRY_TICKS << shift);
+    }
+
+    private static void maintainRestPose(Mob mob) {
+        if (mob instanceof TamableAnimal tamable) {
+            tamable.setOrderedToSit(true);
+            tamable.setInSittingPose(true);
+        }
     }
 
     static double patrolDestinationRadius(double patrolRadius, double randomUnit) {

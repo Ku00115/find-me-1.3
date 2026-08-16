@@ -13,6 +13,7 @@ import com.kuzhi.findme.server.core.CompanionEntityLookup;
 import com.kuzhi.findme.server.data.CompanionEntitySnapshots;
 import com.kuzhi.findme.server.home.CompanionHomeResidentService;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
+import com.kuzhi.findme.server.compat.CompanionSaintsDragonsCompat;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -99,9 +100,18 @@ public final class CompanionEscortService {
         if (!living.level().dimension().equals(player.level().dimension()) || distanceSqr > TELEPORT_DISTANCE_SQR || distanceSqr > CANCEL_DISTANCE_SQR) {
             PlayerCompanionData data = CompanionDataService.data(player);
             CompanionEscortMovementService.moveNearPlayer(player, data, living, target, moveType);
+            if (CompanionSaintsDragonsCompat.isSaintsDragon(living)) {
+                CompanionSaintsDragonsCompat.applyActiveCommand(living);
+                CompanionEscortMovementService.releaseSaintsDragonControl(living);
+            }
             return;
         }
-        CompanionEscortMovementService.control(living, target, moveType);
+        if (CompanionSaintsDragonsCompat.isSaintsDragon(living)) {
+            CompanionSaintsDragonsCompat.applyActiveCommand(living);
+            CompanionEscortMovementService.releaseSaintsDragonControl(living);
+        } else {
+            CompanionEscortMovementService.control(living, target, moveType);
+        }
         if (++state.age % POSITION_SAVE_INTERVAL_TICKS == 0) {
             PlayerCompanionData data = CompanionDataService.data(player);
             data.setLastKnownPosition(state.uuid(), SavedPosition.of(living.level(), living.getX(), living.getY(), living.getZ(), living.getYRot(), living.getXRot()));
@@ -143,6 +153,7 @@ public final class CompanionEscortService {
         ESCORTS.remove(player.getUUID());
         Entity entity = CompanionEntityLookup.findEntity(player.getServer(), state.uuid()).orElse(null);
         if (entity instanceof LivingEntity living) {
+            CompanionSaintsDragonsCompat.clearActiveCommand(living);
             CompanionStorageService.freezeForStorageTransition(living);
             data.setLastKnownPosition(state.uuid(), SavedPosition.of(living.level(), living.getX(), living.getY(), living.getZ(), living.getYRot(), living.getXRot()));
             CompanionDataService.save(player, data);
@@ -189,7 +200,14 @@ public final class CompanionEscortService {
         EscortState state = EscortState.capture(player, kind, living, spawnedForEscort);
         ESCORTS.put(player.getUUID(), state);
         CompanionHomeResidentService.clearResident(living);
-        CompanionEscortMovementService.control(living, CompanionEscortMovementService.followPosition(player, player.getVehicle() == null ? player : player.getVehicle(), living, moveType, state.side()), moveType);
+        Vec3 followPosition = CompanionEscortMovementService.followPosition(player,
+                player.getVehicle() == null ? player : player.getVehicle(), living, moveType, state.side());
+        if (CompanionSaintsDragonsCompat.isSaintsDragon(living)) {
+            CompanionSaintsDragonsCompat.applyActiveCommand(living);
+            CompanionEscortMovementService.releaseSaintsDragonControl(living);
+        } else {
+            CompanionEscortMovementService.control(living, followPosition, moveType);
+        }
         CompanionMessageService.tell(player, "message.find_me.escort_started", ChatFormatting.GREEN, living.getDisplayName().getString());
         CompanionSyncService.syncToClient(player, kind);
     }
@@ -216,6 +234,7 @@ public final class CompanionEscortService {
         ESCORTS.remove(player.getUUID());
         Entity entity = CompanionEntityLookup.findEntity(player.getServer(), state.uuid()).orElse(null);
         if (entity instanceof LivingEntity living) {
+            CompanionSaintsDragonsCompat.clearActiveCommand(living);
             if (collect && (forceCollect || state.spawnedForEscort())) {
                 CompanionDeploymentService.collectLiving(player, data, state.kind(), living);
                 CompanionDataService.save(player, data);
@@ -228,6 +247,7 @@ public final class CompanionEscortService {
     }
 
     private static void restore(LivingEntity living, EscortState state) {
+        CompanionSaintsDragonsCompat.clearActiveCommand(living);
         living.noPhysics = state.originalNoPhysics();
         living.setNoGravity(state.originalNoGravity());
         if (living instanceof Mob mob) {

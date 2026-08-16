@@ -162,6 +162,22 @@ final class CompanionEscortMovementService {
         living.hasImpulse = true;
     }
 
+    static void releaseSaintsDragonControl(LivingEntity living) {
+        if (!com.kuzhi.findme.server.compat.CompanionSaintsDragonsCompat.isSaintsDragon(living)) {
+            return;
+        }
+        // Long-running commands hand locomotion back to the dragon's Brain every tick.
+        // Do not use the transition cleanup here: it stops navigation, clears targets,
+        // and resets flight inputs that Saints & Dragons still owns.
+        living.noPhysics = false;
+        living.setNoGravity(false);
+        if (living instanceof Mob mob) {
+            mob.setNoAi(false);
+        }
+        living.fallDistance = 0.0f;
+        living.hurtMarked = true;
+    }
+
     static void moveNearPlayer(ServerPlayer player, PlayerCompanionData data, LivingEntity living, Vec3 target,
                                CompanionMoveType moveType) {
         BlockPos pos = BlockPos.containing(target.x, target.y, target.z);

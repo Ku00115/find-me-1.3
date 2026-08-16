@@ -485,7 +485,7 @@ public final class CompanionTeamOrderService {
             BlockPos post = posts.get(uuid);
             if (post == null) continue;
             CompanionFormationPlanner.Member member = formationMember(player, data, uuid);
-            boolean overhead = true;
+            boolean overhead = member.moveType() == CompanionMoveType.FLY;
             plans.put(uuid, new CompanionDeploymentPlan(operationUuid, intent, member.moveType(), post,
                     null, targetUuid, offset, overhead));
             offset += MEMBER_INTERVAL_TICKS;

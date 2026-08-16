@@ -23,6 +23,7 @@ final class CompanionTacticalCombatService {
 
         LivingEntity nativeTarget = mob.getTarget();
         boolean retained = nativeTarget == threat && nativeTarget.isAlive();
+        boolean specializedRetained = CompanionNativeCombatIntentService.maintainSpecializedTarget(mob, threat);
         boolean fastRepair = !acquired && state.fastRepairs < MAX_FAST_REPAIRS && tick - state.targetAcquiredTick <= 5;
         if (!retained && (acquired || fastRepair || tick - state.lastAssignmentTick >= REASSERT_INTERVAL_TICKS)) {
             UUID displaced = nativeTarget == null ? null : nativeTarget.getUUID();
@@ -32,10 +33,11 @@ final class CompanionTacticalCombatService {
             state.assignments++;
             if (fastRepair) state.fastRepairs++;
             FindMeDebugLogger.info("command-target",
-                    "assign companion={} type={} target={} targetType={} source={} phase={} assignment={} displaced={} retainedNow={} canAttack={} distance={}",
+                    "assign companion={} type={} target={} targetType={} source={} phase={} assignment={} displaced={} retainedNow={} nativeIntent={} brainIntent={} canAttack={} distance={}",
                     living.getUUID(), living.getType(), threat.getUUID(), threat.getType(), state.source,
                     acquired ? "acquire" : "repair", state.assignments, displaced, mob.getTarget() == threat,
-                    mob.canAttack(threat), String.format(java.util.Locale.ROOT, "%.2f", living.distanceTo(threat)));
+                    nativeIntent, specializedRetained, mob.canAttack(threat),
+                    String.format(java.util.Locale.ROOT, "%.2f", living.distanceTo(threat)));
         }
 
         state.traceTargetPersistence(living, mob, threat, tick);
@@ -45,6 +47,7 @@ final class CompanionTacticalCombatService {
         if (state.targetUuid == null) {
             return;
         }
+        CompanionNativeCombatIntentService.clear(mob, state.targetUuid);
         LivingEntity target = mob.getTarget();
         if (target != null && state.targetUuid.equals(target.getUUID())) {
             mob.setTarget(null);
@@ -56,6 +59,7 @@ final class CompanionTacticalCombatService {
     }
 
     static void suspend(Mob mob, State state, String reason) {
+        CompanionNativeCombatIntentService.clear(mob, state.targetUuid);
         LivingEntity target = mob.getTarget();
         if (target != null) {
             mob.setTarget(null);

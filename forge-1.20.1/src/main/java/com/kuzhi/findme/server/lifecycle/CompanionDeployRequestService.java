@@ -194,6 +194,19 @@ public final class CompanionDeployRequestService {
             deployed = living;
         }
 
+        if (!CompanionPlacementFinder.hasOpenEntitySpace(player.serverLevel(), deployed,
+                deployed.getX(), deployed.getY(), deployed.getZ())) {
+            Optional<BlockPos> corrected = CompanionPlacementFinder.findTacticalEntitySpace(
+                    player.serverLevel(), deployed, spawn, moveType);
+            if (corrected.isPresent()) {
+                BlockPos safe = corrected.get();
+                deployed = CompanionEntityTransferService.moveEntityTo(deployed, player.serverLevel(), safe,
+                        player.getYRot(), player.getXRot(), false);
+                FindMeDebugLogger.lifecycle("DEPLOY_RELOCATED", player, uuid, deployed,
+                        "COLLIDING", "OPEN", "actual_entity_bounds", stored.isPresent(), true);
+            }
+        }
+
         CompanionHomeResidentService.clearResident(deployed);
         if (moveType == CompanionMoveType.FLY) {
             if (deployed instanceof net.minecraft.world.entity.Mob mob) {

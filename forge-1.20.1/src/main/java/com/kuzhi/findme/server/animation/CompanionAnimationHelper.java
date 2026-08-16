@@ -24,13 +24,18 @@ public final class CompanionAnimationHelper {
     }
 
     public static void restoreAnimationControl(LivingEntity living) {
-        living.noPhysics = false;
-        living.setNoGravity(false);
-        restoreGenericFlightInput(living);
+        restoreMovementAnimationControl(living);
         if (living instanceof Mob mob) {
             mob.getNavigation().stop();
             mob.setTarget(null);
         }
+    }
+
+    /** Restores movement flags without interrupting an active combat target or path. */
+    public static void restoreMovementAnimationControl(LivingEntity living) {
+        living.noPhysics = false;
+        living.setNoGravity(false);
+        restoreGenericFlightInput(living);
     }
 
     public static void forceFlyingAnimationPose(LivingEntity living) {

@@ -23,4 +23,15 @@ class MountSwitchContactPolicyTest {
         assertFalse(MountSwitchContactPolicy.canEvaluateContact(20, 4.1, 1.0));
         assertTrue(MountSwitchContactPolicy.canEvaluateContact(20, 4.0, 1.0));
     }
+
+    @Test
+    void rescueEndsAfterLandingOrEnteringWaterWithoutContact() {
+        assertFalse(CompanionMountSwitchService.shouldFailRescue(3, true));
+        assertTrue(CompanionMountSwitchService.shouldFailRescue(4, true));
+    }
+
+    @Test
+    void airborneRescueIsNotCancelledByAnArbitraryTimer() {
+        assertFalse(CompanionMountSwitchService.shouldFailRescue(20 * 60, false));
+    }
 }

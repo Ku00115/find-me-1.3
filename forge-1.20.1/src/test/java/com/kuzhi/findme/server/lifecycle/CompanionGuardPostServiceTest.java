@@ -20,7 +20,7 @@ class CompanionGuardPostServiceTest {
         assertFalse(CompanionGuardPostService.holdsPosition(HouseResidentMode.GUARD));
 
         assertFalse(CompanionGuardPostService.allowsCombat(HouseResidentMode.REST));
-        assertTrue(CompanionGuardPostService.allowsCombat(HouseResidentMode.WANDER));
+        assertFalse(CompanionGuardPostService.allowsCombat(HouseResidentMode.WANDER));
         assertTrue(CompanionGuardPostService.allowsCombat(HouseResidentMode.GUARD));
     }
 

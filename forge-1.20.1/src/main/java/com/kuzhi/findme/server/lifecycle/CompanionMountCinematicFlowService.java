@@ -101,6 +101,9 @@ public final class CompanionMountCinematicFlowService {
                 removePending(cinematic);
                 continue;
             }
+            if (CompanionMountSwitchService.terminateFailedRescueIfNeeded(cinematic, player, living)) {
+                continue;
+            }
             if (CompanionArrivalSequenceService.blocksCinematicMovement(living)) {
                 if (living instanceof Mob mob) {
                     mob.getNavigation().stop();
@@ -150,8 +153,17 @@ public final class CompanionMountCinematicFlowService {
                     && cinematic.rescueFlightMode() == RescueFlightMode.HOVER) {
                 Vec3 hoverTarget = null;
                 if (living.level() instanceof ServerLevel serverLevel) {
-                    hoverTarget = CompanionCinematicLandingService.flyingHoverTarget(serverLevel, player);
+                    hoverTarget = CompanionCinematicLandingService.flyingHoverTarget(
+                            serverLevel, player, cinematic.rescueHoverPosition());
                     cinematic.setRescueHoverPosition(hoverTarget);
+                }
+                boolean catchContact = isPlayerInFlyingCatchZone(player, living)
+                        || isTouchingMountCollision(player, living, null);
+                if (catchContact) {
+                    cinematic.latchContact();
+                    cinematic.beginSwitch();
+                    CompanionMountSwitchService.tickMountSwitch(server, cinematic, player, living);
+                    continue;
                 }
                 if (hoverTarget != null && living.position().distanceTo(hoverTarget) > 1.75) {
                     CompanionCinematicMovementService.moveTowardCinematicTarget(
@@ -162,12 +174,8 @@ public final class CompanionMountCinematicFlowService {
                 }
                 if (hoverTarget != null) {
                     CompanionCinematicPositionService.holdFlyingRescueHover(cinematic, living, hoverTarget);
-                    if (isPlayerInFlyingCatchZone(player, living) || player.getY() <= hoverTarget.y + 3.0) {
-                        cinematic.beginSwitch();
-                    } else {
-                        cinematic.incrementAge();
-                        continue;
-                    }
+                    cinematic.incrementAge();
+                    continue;
                 }
             }
             logRescueTick(cinematic, player, living, null, Double.NaN, "pre-target");
@@ -256,9 +264,22 @@ public final class CompanionMountCinematicFlowService {
             mob.getNavigation().stop();
             mob.setTarget(null);
         }
-        catchY = mode.isFlyingRescue() && level instanceof ServerLevel serverLevel
-                ? (double) CompanionCinematicLandingService.predictedLanding(serverLevel, player).getY()
-                + CompanionCinematicLandingService.flyingCatchHeight(player) : Double.NaN;
+        CompanionRescuePlanner.Plan rescuePlan = mode.isFlyingRescue()
+                ? CompanionRescuePlanner.plan(player) : null;
+        RescueFlightMode rescueFlightMode = rescuePlan == null
+                ? RescueFlightMode.HOVER : rescuePlan.flightMode();
+        Vec3 initialHoverPosition = null;
+        if (mode.isFlyingRescue() && level instanceof ServerLevel serverLevel) {
+            BlockPos landing = CompanionCinematicLandingService.rescueAnchor(serverLevel, player);
+            if (rescueFlightMode == RescueFlightMode.HOVER) {
+                initialHoverPosition = CompanionCinematicLandingService.flyingHoverTarget(serverLevel, player);
+                catchY = initialHoverPosition.y;
+            } else {
+                catchY = landing.getY();
+            }
+        } else {
+            catchY = Double.NaN;
+        }
         boolean startStaged = mode.isFlyingRescue();
         int warmupTicks = 0;
         RideHandoffService.Source rideSource = capturedRideSource(player, mount, mode);
@@ -272,8 +293,6 @@ public final class CompanionMountCinematicFlowService {
             pending.setRescueLandingPosition(mount.position());
         }
         pending.setIntroAnchor(moveType == CompanionMoveType.FLY ? mount.position() : null);
-        RescueFlightMode rescueFlightMode = mode.isFlyingRescue()
-                ? CompanionRescuePlanner.plan(player).flightMode() : RescueFlightMode.HOVER;
         pending.setRescueFlightMode(rescueFlightMode);
         if (mode.isFlyingRescue() && rescueFlightMode == RescueFlightMode.LANDING_SUMMON
                 && level instanceof ServerLevel serverLevel) {
@@ -281,9 +300,8 @@ public final class CompanionMountCinematicFlowService {
                     CompanionCinematicLandingService.rescueAnchor(serverLevel, player)));
         }
         if (mode.isFlyingRescue() && rescueFlightMode == RescueFlightMode.HOVER
-                && level instanceof ServerLevel serverLevel) {
-            pending.setRescueHoverPosition(
-                    CompanionCinematicLandingService.flyingHoverTarget(serverLevel, player));
+                && initialHoverPosition != null) {
+            pending.setRescueHoverPosition(initialHoverPosition);
         }
         if (mode.isRescue()) {
             BookOfDragonsRescueCompatibility.suspendConflictingGoals(mount);
@@ -839,10 +857,9 @@ public final class CompanionMountCinematicFlowService {
                 data.clearDeployed(CompanionKind.MOUNT, mount.getUUID());
                 CompanionDataService.save(player, data);
                 CompanionSyncService.syncToClient(player, CompanionKind.MOUNT);
-                CompanionWheelTransactionService.failLatest(player, CompanionKind.MOUNT, mount.getUUID(), "rescue_catch_failed");
-                MountRosterTransactionService.failLatest(player, mount.getUUID(), "rescue_catch_failed");
                 CompanionSummonLineService.showBlocked(player, mount);
             }
+            failMountCinematicTransactions(player, mount.getUUID(), "rescue_catch_failed");
             return;
         }
         Level level2 = mount.level();
@@ -857,6 +874,7 @@ public final class CompanionMountCinematicFlowService {
                 CompanionDataService.save(player, data);
                 CompanionSyncService.syncToClient(player, CompanionKind.MOUNT);
             }
+            failMountCinematicTransactions(player, mount.getUUID(), "blocked_rescue");
             CompanionSummonLineService.showBlocked(player, mount);
             return;
         }
@@ -877,6 +895,12 @@ public final class CompanionMountCinematicFlowService {
                 player.getUUID(), mount.getUUID(), cinematic.mode(),
                 (System.nanoTime() - totalStartedAt) / 1_000_000.0, dataMs, saveMs, syncMs,
                 player.getVehicle() == mount, mount.hasPassenger(player));
+    }
+
+    private static void failMountCinematicTransactions(ServerPlayer player, UUID mountUuid,
+                                                        String reason) {
+        CompanionWheelTransactionService.failLatest(player, CompanionKind.MOUNT, mountUuid, reason);
+        MountRosterTransactionService.failLatest(player, mountUuid, reason);
     }
 
     private static RideHandoffService.Source capturedRideSource(ServerPlayer player, LivingEntity target,

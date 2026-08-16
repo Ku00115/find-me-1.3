@@ -19,27 +19,12 @@ public final class CompanionPlacementFinder {
     private CompanionPlacementFinder() {
     }
 
-    static Optional<BlockPos> findWater(ServerLevel level, BlockPos origin) {
-        int radius = Config.DEFAULT_SAFE_SEARCH_RADIUS;
-        for (int y = -4; y <= 4; ++y) {
-            for (int r = 0; r <= radius; ++r) {
-                for (int x = -r; x <= r; ++x) {
-                    for (int z = -r; z <= r; ++z) {
-                        BlockPos candidate = origin.offset(x, y, z);
-                        if (r > 0 && Math.abs(x) != r && Math.abs(z) != r || !level.getFluidState(candidate).is(FluidTags.WATER) || !level.getFluidState(candidate.above()).is(FluidTags.WATER)) continue;
-                        return Optional.of(candidate);
-                    }
-                }
-            }
-        }
-        return Optional.empty();
+    public static Optional<BlockPos> findWaterWithOpenSurface(ServerLevel level, BlockPos origin) {
+        return findWaterWithOpenSurface(level, origin, 1.0, 2.2);
     }
 
-    public static Optional<BlockPos> findWaterWithOpenSurface(ServerLevel level, BlockPos origin) {
-        Optional<BlockPos> direct = findWater(level, origin);
-        if (direct.isPresent() && isWaterArrivalOpen(level, direct.get())) {
-            return direct;
-        }
+    public static Optional<BlockPos> findWaterWithOpenSurface(ServerLevel level, BlockPos origin,
+                                                               double width, double height) {
         int radius = Config.DEFAULT_SAFE_SEARCH_RADIUS;
         for (int y = -6; y <= 6; ++y) {
             for (int r = 0; r <= radius; ++r) {
@@ -49,7 +34,7 @@ public final class CompanionPlacementFinder {
                         if (r > 0 && Math.abs(x) != r && Math.abs(z) != r) {
                             continue;
                         }
-                        if (level.getFluidState(candidate).is(FluidTags.WATER) && isWaterArrivalOpen(level, candidate)) {
+                        if (isOpenWaterSurface(level, candidate, width, height)) {
                             return Optional.of(candidate);
                         }
                     }
@@ -59,8 +44,24 @@ public final class CompanionPlacementFinder {
         return Optional.empty();
     }
 
-    private static boolean isWaterArrivalOpen(ServerLevel level, BlockPos waterPos) {
-        return !level.getFluidState(waterPos).isEmpty() && hasOpenBox(level, new AABB(waterPos.getX(), waterPos.getY(), waterPos.getZ(), waterPos.getX() + 1.0, waterPos.getY() + 2.2, waterPos.getZ() + 1.0));
+    static boolean isOpenWaterSurface(ServerLevel level, BlockPos waterPos) {
+        return isOpenWaterSurface(level, waterPos, 1.0, 2.2);
+    }
+
+    static boolean isOpenWaterSurface(ServerLevel level, BlockPos waterPos,
+                                      double width, double height) {
+        if (!level.hasChunkAt(waterPos) || !level.getFluidState(waterPos).is(FluidTags.WATER)
+                || level.getFluidState(waterPos.above()).is(FluidTags.WATER)) {
+            return false;
+        }
+        double safeWidth = Math.max(1.0, width);
+        double safeHeight = Math.max(2.2, height);
+        double centerX = waterPos.getX() + 0.5;
+        double centerZ = waterPos.getZ() + 0.5;
+        AABB arrivalBox = new AABB(centerX - safeWidth * 0.5, waterPos.getY(),
+                centerZ - safeWidth * 0.5, centerX + safeWidth * 0.5,
+                waterPos.getY() + safeHeight, centerZ + safeWidth * 0.5);
+        return hasOpenBox(level, arrivalBox);
     }
 
     public static Optional<BlockPos> findSafe(ServerLevel level, BlockPos origin) {
@@ -68,7 +69,8 @@ public final class CompanionPlacementFinder {
             return Optional.of(origin);
         }
         int radius = Config.DEFAULT_SAFE_SEARCH_RADIUS;
-        for (int y = -3; y <= 3; ++y) {
+        for (int yIndex = 0; yIndex <= 6; ++yIndex) {
+            int y = verticalSearchOffset(yIndex);
             for (int r = 1; r <= radius; ++r) {
                 for (int x = -r; x <= r; ++x) {
                     for (int z = -r; z <= r; ++z) {
@@ -93,10 +95,9 @@ public final class CompanionPlacementFinder {
     }
 
     public static boolean hasOpenEntitySpace(ServerLevel level, LivingEntity entity, double x, double y, double z) {
-        double width = Math.max(0.9, (double)entity.getBbWidth() + 0.55);
-        double height = Math.max(1.8, (double)entity.getBbHeight() + 0.25);
-        AABB box = new AABB(x - width * 0.5, y, z - width * 0.5, x + width * 0.5, y + height, z + width * 0.5);
-        return hasOpenBox(level, box);
+        if (level == null || entity == null) return false;
+        AABB box = entity.getBoundingBox().move(x - entity.getX(), y - entity.getY(), z - entity.getZ());
+        return hasOpenBox(level, box.deflate(1.0E-5D));
     }
 
     public static boolean hasOpenBox(ServerLevel level, BlockPos pos, double width, double height) {
@@ -193,7 +194,8 @@ public final class CompanionPlacementFinder {
         if (isSafe(level, origin) && hasOpenEntitySpace(level, entity, (double)origin.getX() + 0.5, origin.getY(), (double)origin.getZ() + 0.5)) {
             return Optional.of(origin);
         }
-        for (int y = -verticalRadius; y <= verticalRadius; ++y) {
+        for (int yIndex = 0; yIndex <= verticalRadius * 2; ++yIndex) {
+            int y = verticalSearchOffset(yIndex);
             for (int r = 1; r <= radius; ++r) {
                 for (int x = -r; x <= r; ++x) {
                     for (int z = -r; z <= r; ++z) {
@@ -253,7 +255,8 @@ public final class CompanionPlacementFinder {
 
     public static Optional<BlockPos> findOpenDimensionsSpace(ServerLevel level, double width, double height, double depth, BlockPos origin) {
         int radius = Math.max(2, Config.DEFAULT_SAFE_SEARCH_RADIUS);
-        for (int y = -3; y <= 3; y++) {
+        for (int yIndex = 0; yIndex <= 6; yIndex++) {
+            int y = verticalSearchOffset(yIndex);
             for (int r = 0; r <= radius; r++) {
                 for (int x = -r; x <= r; x++) {
                     for (int z = -r; z <= r; z++) {
@@ -268,6 +271,12 @@ public final class CompanionPlacementFinder {
             }
         }
         return Optional.empty();
+    }
+
+    static int verticalSearchOffset(int index) {
+        if (index <= 0) return 0;
+        int distance = (index + 1) / 2;
+        return (index & 1) == 1 ? distance : -distance;
     }
 
     public static boolean isLandingSurface(Level level, BlockPos pos) {

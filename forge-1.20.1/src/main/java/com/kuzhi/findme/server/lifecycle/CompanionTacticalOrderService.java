@@ -314,6 +314,7 @@ public final class CompanionTacticalOrderService {
             }
             if (order.action == CompanionTacticalAction.PROTECT_OWNER) {
                 CompanionProtectIdleService.release(uuid, "team_paused");
+                CompanionSaintsDragonsCompat.clearActiveCommand(living);
             }
         } else {
             order.combatState.rearm();
@@ -792,6 +793,20 @@ public final class CompanionTacticalOrderService {
     private static void followOwner(ServerPlayer owner, LivingEntity living,
                                     ActiveOrder order) {
         restoreMotionFlags(living, order);
+        if (CompanionSaintsDragonsCompat.isSaintsDragon(living)) {
+            CompanionSaintsDragonsCompat.applyActiveCommand(living);
+            CompanionEscortMovementService.releaseSaintsDragonControl(living);
+            if (living.distanceToSqr(owner) > FOLLOW_RELOCATE_DISTANCE * FOLLOW_RELOCATE_DISTANCE) {
+                Entity anchor = owner.getVehicle() == null ? owner : owner.getVehicle();
+                CompanionFormationPlanner.Offset slot = formationOffset(order, anchor.getBbWidth());
+                Vec3 target = CompanionEscortMovementService.followPosition(owner, anchor, living,
+                        order.moveType, slot);
+                CompanionEscortMovementService.moveNearPlayer(owner, CompanionDataService.data(owner), living,
+                        target, order.moveType);
+                CompanionEscortMovementService.releaseSaintsDragonControl(living);
+            }
+            return;
+        }
         Entity anchor = owner.getVehicle() == null ? owner : owner.getVehicle();
         CompanionFormationPlanner.Offset slot = formationOffset(order, anchor.getBbWidth());
         Vec3 target = CompanionEscortMovementService.followPosition(owner, anchor, living, order.moveType, slot);
@@ -885,6 +900,7 @@ public final class CompanionTacticalOrderService {
         order.targetSource = TargetSource.NONE;
         clearCombatTarget(living, order);
         if (CompanionSaintsDragonsCompat.isSaintsDragon(living)) {
+            CompanionSaintsDragonsCompat.clearActiveCommand(living);
             CompanionGuardPostService.controlCustomMovement((Mob) living);
         } else {
             restoreMotionFlags(living, order);
@@ -900,14 +916,17 @@ public final class CompanionTacticalOrderService {
                     CompanionThreatResolver.findProtectOwnerThreat(owner, runtime::contains, living, threat,
                             PROTECT_SCAN_RADIUS, PROTECT_PURSUIT_RADIUS);
             threat = selected.map(CompanionThreatResolver.ProtectThreat::entity).orElse(null);
+            FindMeDebugLogger.info("command-target",
+                    "protect scan companion={} type={} owner={} selected={} selectedType={} tier={} ownerDistance={} companionDistance={} airborne={}",
+                    living.getUUID(), living.getType(), owner.getUUID(),
+                    threat == null ? null : threat.getUUID(), threat == null ? null : threat.getType(),
+                    selected.map(result -> result.tier().name()).orElse("none"),
+                    threat == null ? -1.0 : owner.distanceTo(threat),
+                    threat == null ? -1.0 : living.distanceTo(threat),
+                    CompanionSaintsDragonsCompat.isAirborne(living));
             if (threat != null) {
                 order.targetSource = TargetSource.PROTECT_SCAN;
                 order.targetTier = selected.orElseThrow().tier().name();
-                FindMeDebugLogger.info("command-target",
-                        "protect select companion={} target={} tier={} current={} distance={}",
-                        living.getUUID(), threat.getUUID(), order.targetTier,
-                        selected.orElseThrow().current(),
-                        String.format(java.util.Locale.ROOT, "%.2f", Math.sqrt(selected.orElseThrow().distanceSqr())));
             }
         }
         if (threat != null && living instanceof Mob mob) {
@@ -924,20 +943,20 @@ public final class CompanionTacticalOrderService {
         clearCombatTarget(living, order);
         boolean customMovement = CompanionSaintsDragonsCompat.isSaintsDragon(living);
         restoreMotionFlags(living, order);
+        if (customMovement) {
+            CompanionSaintsDragonsCompat.applyActiveCommand(living);
+            CompanionEscortMovementService.releaseSaintsDragonControl(living);
+        }
         if (living instanceof Mob mob && !customMovement) {
             CompanionProtectIdleService.acquire(mob);
         }
-        if (customMovement || living.distanceToSqr(owner) > PROTECT_IDLE_RELOCATE_DISTANCE * PROTECT_IDLE_RELOCATE_DISTANCE) {
+        if (!customMovement && living.distanceToSqr(owner) > PROTECT_IDLE_RELOCATE_DISTANCE * PROTECT_IDLE_RELOCATE_DISTANCE) {
             Entity anchor = owner.getVehicle() == null ? owner : owner.getVehicle();
             CompanionFormationPlanner.Offset slot = formationOffset(order, anchor.getBbWidth());
             Vec3 target = CompanionEscortMovementService.followPosition(owner, anchor, living,
                     order.moveType, slot);
-            if (customMovement) {
-                CompanionEscortMovementService.control(living, target, order.moveType);
-            } else {
-                CompanionEscortMovementService.moveNearPlayer(owner, CompanionDataService.data(owner), living,
-                        target, order.moveType);
-            }
+            CompanionEscortMovementService.moveNearPlayer(owner, CompanionDataService.data(owner), living,
+                    target, order.moveType);
         }
     }
 
@@ -974,25 +993,39 @@ public final class CompanionTacticalOrderService {
         clearCombatTarget(living, order);
         boolean customMovement = CompanionSaintsDragonsCompat.isSaintsDragon(living);
         restoreMotionFlags(living, order);
+        if (customMovement) {
+            CompanionSaintsDragonsCompat.applyActiveCommand(living);
+            CompanionEscortMovementService.releaseSaintsDragonControl(living);
+        }
         if (living instanceof Mob mob && !customMovement) CompanionProtectIdleService.acquire(mob);
-        if (customMovement || living.distanceToSqr(owner) > PROTECT_IDLE_RELOCATE_DISTANCE * PROTECT_IDLE_RELOCATE_DISTANCE) {
+        if (!customMovement && living.distanceToSqr(owner) > PROTECT_IDLE_RELOCATE_DISTANCE * PROTECT_IDLE_RELOCATE_DISTANCE) {
             Entity anchor = owner.getVehicle() == null ? owner : owner.getVehicle();
             CompanionFormationPlanner.Offset slot = formationOffset(order, anchor.getBbWidth());
             Vec3 target = CompanionEscortMovementService.followPosition(owner, anchor, living, order.moveType, slot);
-            if (customMovement) {
-                CompanionEscortMovementService.control(living, target, order.moveType);
-            } else {
-                CompanionEscortMovementService.moveNearPlayer(owner, CompanionDataService.data(owner), living,
-                        target, order.moveType);
-            }
+            CompanionEscortMovementService.moveNearPlayer(owner, CompanionDataService.data(owner), living,
+                    target, order.moveType);
         }
     }
 
     private static void engageThreat(LivingEntity living, Mob mob, LivingEntity threat,
                                      ActiveOrder order, TargetSource source) {
-        living.noPhysics = order.originalNoPhysics;
-        living.setNoGravity(order.originalNoGravity);
+        if (CompanionSaintsDragonsCompat.isSaintsDragon(living)) {
+            living.noPhysics = false;
+            living.setNoGravity(false);
+            mob.setNoAi(false);
+            CompanionSaintsDragonsCompat.applyActiveCommand(living);
+        } else {
+            living.noPhysics = order.originalNoPhysics;
+            living.setNoGravity(order.originalNoGravity);
+        }
         if (FindMeApi.ownsTacticalCombat(living)) {
+            long tick = living.level().getGameTime();
+            if (FindMeDebugLogger.shouldLogSample("command-target",
+                    living.getUUID() + ":external-controller", tick, 20)) {
+                FindMeDebugLogger.info("command-target",
+                        "combat yielded companion={} type={} target={} targetType={} source={} reason=external_controller",
+                        living.getUUID(), living.getType(), threat.getUUID(), threat.getType(), source);
+            }
             CompanionTacticalCombatService.suspend(mob, order.combatState, "external_controller");
             return;
         }
@@ -1228,6 +1261,7 @@ public final class CompanionTacticalOrderService {
         if (!(entity instanceof LivingEntity living)) {
             return;
         }
+        CompanionSaintsDragonsCompat.clearActiveCommand(living);
         restoreMotionFlags(living, order);
         if (living instanceof Mob mob) {
             CompanionTacticalCombatService.disengage(mob, order.combatState);

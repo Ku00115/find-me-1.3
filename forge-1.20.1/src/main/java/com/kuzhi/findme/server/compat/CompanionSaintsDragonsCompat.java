@@ -18,6 +18,7 @@ public final class CompanionSaintsDragonsCompat {
     private static final Map<Class<?>, Accessor> ACCESSORS = new HashMap<>();
     private static final Set<Class<?>> UNSUPPORTED = new HashSet<>();
     private static final Map<UUID, Integer> PREVIOUS_COMMANDS = new HashMap<>();
+    private static final Map<UUID, Integer> PREVIOUS_ACTIVE_COMMANDS = new HashMap<>();
 
     private CompanionSaintsDragonsCompat() {
     }
@@ -61,6 +62,42 @@ public final class CompanionSaintsDragonsCompat {
         }
     }
 
+    /** Lets Saints & Dragons own follow locomotion while Find Me owns threat selection. */
+    public static void applyActiveCommand(LivingEntity entity) {
+        Accessor accessor = accessor(entity);
+        if (accessor == null || entity == null) {
+            return;
+        }
+        Integer currentCommand = accessor.getCommand(entity);
+        if (currentCommand == null) {
+            return;
+        }
+        PREVIOUS_ACTIVE_COMMANDS.putIfAbsent(entity.getUUID(), currentCommand);
+        if (currentCommand != 0 && accessor.setCommand(entity, 0)) {
+            FindMeDebugLogger.info("saints-dragons-compat",
+                    "active follow command entity={} command=0", FindMeDebugLogger.entity(entity));
+        }
+    }
+
+    public static void clearActiveCommand(LivingEntity entity) {
+        if (entity == null) {
+            return;
+        }
+        Integer previous = PREVIOUS_ACTIVE_COMMANDS.remove(entity.getUUID());
+        if (previous == null) {
+            return;
+        }
+        Accessor accessor = accessor(entity);
+        Integer currentCommand = accessor == null ? null : accessor.getCommand(entity);
+        if (accessor != null && currentCommand != null
+                && currentCommand.intValue() != previous.intValue()
+                && accessor.setCommand(entity, previous)) {
+            FindMeDebugLogger.info("saints-dragons-compat",
+                    "restored active command entity={} command={}",
+                    FindMeDebugLogger.entity(entity), previous);
+        }
+    }
+
     /** Returns the dragon brain's actual flight state, not its mount category. */
     public static boolean isAirborne(LivingEntity entity) {
         if (!isSaintsDragon(entity)) {
@@ -73,6 +110,7 @@ public final class CompanionSaintsDragonsCompat {
 
     public static void resetServerState() {
         PREVIOUS_COMMANDS.clear();
+        PREVIOUS_ACTIVE_COMMANDS.clear();
     }
 
     private static Accessor accessor(LivingEntity entity) {

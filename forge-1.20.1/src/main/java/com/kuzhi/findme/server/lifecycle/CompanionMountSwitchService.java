@@ -15,6 +15,7 @@ import net.minecraft.world.phys.Vec3;
 
 public final class CompanionMountSwitchService {
     private static final int MOUNT_SWITCH_FAIL_TICKS = 160;
+    private static final int RESCUE_TERMINAL_GRACE_TICKS = 4;
 
     private CompanionMountSwitchService() {
     }
@@ -50,6 +51,9 @@ public final class CompanionMountSwitchService {
             }
             return;
         }
+        if (terminateFailedRescueIfNeeded(cinematic, player, mount)) {
+            return;
+        }
         if (CompanionMountCinematicFlowService.correctExternalCinematicPull(cinematic, mount, player)) {
             cinematic.incrementSwitchAge();
             return;
@@ -80,7 +84,16 @@ public final class CompanionMountSwitchService {
             cinematic.incrementSwitchAge();
             return;
         }
-        boolean urgentAirRescue = mode.isFlyingRescue() && (!Double.isNaN(cinematic.catchY()) ? player.getY() <= cinematic.catchY() + 2.5 : CompanionCinematicLandingService.distanceToGround(player) <= 12.0);
+        if (airRescue && cinematic.rescueFlightMode() == RescueFlightMode.HOVER
+                && player.level() instanceof net.minecraft.server.level.ServerLevel level) {
+            cinematic.setRescueHoverPosition(CompanionCinematicLandingService.flyingHoverTarget(
+                    level, player, cinematic.rescueHoverPosition()));
+        }
+        double flyingWaitY = CompanionCinematicLandingService.flyingWaitY(
+                cinematic.rescueFlightMode(), cinematic.catchY(), cinematic.rescueHoverPosition());
+        boolean urgentAirRescue = mode.isFlyingRescue() && (!Double.isNaN(flyingWaitY)
+                ? player.getY() <= flyingWaitY + 2.5
+                : CompanionCinematicLandingService.distanceToGround(player) <= 12.0);
         boolean quickFlyingMount = mode.isQuickFlyingMount();
         inFlyingCatchZone = airRescue && !cinematic.physicalCatchOnly() && CompanionMountCinematicFlowService.isPlayerInFlyingCatchZone(player, mount);
         boolean fixedWaitContact = airRescue && cinematic.waitLocked()
@@ -128,7 +141,7 @@ public final class CompanionMountSwitchService {
             cinematic.incrementSwitchAge();
             return;
         }
-        if (airRescue && !Double.isNaN(cinematic.catchY()) && player.getY() > cinematic.catchY() + 2.5 && !inFlyingCatchZone && !physicalCatchContact && !CompanionMountCinematicFlowService.isTouchingMountCollision(player, mount, currentVehicle)) {
+        if (airRescue && !Double.isNaN(flyingWaitY) && player.getY() > flyingWaitY + 2.5 && !inFlyingCatchZone && !physicalCatchContact && !CompanionMountCinematicFlowService.isTouchingMountCollision(player, mount, currentVehicle)) {
             CompanionCinematicPositionService.lockMountAtFlyingWait(cinematic, mount, player);
             cinematic.incrementSwitchAge();
             return;
@@ -202,6 +215,27 @@ public final class CompanionMountSwitchService {
         } else {
             cinematic.incrementSwitchAge();
         }
+    }
+
+    static boolean terminateFailedRescueIfNeeded(PendingMountCinematic cinematic,
+                                                  ServerPlayer player, LivingEntity mount) {
+        if (cinematic == null || player == null || mount == null || !cinematic.mode().isRescue()
+                || player.getVehicle() == mount
+                || CompanionMountCinematicFlowService.isTouchingMountCollision(player, mount, null)) {
+            return false;
+        }
+        boolean terminal = player.onGround() || player.isInWater();
+        int phaseAge = cinematic.stage() == MountCinematicStage.SWITCH
+                ? cinematic.switchAge() : cinematic.age();
+        if (!shouldFailRescue(phaseAge, terminal)) {
+            return false;
+        }
+        CompanionMountCinematicFlowService.finishMountCinematic(cinematic, player, mount, false);
+        return true;
+    }
+
+    static boolean shouldFailRescue(int phaseAge, boolean terminalPlayerState) {
+        return terminalPlayerState && phaseAge >= RESCUE_TERMINAL_GRACE_TICKS;
     }
 
     private static boolean tryCompleteMountSwitch(MinecraftServer server, PendingMountCinematic cinematic,

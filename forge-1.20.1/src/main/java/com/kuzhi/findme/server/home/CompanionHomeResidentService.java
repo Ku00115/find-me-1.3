@@ -134,10 +134,10 @@ public final class CompanionHomeResidentService {
                         && homeTarget != null
                         && validLoadedHouse(homeTarget.level, homeTarget.housePos)
                         && isHouseChunkTrackedByAnyPlayer(homeTarget.level, homeTarget.housePos)) {
-                    CompanionMoveType residentMoveType = CompanionEntityClassifier.moveType(living, kind);
+                    CompanionMoveType residentMoveType = CompanionHomeBehaviorService.residentMoveType(living,
+                            CompanionEntityClassifier.moveType(living, kind));
                     CompanionHomeBehaviorService.ensureResidentBehavior(living, behaviorCenter(homeTarget, living),
-                            residentMoveType, CompanionHomeBehaviorService.isAirborneResident(living)
-                                    || residentMoveType == CompanionMoveType.FLY && !living.onGround(),
+                            residentMoveType, CompanionHomeBehaviorService.isAirborneResident(living),
                             homeTarget.mode, homeTarget.patrolRadius, homeTarget.hardRadius);
                     RESTORE_RETRIES.remove(uuid);
                     continue;
@@ -284,12 +284,12 @@ public final class CompanionHomeResidentService {
                 && data.lifecycleState(uuid) != CompanionLifecycleState.HOME_ACTIVE)) {
             return;
         }
-        CompanionMoveType moveType = CompanionEntityClassifier.moveType(living,
-                data.kindOf(uuid).orElse(CompanionKind.COMPANION));
+        CompanionMoveType moveType = CompanionHomeBehaviorService.residentMoveType(living,
+                CompanionEntityClassifier.moveType(living,
+                        data.kindOf(uuid).orElse(CompanionKind.COMPANION)));
         markResidentEntity(living, mode == HouseResidentMode.REST ? living.blockPosition() : target.housePos,
                 moveType,
-                CompanionHomeBehaviorService.isAirborneResident(living)
-                        || moveType == CompanionMoveType.FLY && !living.onGround(), mode,
+                CompanionHomeBehaviorService.isAirborneResident(living), mode,
                 target.patrolRadius, target.hardRadius);
     }
 
@@ -581,21 +581,21 @@ public final class CompanionHomeResidentService {
             return false;
         }
         if (isResident(uuid) && entity instanceof LivingEntity resident && resident.isAlive()) {
-            CompanionMoveType moveType = CompanionEntityClassifier.moveType(resident, kind);
-            CompanionHomeBehaviorService.applyResidentBehavior(resident,
+            CompanionMoveType moveType = CompanionHomeBehaviorService.residentMoveType(resident,
+                    CompanionEntityClassifier.moveType(resident, kind));
+            CompanionHomeBehaviorService.ensureResidentBehavior(resident,
                     behaviorCenter(homeTarget, resident),
-                    moveType, CompanionHomeBehaviorService.isAirborneResident(resident)
-                            || moveType == CompanionMoveType.FLY && !resident.onGround(),
+                    moveType, CompanionHomeBehaviorService.isAirborneResident(resident),
                     homeTarget == null ? HouseResidentMode.WANDER : homeTarget.mode,
                     homeTarget == null ? com.kuzhi.findme.Config.housePatrolRadius : homeTarget.patrolRadius,
                     homeTarget == null ? com.kuzhi.findme.Config.houseHardRadius : homeTarget.hardRadius);
             return false;
         }
         if (entity instanceof LivingEntity living && living.isAlive()) {
-            CompanionMoveType moveType = CompanionEntityClassifier.moveType(living, kind);
+            CompanionMoveType moveType = CompanionHomeBehaviorService.residentMoveType(living,
+                    CompanionEntityClassifier.moveType(living, kind));
             markResidentEntity(living, behaviorCenter(homeTarget, living),
-                    moveType, CompanionHomeBehaviorService.isAirborneResident(living)
-                            || moveType == CompanionMoveType.FLY && !living.onGround(),
+                    moveType, CompanionHomeBehaviorService.isAirborneResident(living),
                     homeTarget == null ? HouseResidentMode.WANDER : homeTarget.mode,
                     homeTarget == null ? com.kuzhi.findme.Config.housePatrolRadius : homeTarget.patrolRadius,
                     homeTarget == null ? com.kuzhi.findme.Config.houseHardRadius : homeTarget.hardRadius);

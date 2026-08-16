@@ -95,13 +95,23 @@ public final class CompanionCinematicPositionService {
 
     public static void lockMountAtFlyingWait(PendingMountCinematic cinematic, LivingEntity mount, ServerPlayer player) {
         Level playerLevel = player.level();
-        if (!(playerLevel instanceof ServerLevel level) || Double.isNaN(cinematic.catchY())) {
+        if (!(playerLevel instanceof ServerLevel level)) {
             mount.setDeltaMovement(Vec3.ZERO);
             return;
         }
-        BlockPos landing = CompanionCinematicLandingService.rescueAnchor(level, player);
-        Vec3 waitPos = new Vec3((double) landing.getX() + 0.5, cinematic.catchY(),
-                (double) landing.getZ() + 0.5);
+        Vec3 waitPos;
+        if (cinematic.rescueFlightMode() == RescueFlightMode.HOVER) {
+            waitPos = CompanionCinematicLandingService.flyingHoverTarget(
+                    level, player, cinematic.rescueHoverPosition());
+            cinematic.setRescueHoverPosition(waitPos);
+        } else if (!Double.isNaN(cinematic.catchY())) {
+            BlockPos landing = CompanionCinematicLandingService.rescueAnchor(level, player);
+            waitPos = new Vec3((double) landing.getX() + 0.5, cinematic.catchY(),
+                    (double) landing.getZ() + 0.5);
+        } else {
+            mount.setDeltaMovement(Vec3.ZERO);
+            return;
+        }
         cinematic.lockWait(waitPos);
         mount.moveTo(waitPos.x, waitPos.y, waitPos.z, mount.getYRot(), mount.getXRot());
         mount.setPos(waitPos.x, waitPos.y, waitPos.z);
@@ -171,8 +181,10 @@ public final class CompanionCinematicPositionService {
                 && CompanionCinematicLandingService.distanceToGround(player) > 8.0;
         if (!cinematic.waitLocked() || followPredictedLanding) {
             Level level;
-            if (cinematic.presentationMoveType() == CompanionMoveType.WALK && (level = player.level()) instanceof ServerLevel serverLevel) {
-                waitPos = Vec3.atBottomCenterOf((Vec3i)CompanionCinematicLandingService.rescueAnchor(serverLevel, player)).add(0.0, CompanionCinematicLandingService.rescueGroundYOffset(cinematic), 0.0);
+            if (cinematic.mode().isGroundOrWaterRescue()
+                    && (level = player.level()) instanceof ServerLevel) {
+                waitPos = CompanionCinematicLandingService.cinematicTarget(
+                        cinematic, level, player, mount);
             } else {
                 waitPos = mount.position();
             }

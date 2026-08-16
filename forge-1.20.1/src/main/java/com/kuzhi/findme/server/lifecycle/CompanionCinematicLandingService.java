@@ -60,14 +60,25 @@ public final class CompanionCinematicLandingService {
             }
             if (cinematic.presentationMoveType() == CompanionMoveType.SWIM && level instanceof ServerLevel serverLevel) {
                 BlockPos landing = rescueAnchor(serverLevel, player);
-                return CompanionPlacementFinder.findWaterWithOpenSurface(serverLevel, landing)
-                        .map(Vec3::atBottomCenterOf)
-                        .orElseGet(() -> cinematic.rescueLandingPosition() == null
-                                ? Vec3.atBottomCenterOf((Vec3i)landing)
-                                : cinematic.rescueLandingPosition());
+                double width = mount == null ? 1.0 : mount.getBbWidth() + 0.55;
+                double height = mount == null ? 2.2 : mount.getBbHeight() + 0.25;
+                java.util.Optional<BlockPos> water = CompanionPlacementFinder.findWaterWithOpenSurface(
+                        serverLevel, landing, width, height);
+                if (water.isPresent()) {
+                    return Vec3.atBottomCenterOf(water.orElseThrow());
+                }
+                cinematic.useGroundedSwimFallback();
+                return Vec3.atBottomCenterOf((Vec3i)landing)
+                        .add(0.0, rescueGroundYOffset(cinematic), 0.0);
             }
             if (cinematic.moveType() == CompanionMoveType.FLY && cinematic.mode().isRescue()
                     && level instanceof ServerLevel serverLevel) {
+                if (cinematic.rescueFlightMode() == RescueFlightMode.HOVER) {
+                    Vec3 hover = flyingHoverTarget(serverLevel, player,
+                            cinematic.rescueHoverPosition());
+                    cinematic.setRescueHoverPosition(hover);
+                    return hover;
+                }
                 if (!Double.isNaN(cinematic.catchY())) {
                     if (!cinematic.flyingRescueStaged() && cinematic.flyingStageTarget() != null) {
                         return cinematic.flyingStageTarget();
@@ -96,6 +107,16 @@ public final class CompanionCinematicLandingService {
         return new Vec3((double)landing.getX() + 0.5, cinematic.catchY(), (double)landing.getZ() + 0.5);
     }
 
+    static double flyingWaitY(RescueFlightMode mode, double catchY, Vec3 hoverPosition) {
+        return mode == RescueFlightMode.HOVER && hoverPosition != null ? hoverPosition.y : catchY;
+    }
+
+    static double flyingInitialStageY(double landingY, double groundDistance,
+                                      double minimumHeight, double maximumHeight) {
+        return Math.floor(landingY
+                + flyingHoverHeight(groundDistance, minimumHeight, maximumHeight));
+    }
+
     static double bodyOriginYForBottom(double desiredBottom, double entityY,
                                        double boundingBoxMinY) {
         return desiredBottom - (boundingBoxMinY - entityY);
@@ -121,24 +142,26 @@ public final class CompanionCinematicLandingService {
     public static Vec3 flyingHoverTarget(ServerLevel level, ServerPlayer player) {
         BlockPos landing = rescueAnchor(level, player);
         double groundDistance = Math.max(0.0, player.getY() - landing.getY());
-        double hoverHeight = flyingHoverHeight(groundDistance, Config.rescueCinematicMinHeight,
+        double hoverY = flyingInitialStageY(landing.getY(), groundDistance,
                 Config.rescueHoverMinHeight, Config.rescueHoverMaxHeight);
-        return new Vec3((double) landing.getX() + 0.5,
-                (double) landing.getY() + hoverHeight,
+        return new Vec3((double) landing.getX() + 0.5, hoverY,
                 (double) landing.getZ() + 0.5);
     }
 
-    static double flyingHoverHeight(double groundDistance, double cinematicMinimumHeight,
-                                    double minimumHeight, double maximumHeight) {
+    public static Vec3 flyingHoverTarget(ServerLevel level, ServerPlayer player,
+                                         Vec3 lockedHoverPosition) {
+        Vec3 current = flyingHoverTarget(level, player);
+        double lockedY = lockedHoverPosition == null ? current.y : lockedHoverPosition.y;
+        return new Vec3(current.x, lockedY, current.z);
+    }
+
+    static double flyingHoverHeight(double groundDistance, double minimumHeight, double maximumHeight) {
         double safeDistance = Double.isFinite(groundDistance) ? Math.max(0.0, groundDistance) : 0.0;
         double safeMinimum = Math.max(2.0, minimumHeight);
         double safeMaximum = Math.max(safeMinimum, maximumHeight);
-        double startHeight = Math.max(4.0, cinematicMinimumHeight);
-        double progress = Mth.clamp((safeDistance - startHeight) / 96.0, 0.0, 1.0);
-        double smoothProgress = progress * progress * (3.0 - 2.0 * progress);
-        double calculatedHeight = Mth.lerp(smoothProgress, safeMinimum, safeMaximum);
-        double belowPlayerLimit = Math.max(2.0, safeDistance - 3.0);
-        return Math.min(calculatedHeight, belowPlayerLimit);
+        double animationStart = safeMinimum + CompanionRescuePlanner.RESCUE_MOUNT_CLEARANCE;
+        double rise = Math.max(0.0, safeDistance - animationStart) * 0.45;
+        return Mth.clamp(safeMinimum + rise, safeMinimum, safeMaximum);
     }
 
     public static BlockPos predictedLanding(ServerLevel level, ServerPlayer player) {
