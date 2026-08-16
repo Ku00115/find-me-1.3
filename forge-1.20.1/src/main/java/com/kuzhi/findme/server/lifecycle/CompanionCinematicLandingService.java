@@ -226,6 +226,25 @@ public final class CompanionCinematicLandingService {
         return fallbackY;
     }
 
+    public static double walkStepGroundY(Level level, double x, double currentY, double z) {
+        double maximumY = currentY + 1.25;
+        double minimumY = currentY - 1.25;
+        int startY = Mth.floor(maximumY) + 1;
+        int minBlockY = Math.max(level.getMinBuildHeight(), Mth.floor(minimumY));
+        BlockPos.MutableBlockPos pos = BlockPos.containing(x, startY, z).mutable();
+        while (pos.getY() >= minBlockY) {
+            BlockPos below = pos.below();
+            if (CompanionPlacementFinder.isLandingSurface(level, below)) {
+                double surfaceY = landingSurfaceY(level, below);
+                if (surfaceY >= minimumY && surfaceY <= maximumY) {
+                    return surfaceY;
+                }
+            }
+            pos.move(0, -1, 0);
+        }
+        return currentY;
+    }
+
     public static double rescueGroundYOffset(PendingMountCinematic cinematic) {
         return cinematic.mode().isGroundOrWaterRescue()
                 && cinematic.presentationMoveType() == CompanionMoveType.WALK ? 0.18 : 0.0;

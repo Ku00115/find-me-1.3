@@ -135,7 +135,7 @@ public final class CompanionHomeResidentService {
                         && validLoadedHouse(homeTarget.level, homeTarget.housePos)
                         && isHouseChunkTrackedByAnyPlayer(homeTarget.level, homeTarget.housePos)) {
                     CompanionMoveType residentMoveType = CompanionHomeBehaviorService.residentMoveType(living,
-                            CompanionEntityClassifier.moveType(living, kind));
+                            () -> CompanionEntityClassifier.moveType(living, kind));
                     CompanionHomeBehaviorService.ensureResidentBehavior(living, behaviorCenter(homeTarget, living),
                             residentMoveType, CompanionHomeBehaviorService.isAirborneResident(living),
                             homeTarget.mode, homeTarget.patrolRadius, homeTarget.hardRadius);
@@ -284,8 +284,9 @@ public final class CompanionHomeResidentService {
                 && data.lifecycleState(uuid) != CompanionLifecycleState.HOME_ACTIVE)) {
             return;
         }
+        LivingEntity resolvedLiving = living;
         CompanionMoveType moveType = CompanionHomeBehaviorService.residentMoveType(living,
-                CompanionEntityClassifier.moveType(living,
+                () -> CompanionEntityClassifier.moveType(resolvedLiving,
                         data.kindOf(uuid).orElse(CompanionKind.COMPANION)));
         markResidentEntity(living, mode == HouseResidentMode.REST ? living.blockPosition() : target.housePos,
                 moveType,
@@ -582,7 +583,7 @@ public final class CompanionHomeResidentService {
         }
         if (isResident(uuid) && entity instanceof LivingEntity resident && resident.isAlive()) {
             CompanionMoveType moveType = CompanionHomeBehaviorService.residentMoveType(resident,
-                    CompanionEntityClassifier.moveType(resident, kind));
+                    () -> CompanionEntityClassifier.moveType(resident, kind));
             CompanionHomeBehaviorService.ensureResidentBehavior(resident,
                     behaviorCenter(homeTarget, resident),
                     moveType, CompanionHomeBehaviorService.isAirborneResident(resident),
@@ -593,7 +594,7 @@ public final class CompanionHomeResidentService {
         }
         if (entity instanceof LivingEntity living && living.isAlive()) {
             CompanionMoveType moveType = CompanionHomeBehaviorService.residentMoveType(living,
-                    CompanionEntityClassifier.moveType(living, kind));
+                    () -> CompanionEntityClassifier.moveType(living, kind));
             markResidentEntity(living, behaviorCenter(homeTarget, living),
                     moveType, CompanionHomeBehaviorService.isAirborneResident(living),
                     homeTarget == null ? HouseResidentMode.WANDER : homeTarget.mode,

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.kuzhi.findme.common.HouseResidentMode;
+import com.kuzhi.findme.common.CompanionMoveType;
 import org.junit.jupiter.api.Test;
 
 class CompanionGuardPostServiceTest {
@@ -44,5 +45,17 @@ class CompanionGuardPostServiceTest {
     void patrolDestinationsStayInsideAConservativeShareOfTheConfiguredRadius() {
         assertEquals(3.0, CompanionGuardPostService.patrolDestinationRadius(24.0, 0.0));
         assertEquals(17.28, CompanionGuardPostService.patrolDestinationRadius(24.0, 1.0), 0.0001);
+    }
+
+    @Test
+    void flyingHomePolicyIsStableAcrossTakeoffAndLanding() {
+        assertTrue(CompanionGuardPostService.homeAirbornePolicy(
+                CompanionMoveType.FLY, HouseResidentMode.WANDER, false));
+        assertTrue(CompanionGuardPostService.homeAirbornePolicy(
+                CompanionMoveType.FLY, HouseResidentMode.GUARD, false));
+        assertFalse(CompanionGuardPostService.homeAirbornePolicy(
+                CompanionMoveType.FLY, HouseResidentMode.REST, true));
+        assertFalse(CompanionGuardPostService.homeAirbornePolicy(
+                CompanionMoveType.WALK, HouseResidentMode.WANDER, false));
     }
 }

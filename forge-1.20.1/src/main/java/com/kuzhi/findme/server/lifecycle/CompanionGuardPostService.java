@@ -71,7 +71,7 @@ public final class CompanionGuardPostService {
         }
         HouseResidentMode residentMode = mode == null ? HouseResidentMode.WANDER : mode;
         CompanionMoveType effectiveMoveType = moveType;
-        boolean airborne = forceAirborne;
+        boolean airborne = homeAirbornePolicy(effectiveMoveType, residentMode, forceAirborne);
         double patrolRadius = patrolRadius(mob, homePatrolRadius(residentMode, configuredPatrolRadius));
         double hardRadius = hardRadius(mob, homeHardRadius(patrolRadius, configuredHardRadius));
         HomeRequest request = new HomeRequest(mob, center.immutable(), effectiveMoveType, airborne,
@@ -107,7 +107,7 @@ public final class CompanionGuardPostService {
         }
         HouseResidentMode residentMode = mode == null ? HouseResidentMode.WANDER : mode;
         CompanionMoveType effectiveMoveType = moveType;
-        boolean airborne = forceAirborne;
+        boolean airborne = homeAirbornePolicy(effectiveMoveType, residentMode, forceAirborne);
         double patrolRadius = patrolRadius(mob, homePatrolRadius(residentMode, configuredPatrolRadius));
         double hardRadius = hardRadius(mob, homeHardRadius(patrolRadius, configuredHardRadius));
         GuardLease active = ACTIVE.get(mob.getUUID());
@@ -119,10 +119,8 @@ public final class CompanionGuardPostService {
     }
 
     private static void install(Mob mob, BlockPos center, CompanionMoveType moveType,
-                                boolean forceAirborne, LeaseType type,
+                                boolean airborne, LeaseType type,
                                 double patrolRadius, double hardRadius, HouseResidentMode mode) {
-        boolean airborne = forceAirborne
-                || moveType == CompanionMoveType.FLY && (!mob.onGround() || mob.isNoGravity());
         GuardLease lease = new GuardLease(mob, Vec3.atBottomCenterOf(center), moveType, airborne,
                 type, patrolRadius, hardRadius, mode);
         ACTIVE.put(mob.getUUID(), lease);
@@ -214,6 +212,13 @@ public final class CompanionGuardPostService {
 
     static boolean holdsPosition(HouseResidentMode mode) {
         return mode == HouseResidentMode.REST;
+    }
+
+    static boolean homeAirbornePolicy(CompanionMoveType moveType, HouseResidentMode mode,
+                                      boolean placementAirborne) {
+        HouseResidentMode residentMode = mode == null ? HouseResidentMode.WANDER : mode;
+        return residentMode != HouseResidentMode.REST
+                && (placementAirborne || moveType == CompanionMoveType.FLY);
     }
 
     private static double horizontalDistanceSqr(Vec3 first, Vec3 second) {

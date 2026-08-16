@@ -210,8 +210,8 @@ public final class CompanionSummonApproachService {
             horizontal = horizontal.normalize();
             double nextX = living.getX() + horizontal.x * speed;
             double nextZ = living.getZ() + horizontal.z * speed;
-            double nextY = CompanionCinematicLandingService.walkGroundY(living.level(), nextX,
-                    living.getY(), nextZ, approach.target.y);
+            double nextY = CompanionCinematicLandingService.walkStepGroundY(
+                    living.level(), nextX, living.getY(), nextZ);
             living.moveTo(nextX, nextY, nextZ, yaw, living.getXRot());
             living.setPos(nextX, nextY, nextZ);
             direction = horizontal;

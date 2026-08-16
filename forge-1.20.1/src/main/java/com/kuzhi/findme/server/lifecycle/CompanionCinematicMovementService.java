@@ -4,7 +4,6 @@ import com.kuzhi.findme.server.lifecycle.CompanionCinematicSpeedService;
 
 import com.kuzhi.findme.common.CompanionMoveType;
 import com.kuzhi.findme.server.animation.CompanionAnimationHelper;
-import com.kuzhi.findme.server.animation.CompanionBlinkEffectService;
 import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
@@ -130,8 +129,9 @@ public final class CompanionCinematicMovementService {
         living.hasImpulse = true;
     }
 
-    private static void walkCinematicStep(PendingMountCinematic cinematic, LivingEntity mount, Vec3 direction, double speed, Vec3 target, float lookYaw) {
-        Vec3 skip;
+    private static void walkCinematicStep(PendingMountCinematic cinematic, LivingEntity mount,
+                                          Vec3 direction, double speed, Vec3 target,
+                                          float lookYaw) {
         Vec3 horizontal = new Vec3(direction.x, 0.0, direction.z);
         if (horizontal.lengthSqr() < 0.001) {
             horizontal = new Vec3(0.0, 0.0, 1.0);
@@ -140,15 +140,6 @@ public final class CompanionCinematicMovementService {
         double yOffset = CompanionCinematicLandingService.rescueGroundYOffset(cinematic);
         double nextX = mount.getX() + horizontal.x * speed;
         double nextZ = mount.getZ() + horizontal.z * speed;
-        double nextY = CompanionCinematicLandingService.walkGroundY(mount.level(), nextX,
-                mount.getY(), nextZ, target.y) + yOffset;
-        if (cinematic.mode().isGroundOrWaterRescue() && nextY < mount.getY() - 1.45 && mount.position().distanceTo(target) > 4.0 && (skip = findPitSkipStep(cinematic, mount, horizontal, target)) != null) {
-            CompanionBlinkEffectService.spawn(mount);
-            mount.moveTo(skip.x, skip.y, skip.z, lookYaw, mount.getXRot());
-            mount.setPos(skip.x, skip.y, skip.z);
-            CompanionBlinkEffectService.spawn(mount);
-            return;
-        }
         moveWalkStep(mount, horizontal, speed, target, yOffset, lookYaw);
     }
 
@@ -156,23 +147,10 @@ public final class CompanionCinematicMovementService {
                                      double yOffset, float lookYaw) {
         double nextX = mount.getX() + horizontal.x * speed;
         double nextZ = mount.getZ() + horizontal.z * speed;
-        double nextY = CompanionCinematicLandingService.walkGroundY(mount.level(), nextX,
-                mount.getY(), nextZ, target.y) + yOffset;
+        double nextY = CompanionCinematicLandingService.walkStepGroundY(
+                mount.level(), nextX, mount.getY() - yOffset, nextZ) + yOffset;
         mount.moveTo(nextX, nextY, nextZ, lookYaw, mount.getXRot());
         mount.setPos(nextX, nextY, nextZ);
-    }
-
-    private static Vec3 findPitSkipStep(PendingMountCinematic cinematic, LivingEntity mount, Vec3 horizontal, Vec3 target) {
-        double currentY = mount.getY();
-        for (double distance = 3.0; distance <= 12.0; distance += 1.0) {
-            double x = mount.getX() + horizontal.x * distance;
-            double z = mount.getZ() + horizontal.z * distance;
-            double y = CompanionCinematicLandingService.walkGroundY(mount.level(), x, currentY, z, target.y) + CompanionCinematicLandingService.rescueGroundYOffset(cinematic);
-            if (y >= currentY - 1.15) {
-                return new Vec3(x, y, z);
-            }
-        }
-        return null;
     }
 
     public static void snapWalkMountToGround(PendingMountCinematic cinematic, LivingEntity mount) {

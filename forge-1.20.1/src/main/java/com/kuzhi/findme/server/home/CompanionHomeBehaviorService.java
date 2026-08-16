@@ -10,6 +10,7 @@ import com.kuzhi.findme.server.lifecycle.CompanionGuardPostService;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -123,6 +124,14 @@ final class CompanionHomeBehaviorService {
             return fallback;
         }
         return homeMoveType(living);
+    }
+
+    static CompanionMoveType residentMoveType(LivingEntity living,
+                                              Supplier<CompanionMoveType> fallback) {
+        if (living != null && living.getPersistentData().contains(HOME_MOVE_TYPE_TAG)) {
+            return homeMoveType(living);
+        }
+        return fallback.get();
     }
 
     private static int homePatrolRadius(LivingEntity living) {
