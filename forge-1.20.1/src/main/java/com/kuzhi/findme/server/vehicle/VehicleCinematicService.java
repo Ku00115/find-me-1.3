@@ -142,25 +142,12 @@ final class VehicleCinematicService {
         player.fallDistance = 0.0f;
         player.invulnerableTime = Math.max(player.invulnerableTime, Config.DEFAULT_POST_TELEPORT_INVULNERABILITY_TICKS);
         entity.moveTo(player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
-        Entity previousRide = pending.oldVehicleUuid() == null ? null
-                : VehicleManager.locateEntity(player.getServer(), data, pending.oldVehicleUuid()).orElse(null);
-        if (!VehicleManager.tryBoardManagedVehicle(player, data, entity, previousRide)) {
-            VehicleManager.storeMountedEntity(player, data, entity);
-            VehicleCompatibilityService.restorePreviousRide(player, previousRide);
-            FindMeDebugLogger.info("vehicle-handoff",
-                    "phase=BOARD_FAILED player={} destination={} destinationType={}",
-                    player.getUUID(), pending.vehicleUuid(), entity.getType());
-            player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
-                    "message.find_me.vehicle_switch_failed").withStyle(net.minecraft.ChatFormatting.YELLOW), true);
-            iterator.remove();
-            return;
-        }
+        player.startRiding(entity, true);
         data.setOrigin(pending.vehicleUuid(), SavedPosition.of(entity.level(), entity.getX(), entity.getY(), entity.getZ(), entity.getYRot(), entity.getXRot()));
         data.setLastKnownPosition(pending.vehicleUuid(), SavedPosition.of(entity.level(), entity.getX(), entity.getY(), entity.getZ(), entity.getYRot(), entity.getXRot()));
-        data.setDeployedVehicle(pending.vehicleUuid());
+        data.setDeployed(CompanionKind.MOUNT, pending.vehicleUuid());
         data.markVehicleMount(pending.vehicleUuid());
         data.setReadyAt(CompanionKind.MOUNT, pending.now() + (long)Config.summonCooldownTicks);
-        VehicleManager.enforceSingleRideSlotForVehicle(player, data, pending.vehicleUuid(), previousRide);
         if (pending.oldVehicleUuid() != null && data.contains(CompanionKind.MOUNT, pending.oldVehicleUuid())) {
             data.rememberPrevious(CompanionKind.MOUNT, pending.oldVehicleUuid());
             VehicleManager.locateEntity(player.getServer(), data, pending.oldVehicleUuid()).ifPresent(old -> retreatOldVehicle(player, data, old));
@@ -168,8 +155,6 @@ final class VehicleCinematicService {
         }
         CompanionDataService.save(player, data);
         CompanionSyncService.syncToClient(player, CompanionKind.MOUNT);
-        player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
-                "message.find_me.vehicle_summoned", entity.getDisplayName()).withStyle(net.minecraft.ChatFormatting.AQUA), true);
         iterator.remove();
     }
 

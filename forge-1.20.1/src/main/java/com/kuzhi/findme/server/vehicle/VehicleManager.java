@@ -567,7 +567,7 @@ public final class VehicleManager {
     }
 
     public static void tickVehicleCinematics(MinecraftServer server) {
-        VehicleCinematicService.tick(server);
+        // Vehicle support in 1.2.3 intentionally has no cinematic rescue/switch flow.
     }
 
     public static void tickPendingSummons(MinecraftServer server) {
@@ -606,18 +606,65 @@ public final class VehicleManager {
             entity.setYRot(player.getYRot());
             entity.setXRot(player.getXRot());
             entity.fallDistance = 0.0f;
+            if (rideSource.present() && !rideSource.uuid().equals(pending.vehicleUuid)) {
+                RideHandoffService.MotionSnapshot transactionMotion = RideHandoffService.transactionMotion(
+                        player.getUUID(), pending.vehicleUuid).orElse(null);
+                if (transactionMotion == null
+                        || !RideHandoffService.applyCompatibleMotion(transactionMotion, entity,
+                        CompanionEntityClassifier.moveType(entity, CompanionKind.MOUNT))) {
+                    Entity sourceEntity = rideSource.entity();
+                    if (sourceEntity != null && !sourceEntity.isRemoved()) {
+                        entity.setYRot(sourceEntity.getYRot());
+                        entity.setXRot(sourceEntity.getXRot());
+                        entity.setDeltaMovement(sourceEntity.getDeltaMovement());
+                    }
+                }
+                if (!tryBoardManagedVehicle(player, data, entity, currentRide)) {
+                    storeVehicle(player, data, entity);
+                    data.clearDeployedVehicle(pending.vehicleUuid);
+                    CompanionDataService.save(player, data);
+                    syncToClient(player);
+                    FindMeDebugLogger.info("vehicle-handoff",
+                            "phase=DESTINATION_BOARD_FAILED player={} sourceType={} source={} destination={} destinationType={}",
+                            player.getUUID(), rideSource.type(), rideSource.uuid(), pending.vehicleUuid,
+                            entityType(entity));
+                    tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
+                    continue;
+                }
+                if (!RideHandoffService.retireSourceForSwitch(player, data, rideSource,
+                        pending.vehicleUuid, "vehicle:pending_entity")) {
+                    storeVehicle(player, data, entity);
+                    data.clearDeployedVehicle(pending.vehicleUuid);
+                    restoreSourceRideAfterFailedRetirement(player, data, rideSource);
+                    CompanionDataService.save(player, data);
+                    syncToClient(player);
+                    FindMeDebugLogger.info("vehicle-handoff",
+                            "phase=SOURCE_RETIREMENT_FAILED player={} sourceType={} source={} destination={}",
+                            player.getUUID(), rideSource.type(), rideSource.uuid(), pending.vehicleUuid);
+                    tell(player, "message.find_me.vehicle_switch_failed", ChatFormatting.YELLOW);
+                    continue;
+                }
+                FindMeDebugLogger.info("vehicle-handoff",
+                        "phase=HANDOFF_COMMITTED player={} sourceType={} source={} destination={} destinationType={} riding={}",
+                        player.getUUID(), rideSource.type(), rideSource.uuid(), pending.vehicleUuid,
+                        entityType(entity), VehicleCompatibilityService.isRiding(player, entity));
+            }
+            enforceSingleRideSlotForVehicle(player, data, pending.vehicleUuid, currentRide);
             data.setDeployedVehicle(pending.vehicleUuid);
             data.setLastKnownPosition(pending.vehicleUuid, SavedPosition.of(entity.level(), entity.getX(), entity.getY(), entity.getZ(), entity.getYRot(), entity.getXRot()));
             CompanionDataService.save(player, data);
             syncToClient(player);
-            VehicleCinematicService.schedule(player, entity, currentRide, pending.vehicleUuid,
-                    player.serverLevel().getGameTime(), rideSource.present());
+            tell(player, "message.find_me.vehicle_summoned", ChatFormatting.AQUA, entity.getDisplayName());
         }
     }
 
-    static boolean tryBoardManagedVehicle(ServerPlayer player, PlayerCompanionData data,
-                                          Entity target, Entity previousRide) {
-        return VehicleCompatibilityService.tryBoardVehicle(player, target, previousRide);
+    private static boolean tryBoardManagedVehicle(ServerPlayer player, PlayerCompanionData data,
+                                                  Entity target, Entity previousRide) {
+        if (VehicleCompatibilityService.tryBoardVehicle(player, target, previousRide)) {
+            return true;
+        }
+        return VehicleSeatService.hasSeat(data, target.getUUID())
+                && VehicleSeatService.trySeat(player, target, previousRide, data);
     }
 
     public static boolean shouldCancelSwitchVehicleDamage(LivingEntity victim, DamageSource source) {
@@ -1014,7 +1061,7 @@ public final class VehicleManager {
         collectOtherVehiclesForSharedSlot(player, data, null, previousRide == null ? null : previousRide.getUUID());
     }
 
-    static void enforceSingleRideSlotForVehicle(ServerPlayer player, PlayerCompanionData data, UUID keepVehicleUuid, Entity previousRide) {
+    private static void enforceSingleRideSlotForVehicle(ServerPlayer player, PlayerCompanionData data, UUID keepVehicleUuid, Entity previousRide) {
         collectPreviousRideForSharedSlot(player, data, keepVehicleUuid, previousRide);
         collectOtherVehiclesForSharedSlot(player, data, keepVehicleUuid, previousRide == null ? null : previousRide.getUUID());
         if (CompanionDeploymentService.collectOtherDeployed(player, data, com.kuzhi.findme.common.CompanionKind.MOUNT, null)) {
