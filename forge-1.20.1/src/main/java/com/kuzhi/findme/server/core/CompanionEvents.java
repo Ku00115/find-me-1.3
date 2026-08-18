@@ -6,7 +6,6 @@ import com.kuzhi.findme.server.command.MountRosterTransactionService;
 import com.kuzhi.findme.server.lifecycle.CompanionTacticalOrderService;
 import com.kuzhi.findme.server.command.CompanionCommands;
 import com.kuzhi.findme.server.safety.CompanionSafetyService;
-import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.server.safety.CompanionDeathService;
 import com.kuzhi.findme.server.safety.CompanionRecoveryService;
 import com.kuzhi.findme.server.safety.CompanionThreatMemoryService;
@@ -138,7 +137,6 @@ public class CompanionEvents {
         if (!event.getLevel().isClientSide()) {
             CompanionEntityLookup.trackEntity(event.getLevel().getServer(), event.getEntity());
         }
-        VehicleSeatService.handleEntityJoinLevel(event);
     }
 
     @SubscribeEvent

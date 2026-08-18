@@ -512,7 +512,7 @@ public final class CompanionLifecycleFacade {
     }
 
     public static boolean collectCurrentRide(ServerPlayer player, PlayerCompanionData data, String source) {
-        Entity ride = com.kuzhi.findme.server.vehicle.VehicleSeatService.resolveCurrentRide(player);
+        Entity ride = player.getVehicle();
         if (ride == null || ride.isRemoved()) {
             return false;
         }

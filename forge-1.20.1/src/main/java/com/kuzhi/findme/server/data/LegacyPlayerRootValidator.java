@@ -61,8 +61,6 @@ final class LegacyPlayerRootValidator {
         if (error.isPresent()) return error;
         error = validateList(root, "animationStyles", LegacyPlayerRootValidator::animationEntry);
         if (error.isPresent()) return error;
-        error = validateList(root, "vehicleSeatOffsets", LegacyPlayerRootValidator::seatEntry);
-        if (error.isPresent()) return error;
         error = validateList(root, "vault", entry -> compoundPayloadEntry(entry, "entity"));
         if (error.isPresent()) return error;
         error = validateList(root, "backups", entry -> require(entry, "state", Tag.TAG_COMPOUND));
@@ -170,16 +168,6 @@ final class LegacyPlayerRootValidator {
         if (error.isPresent()) return error;
         error = validEnum(entry, "purpose", CompanionAnimationPurpose.class);
         return error.isPresent() ? error : validEnum(entry, "style", CompanionAnimationStyle.class);
-    }
-
-    private static Optional<String> seatEntry(CompoundTag entry) {
-        Optional<String> error = uuidEntry(entry);
-        if (error.isPresent()) return error;
-        for (String axis : new String[]{"x", "y", "z"}) {
-            error = require(entry, axis, Tag.TAG_ANY_NUMERIC);
-            if (error.isPresent()) return error;
-        }
-        return Optional.empty();
     }
 
     private static Optional<String> teamEntry(CompoundTag entry) {

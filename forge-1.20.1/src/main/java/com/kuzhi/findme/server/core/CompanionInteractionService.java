@@ -6,7 +6,6 @@ import com.kuzhi.findme.server.data.CompanionDataService;
 import com.kuzhi.findme.server.lifecycle.CompanionBindingService;
 import com.kuzhi.findme.server.lifecycle.CompanionMountCinematicFlowService;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
-import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.api.FindMeCompanionInteractionItem;
 import com.kuzhi.findme.common.FindMeModule;
 import com.kuzhi.findme.server.module.FindMeModuleService;

@@ -3,7 +3,6 @@ package com.kuzhi.findme.server.data;
 import com.kuzhi.findme.api.CompanionSpellBinding;
 import com.kuzhi.findme.server.lifecycle.CompanionStorageService;
 
-import com.kuzhi.findme.common.VehicleSeatOffset;
 import com.kuzhi.findme.common.CompanionKind;
 import com.kuzhi.findme.common.CompanionLifecycleState;
 import com.kuzhi.findme.common.CompanionAnimationPurpose;
@@ -196,12 +195,6 @@ final class PlayerCompanionDataCodec {
             data.vehicleWheelSlots.addAll(data.vehicles);
             data.vehicleWheelSlotsConfigured = true;
         }
-        ListTag vehicleSeats = root.getList("vehicleSeatOffsets", 10);
-        for (int i = 0; i < vehicleSeats.size(); ++i) {
-            CompoundTag seat = vehicleSeats.getCompound(i);
-            if (!seat.hasUUID("uuid")) continue;
-            data.vehicleSeatOffsets.put(seat.getUUID("uuid"), new VehicleSeatOffset(seat.getDouble("x"), seat.getDouble("y"), seat.getDouble("z")));
-        }
         data.vehicleActiveIndex = root.getInt("vehicleIndex");
         if (root.hasUUID("vehicleDeployed")) {
             UUID deployedVehicle = root.getUUID("vehicleDeployed");
@@ -301,7 +294,6 @@ final class PlayerCompanionDataCodec {
                 || !root.getList("vehicleMounts", 10).isEmpty()
                 || !root.getList("vehicles", 10).isEmpty()
                 || !root.getList("vehicleWheelSlots", 10).isEmpty()
-                || !root.getList("vehicleSeatOffsets", 10).isEmpty()
                 || !root.getList("teams", 10).isEmpty()
                 || root.contains("teamCounts", 10)
                 || root.contains("teamNumbers", 10)
@@ -367,7 +359,6 @@ final class PlayerCompanionDataCodec {
         root.put("vehicleMounts", (Tag)sortedUuidList(data.vehicleMounts));
         root.put("vehicles", (Tag)uuidList(data.vehicles));
         root.put("vehicleWheelSlots", (Tag)uuidList(data.vehicleWheelSlots));
-        root.put("vehicleSeatOffsets", (Tag)vehicleSeatOffsetList(data));
         root.put("teams", (Tag)teamList(data));
         root.put("teamCounts", teamCounts(data));
         root.put("teamNumbers", teamNumbers(data));
@@ -405,19 +396,6 @@ final class PlayerCompanionDataCodec {
         return rootCopy(normalized);
     }
 
-    private static ListTag vehicleSeatOffsetList(PlayerCompanionData data) {
-        ListTag list = new ListTag();
-        for (UUID uuid : sortedUuids(data.vehicleSeatOffsets.keySet())) {
-            VehicleSeatOffset offset = data.vehicleSeatOffsets.get(uuid);
-            CompoundTag entry = new CompoundTag();
-            entry.putUUID("uuid", uuid);
-            entry.putDouble("x", offset.x());
-            entry.putDouble("y", offset.y());
-            entry.putDouble("z", offset.z());
-            list.add(entry);
-        }
-        return list;
-    }
 
     static CompoundTag createBackupState(PlayerCompanionData data) {
         CompoundTag root = new CompoundTag();
@@ -453,7 +431,6 @@ final class PlayerCompanionDataCodec {
         root.put("vehicleMounts", (Tag)sortedUuidList(data.vehicleMounts));
         root.put("vehicles", (Tag)uuidList(data.vehicles));
         root.put("vehicleWheelSlots", (Tag)uuidList(data.vehicleWheelSlots));
-        root.put("vehicleSeatOffsets", (Tag)vehicleSeatOffsetList(data));
         root.put("teams", (Tag)teamList(data));
         root.put("teamCounts", teamCounts(data));
         root.put("teamNumbers", teamNumbers(data));
@@ -563,16 +540,6 @@ final class PlayerCompanionDataCodec {
         if (!hasVehicleWheelSlots && data.vehicleWheelSlots.isEmpty()) {
             data.vehicleWheelSlots.addAll(data.vehicles);
             data.vehicleWheelSlotsConfigured = true;
-        }
-        data.vehicleSeatOffsets.clear();
-        ListTag vehicleSeats = root.getList("vehicleSeatOffsets", 10);
-        for (int i = 0; i < vehicleSeats.size(); ++i) {
-            CompoundTag seat = vehicleSeats.getCompound(i);
-            if (!seat.hasUUID("uuid")) continue;
-            UUID uuid = seat.getUUID("uuid");
-            if (data.vehicles.contains(uuid)) {
-                data.vehicleSeatOffsets.put(uuid, new VehicleSeatOffset(seat.getDouble("x"), seat.getDouble("y"), seat.getDouble("z")));
-            }
         }
         data.vehicleActiveIndex = root.getInt("vehicleIndex");
         data.deployedVehicle = root.hasUUID("vehicleDeployed") ? root.getUUID("vehicleDeployed") : null;

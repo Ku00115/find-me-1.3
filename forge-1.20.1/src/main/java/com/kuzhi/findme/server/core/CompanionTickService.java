@@ -4,7 +4,6 @@ import com.kuzhi.findme.server.safety.CompanionSafetyService;
 import com.kuzhi.findme.server.safety.CompanionRecoveryService;
 import com.kuzhi.findme.server.safety.CompanionCriticalStateService;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
-import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import com.kuzhi.findme.server.home.CompanionHomeResidentService;
 import com.kuzhi.findme.server.lifecycle.CompanionArrivalSequenceService;
 import com.kuzhi.findme.server.lifecycle.CompanionPreSpawnPresentationService;
@@ -93,9 +92,6 @@ public final class CompanionTickService {
         stageStartedAt = FindMePerformanceMonitor.start();
         VehicleManager.tickPendingSummons(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.VEHICLE_SUMMONS, stageStartedAt);
-        stageStartedAt = FindMePerformanceMonitor.start();
-        VehicleSeatService.tick(server);
-        FindMePerformanceMonitor.record(FindMePerformanceMonitor.VEHICLE_SEATS, stageStartedAt);
         stageStartedAt = FindMePerformanceMonitor.start();
         MountRosterTransactionService.tick(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.ROSTER_TRANSACTIONS, stageStartedAt);

@@ -316,7 +316,7 @@ public final class VehicleManager {
             return false;
         }
         Entity live = CompanionEntityLookup.findEntity(player.getServer(), uuid).orElse(null);
-        Entity currentRide = VehicleSeatService.resolveCurrentRide(player);
+        Entity currentRide = player.getVehicle();
         if (currentRide != null && currentRide.getUUID().equals(uuid)) {
             tell(player, "message.find_me.vehicle_already_summoned", ChatFormatting.YELLOW, Component.literal(storedName(data, uuid)));
             return false;
@@ -509,7 +509,6 @@ public final class VehicleManager {
         cancelPendingSummons(playerUuid);
         SWITCH_DAMAGE_PROTECTIONS.removeIf(protection -> protection.playerUuid.equals(playerUuid));
         VehicleCinematicService.cancelForPlayer(player, reason);
-        VehicleSeatService.cleanup(player);
         FindMeDebugLogger.info("module", "vehicle runtime cancelled player={} reason={}", playerUuid, reason);
     }
 
@@ -592,7 +591,7 @@ public final class VehicleManager {
                 continue;
             }
             RideHandoffService.Source rideSource = RideHandoffService.resolveSource(player, data);
-            Entity currentRide = VehicleSeatService.resolveCurrentRide(player);
+            Entity currentRide = player.getVehicle();
             Entity entity = restoreVehicle(player, data, pending.vehicleUuid, pending.position).orElse(null);
             if (entity == null || entity.isRemoved()) {
                 data.clearDeployedVehicle(pending.vehicleUuid);
@@ -660,11 +659,7 @@ public final class VehicleManager {
 
     private static boolean tryBoardManagedVehicle(ServerPlayer player, PlayerCompanionData data,
                                                   Entity target, Entity previousRide) {
-        if (VehicleCompatibilityService.tryBoardVehicle(player, target, previousRide)) {
-            return true;
-        }
-        return VehicleSeatService.hasSeat(data, target.getUUID())
-                && VehicleSeatService.trySeat(player, target, previousRide, data);
+        return VehicleCompatibilityService.tryBoardVehicle(player, target, previousRide);
     }
 
     public static boolean shouldCancelSwitchVehicleDamage(LivingEntity victim, DamageSource source) {

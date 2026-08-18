@@ -20,7 +20,6 @@ import com.kuzhi.findme.server.lifecycle.CompanionPlayerLifecycleService;
 import com.kuzhi.findme.server.lifecycle.CompanionShoulderService;
 import com.kuzhi.findme.server.lifecycle.CompanionStorageService;
 import com.kuzhi.findme.server.ui.CompanionTeamService;
-import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
@@ -127,7 +126,7 @@ public final class CompanionDeathService {
             return;
         }
         Entity entity = event.getEntity();
-        if (FindMeApi.isTemporaryActionPerformer(entity) || VehicleSeatService.isSeatAnchor(entity)) {
+        if (FindMeApi.isTemporaryActionPerformer(entity)) {
             return;
         }
         if (entity instanceof ServerPlayer) {
@@ -162,11 +161,6 @@ public final class CompanionDeathService {
 
     public static void handleLivingDeath(LivingDeathEvent event) {
         LivingEntity living = event.getEntity();
-        if (VehicleSeatService.isSeatAnchor(living)) {
-            event.setCanceled(true);
-            living.discard();
-            return;
-        }
         if (FindMeApi.isTemporaryActionPerformer(living)) {
             event.setCanceled(true);
             living.discard();
@@ -185,7 +179,7 @@ public final class CompanionDeathService {
 
     public static void handleLivingDrops(LivingDropsEvent event) {
         LivingEntity living = event.getEntity();
-        if (FindMeApi.isTemporaryActionPerformer(living) || VehicleSeatService.isSeatAnchor(living)) {
+        if (FindMeApi.isTemporaryActionPerformer(living)) {
             event.getDrops().clear();
             return;
         }

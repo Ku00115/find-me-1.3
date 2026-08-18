@@ -20,29 +20,28 @@ public final class FindMePerformanceMonitor {
     static final int TACTICAL_ORDERS = 10;
     static final int TEMPORARY_ACTIONS = 11;
     static final int VEHICLE_SUMMONS = 12;
-    static final int VEHICLE_SEATS = 13;
-    static final int PLAYER_REGISTRATION = 14;
-    static final int PLAYER_SAFETY = 15;
-    static final int HOME_RESIDENTS = 16;
-    static final int ESCORTS = 17;
-    private static final int DATA_DECODE = 18;
-    private static final int DATA_SAVE = 19;
-    private static final int ROSTER_SYNC = 20;
-    private static final int PREVIEW_BUILD = 21;
-    private static final int THREAT_SCAN = 22;
-    private static final int RESTORE_SCAN = 23;
-    private static final int CHUNK_LOAD = 24;
-    private static final int AUTO_BACKUP = 25;
-    static final int ROSTER_TRANSACTIONS = 26;
-    private static final int ENTITY_LOOKUPS = 27;
-    private static final int ENTITY_INDEX_HITS = 28;
-    private static final int ENTITY_LEVEL_FALLBACKS = 29;
-    private static final int ENTITY_RESTORE_GLOBAL_SCANS = 30;
+    static final int PLAYER_REGISTRATION = 13;
+    static final int PLAYER_SAFETY = 14;
+    static final int HOME_RESIDENTS = 15;
+    static final int ESCORTS = 16;
+    private static final int DATA_DECODE = 17;
+    private static final int DATA_SAVE = 18;
+    private static final int ROSTER_SYNC = 19;
+    private static final int PREVIEW_BUILD = 20;
+    private static final int THREAT_SCAN = 21;
+    private static final int RESTORE_SCAN = 22;
+    private static final int CHUNK_LOAD = 23;
+    private static final int AUTO_BACKUP = 24;
+    static final int ROSTER_TRANSACTIONS = 25;
+    private static final int ENTITY_LOOKUPS = 26;
+    private static final int ENTITY_INDEX_HITS = 27;
+    private static final int ENTITY_LEVEL_FALLBACKS = 28;
+    private static final int ENTITY_RESTORE_GLOBAL_SCANS = 29;
 
     private static final String[] NAMES = {
             "modules", "unload_snapshots", "operation_locks", "mount_cinematics", "retreats",
             "ride_home", "mount_settle", "contracts", "arrivals", "storage_effects",
-            "tactical_orders", "temporary_actions", "vehicle_summons", "vehicle_seats",
+            "tactical_orders", "temporary_actions", "vehicle_summons",
             "player_registration", "player_safety", "home_residents", "escorts",
             "data_decode", "data_save", "roster_sync", "preview_build", "threat_scan",
             "restore_scan", "chunk_load", "auto_backup", "roster_transactions",

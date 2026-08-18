@@ -6,7 +6,6 @@ import com.kuzhi.findme.server.core.FindMeDebugLogger;
 import com.kuzhi.findme.server.data.PlayerCompanionData;
 import com.kuzhi.findme.server.profile.CompanionEntityClassifier;
 import com.kuzhi.findme.server.vehicle.VehicleManager;
-import com.kuzhi.findme.server.vehicle.VehicleSeatService;
 import java.util.Optional;
 import java.util.HashMap;
 import java.util.Map;
@@ -27,7 +26,7 @@ public final class RideHandoffService {
     }
 
     public static Source resolveSource(ServerPlayer player, PlayerCompanionData data) {
-        Entity ride = VehicleSeatService.resolveCurrentRide(player);
+        Entity ride = player.getVehicle();
         if (ride == null || ride.isRemoved()) {
             return Source.none();
         }
@@ -200,7 +199,6 @@ public final class RideHandoffService {
         if (entity == null || entity.isRemoved()) {
             return false;
         }
-        VehicleSeatService.cleanupIfSessionFor(player, entity.getUUID());
         return VehicleManager.collectIfFindMeVehicle(player, data, entity);
     }
 

@@ -9,7 +9,6 @@ import com.kuzhi.findme.common.CompanionEffectStyle;
 import com.kuzhi.findme.common.CompanionEffectPurpose;
 import com.kuzhi.findme.common.CompanionTeamTarget;
 import com.kuzhi.findme.common.SavedPosition;
-import com.kuzhi.findme.common.VehicleSeatOffset;
 import com.kuzhi.findme.api.CompanionSpellBinding;
 import com.kuzhi.findme.common.FindMeUiSettings;
 import com.kuzhi.findme.server.profile.PackAnimationPresetService;
@@ -83,10 +82,9 @@ public class PlayerCompanionData {
     final Set<UUID> mountEligible = new HashSet<UUID>();
     final Set<UUID> vehicleMounts = new HashSet<UUID>();
 
-    // Vehicle roster and seat data.
+    // Vehicle roster data.
     final List<UUID> vehicles = new ArrayList<UUID>();
     final List<UUID> vehicleWheelSlots = new ArrayList<UUID>();
-    final Map<UUID, VehicleSeatOffset> vehicleSeatOffsets = new HashMap<UUID, VehicleSeatOffset>();
     boolean vehicleWheelSlotsConfigured;
     UUID deployedVehicle;
     int vehicleActiveIndex;
@@ -379,7 +377,6 @@ public class PlayerCompanionData {
         this.vehicleMounts.remove(uuid);
         this.vehicles.remove(uuid);
         this.vehicleWheelSlots.remove(uuid);
-        this.vehicleSeatOffsets.remove(uuid);
         this.removeFromTeams(uuid);
         if (uuid.equals(this.deployedVehicle)) {
             this.deployedVehicle = null;
@@ -460,7 +457,6 @@ public class PlayerCompanionData {
         }
         replaceInList(this.vehicles, oldUuid, newUuid);
         replaceInList(this.vehicleWheelSlots, oldUuid, newUuid);
-        moveMapEntry(this.vehicleSeatOffsets, oldUuid, newUuid);
         if (oldUuid.equals(this.deployedVehicle)) {
             this.deployedVehicle = newUuid;
         }
@@ -1218,18 +1214,6 @@ public class PlayerCompanionData {
         return this.vehicles.contains(uuid);
     }
 
-    public Optional<VehicleSeatOffset> vehicleSeatOffset(UUID uuid) {
-        return Optional.ofNullable(this.vehicleSeatOffsets.get(uuid));
-    }
-
-    public void setVehicleSeatOffset(UUID uuid, VehicleSeatOffset offset) {
-        this.vehicleSeatOffsets.put(uuid, offset);
-    }
-
-    public boolean clearVehicleSeatOffset(UUID uuid) {
-        return this.vehicleSeatOffsets.remove(uuid) != null;
-    }
-
     public List<UUID> vehicleList() {
         return List.copyOf(this.vehicles);
     }
@@ -1383,7 +1367,6 @@ public class PlayerCompanionData {
         metadata.put("last-known-position", Set.copyOf(this.lastKnownPositions.keySet()));
         metadata.put("home-position", Set.copyOf(this.homePositions.keySet()));
         metadata.put("home-nest", Set.copyOf(this.homeNestBlocks.keySet()));
-        metadata.put("vehicle-seat", Set.copyOf(this.vehicleSeatOffsets.keySet()));
         return Map.copyOf(metadata);
     }
 
