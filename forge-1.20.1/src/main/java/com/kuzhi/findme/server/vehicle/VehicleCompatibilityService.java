@@ -18,9 +18,6 @@ public final class VehicleCompatibilityService {
         if (isRiding(player, target)) {
             return true;
         }
-        if (tryForcedRide(player, target, "forced_initial")) {
-            return true;
-        }
         if (tryInteractionRide(player, target)) {
             return true;
         }

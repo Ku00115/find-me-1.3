@@ -93,6 +93,7 @@ public final class CompanionTickService {
         stageStartedAt = FindMePerformanceMonitor.start();
         VehicleManager.tickPendingSummons(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.VEHICLE_SUMMONS, stageStartedAt);
+        VehicleManager.tickVehicleCinematics(server);
         stageStartedAt = FindMePerformanceMonitor.start();
         VehicleSeatService.tick(server);
         FindMePerformanceMonitor.record(FindMePerformanceMonitor.VEHICLE_SEATS, stageStartedAt);
