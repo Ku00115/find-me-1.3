@@ -16,7 +16,7 @@ public final class FindMeWorldMigrationService {
     public static FindMeWorldSavedData ensureMigrated(ServerPlayer player) {
         FindMeWorldSavedData world = FindMeWorldSavedData.get(player.server);
         UUID playerUuid = player.getUUID();
-        if (world.migration(playerUuid).isPresent()) {
+        if (world.hasMigration(playerUuid)) {
             if (world.needsDestroyedHouseReconciliation(playerUuid)) {
                 reconcileDestroyedLegacyHomes(world, playerUuid);
             }

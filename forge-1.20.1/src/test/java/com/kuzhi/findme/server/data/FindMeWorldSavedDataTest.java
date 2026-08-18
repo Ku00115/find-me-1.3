@@ -31,6 +31,16 @@ class FindMeWorldSavedDataTest {
     }
 
     @Test
+    void migrationPresenceCanBeCheckedWithoutCreatingARecordView() {
+        FindMeWorldSavedData data = new FindMeWorldSavedData();
+        UUID player = UUID.randomUUID();
+
+        assertFalse(data.hasMigration(player));
+        data.markMigration(player, "test", 1L, "checksum", "complete");
+        assertTrue(data.hasMigration(player));
+    }
+
+    @Test
     void playerRootsAreDefensiveCopiesInBothDirections() {
         FindMeWorldSavedData data = new FindMeWorldSavedData();
         UUID player = UUID.randomUUID();

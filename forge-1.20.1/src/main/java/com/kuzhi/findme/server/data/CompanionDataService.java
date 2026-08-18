@@ -8,12 +8,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import java.util.UUID;
 import java.util.Set;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
 public final class CompanionDataService {
-    private static final Map<MinecraftServer, Map<UUID, CachedData>> TICK_CACHE = new WeakHashMap<>();
+    private static final Map<MinecraftServer, RevisionedPlayerDataCache> DATA_CACHES = new WeakHashMap<>();
 
     private CompanionDataService() {
     }
@@ -21,8 +20,7 @@ public final class CompanionDataService {
     public static PlayerCompanionData data(ServerPlayer player) {
         FindMeWorldSavedData world = FindMeWorldMigrationService.ensureMigrated(player);
         long revision = world.playerRevision(player.getUUID());
-        long gameTime = player.getServer().overworld().getGameTime();
-        PlayerCompanionData cached = cached(player.getServer(), player.getUUID(), revision, gameTime);
+        PlayerCompanionData cached = cached(player.getServer(), player.getUUID(), revision);
         if (cached != null) return cached;
         long startedAt = FindMePerformanceMonitor.start();
         boolean hasRoot = world.hasPlayerRoot(player.getUUID());
@@ -31,7 +29,7 @@ public final class CompanionDataService {
             data.setUiSettings(com.kuzhi.findme.server.ui.FindMeDefaultSettingsService.loadUiDefaults());
         }
         FindMePerformanceMonitor.recordDataDecode(startedAt);
-        cache(player.getServer(), player.getUUID(), revision, gameTime, data);
+        cache(player.getServer(), player.getUUID(), revision, data);
         return data;
     }
 
@@ -67,8 +65,7 @@ public final class CompanionDataService {
         long afterRevision = world.putPlayerRoot(player.getUUID(),
                 PlayerCompanionDataCodec.rootForImmediateStore(container));
         data.clearLifecycleChanges();
-        cache(player.getServer(), player.getUUID(), afterRevision,
-                player.getServer().overworld().getGameTime(), data);
+        cache(player.getServer(), player.getUUID(), afterRevision, data);
         if (!changed.isEmpty()) CompanionLifecycleEventService.publishChanges(player.getServer(), player.getUUID(),
                 before, data, changed, beforeRevision, afterRevision);
         FindMePerformanceMonitor.recordDataSave(startedAt);
@@ -78,13 +75,12 @@ public final class CompanionDataService {
         if (server == null || playerUuid == null) return new PlayerCompanionData();
         FindMeWorldSavedData world = FindMeWorldSavedData.get(server);
         long revision = world.playerRevision(playerUuid);
-        long gameTime = server.overworld().getGameTime();
-        PlayerCompanionData cached = cached(server, playerUuid, revision, gameTime);
+        PlayerCompanionData cached = cached(server, playerUuid, revision);
         if (cached != null) return cached;
         long startedAt = FindMePerformanceMonitor.start();
         PlayerCompanionData data = world.decodePlayerData(playerUuid);
         FindMePerformanceMonitor.recordDataDecode(startedAt);
-        cache(server, playerUuid, revision, gameTime, data);
+        cache(server, playerUuid, revision, data);
         return data;
     }
 
@@ -100,7 +96,7 @@ public final class CompanionDataService {
         long afterRevision = world.putPlayerRoot(playerUuid,
                 PlayerCompanionDataCodec.rootForImmediateStore(container));
         data.clearLifecycleChanges();
-        cache(server, playerUuid, afterRevision, server.overworld().getGameTime(), data);
+        cache(server, playerUuid, afterRevision, data);
         if (!changed.isEmpty()) CompanionLifecycleEventService.publishChanges(server, playerUuid, before, data,
                 changed, beforeRevision, afterRevision);
         FindMePerformanceMonitor.recordDataSave(startedAt);
@@ -108,37 +104,33 @@ public final class CompanionDataService {
 
     public static void forgetPlayer(ServerPlayer player) {
         if (player == null) return;
-        synchronized (TICK_CACHE) {
-            Map<UUID, CachedData> cache = TICK_CACHE.get(player.getServer());
+        synchronized (DATA_CACHES) {
+            RevisionedPlayerDataCache cache = DATA_CACHES.get(player.getServer());
             if (cache != null) cache.remove(player.getUUID());
         }
     }
 
     public static void resetServerState(MinecraftServer server) {
-        synchronized (TICK_CACHE) {
-            if (server == null) TICK_CACHE.clear();
-            else TICK_CACHE.remove(server);
+        synchronized (DATA_CACHES) {
+            if (server == null) DATA_CACHES.clear();
+            else DATA_CACHES.remove(server);
         }
     }
 
     private static PlayerCompanionData cached(MinecraftServer server, UUID playerUuid,
-                                               long revision, long gameTime) {
-        synchronized (TICK_CACHE) {
-            CachedData cached = TICK_CACHE.computeIfAbsent(server, ignored -> new HashMap<>()).get(playerUuid);
-            return cached != null && cached.revision() == revision && cached.gameTime() == gameTime
-                    ? cached.data() : null;
+                                               long revision) {
+        synchronized (DATA_CACHES) {
+            return DATA_CACHES.computeIfAbsent(server, ignored -> new RevisionedPlayerDataCache())
+                    .get(playerUuid, revision);
         }
     }
 
     private static void cache(MinecraftServer server, UUID playerUuid, long revision,
-                              long gameTime, PlayerCompanionData data) {
-        synchronized (TICK_CACHE) {
-            TICK_CACHE.computeIfAbsent(server, ignored -> new HashMap<>())
-                    .put(playerUuid, new CachedData(revision, gameTime, data));
+                              PlayerCompanionData data) {
+        synchronized (DATA_CACHES) {
+            DATA_CACHES.computeIfAbsent(server, ignored -> new RevisionedPlayerDataCache())
+                    .put(playerUuid, revision, data);
         }
-    }
-
-    private record CachedData(long revision, long gameTime, PlayerCompanionData data) {
     }
 }
 

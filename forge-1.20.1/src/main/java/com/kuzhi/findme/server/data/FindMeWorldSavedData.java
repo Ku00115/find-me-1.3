@@ -92,6 +92,10 @@ public final class FindMeWorldSavedData extends SavedData {
         return Optional.ofNullable(migrations.get(playerUuid));
     }
 
+    boolean hasMigration(UUID playerUuid) {
+        return playerUuid != null && migrations.containsKey(playerUuid);
+    }
+
     public Set<UUID> playerUuids() {
         return Set.copyOf(playerRoots.keySet());
     }

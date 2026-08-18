@@ -1681,6 +1681,10 @@ public class PlayerCompanionData {
         public CompoundTag state() {
             return this.state.copy();
         }
+
+        CompoundTag internalState() {
+            return this.state;
+        }
     }
 }
 

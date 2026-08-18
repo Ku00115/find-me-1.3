@@ -292,6 +292,26 @@ class PlayerCompanionDataTest {
     }
 
     @Test
+    void backupStateRemainsIsolatedAcrossConstructionReadsAndSerialization() {
+        CompoundTag source = new CompoundTag();
+        source.putString("value", "original");
+        PlayerCompanionData.BackupEntry backup = new PlayerCompanionData.BackupEntry(1L, "manual", source);
+        source.putString("value", "source-mutated");
+
+        CompoundTag exposed = backup.state();
+        exposed.putString("value", "read-mutated");
+
+        assertEquals("original", backup.state().getString("value"));
+        PlayerCompanionData data = new PlayerCompanionData();
+        data.backups.add(backup);
+        CompoundTag serialized = new CompoundTag();
+        data.save(serialized);
+        serialized.getCompound("find_me").getList("backups", 10).getCompound(0)
+                .getCompound("state").putString("value", "serialized-mutated");
+        assertEquals("original", backup.state().getString("value"));
+    }
+
+    @Test
     void deleteBackupRequiresTheExpectedSavedAtIdentity() {
         PlayerCompanionData data = new PlayerCompanionData();
         data.createBackup(42L, "manual", 4, true);

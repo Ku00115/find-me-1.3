@@ -167,8 +167,8 @@ final class PlayerCompanionArchiveService {
 
     static boolean checksumMatches(PlayerCompanionData.BackupEntry backup) {
         return backup != null && (!hasChecksum(backup)
-                || backup.checksum().equals(checksum(backup.state()))
-                || backup.checksum().equals(legacyChecksum(backup.state())));
+                || backup.checksum().equals(checksum(backup.internalState()))
+                || backup.checksum().equals(legacyChecksum(backup.internalState())));
     }
 
     static long lastBackupAt(PlayerCompanionData data) {
